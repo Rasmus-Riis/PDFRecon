@@ -40,12 +40,6 @@ The project requires `PyMuPDF`, `openpyxl`, and `tkinterdnd2`. You can install t
 ```bash
 pip install -r requirements.txt
 ```
-*(Note: You will need to create a `requirements.txt` file with the following content):*
-```
-PyMuPDF
-openpyxl
-tkinterdnd2
-```
 
 **3. Download ExifTool:**
 PDFRecon depends on the standalone Windows executable of **ExifTool**.
