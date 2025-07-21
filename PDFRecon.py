@@ -31,7 +31,7 @@ except ImportError:
 class PDFReconApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("PDFRecon v10.22 – NC3")
+        self.root.title("PDFRecon v10.23 – NC3")
         self.root.geometry("1200x700")
 
         # OPDATERET: Tilføjet kode til at indlæse et brugerdefineret ikon
@@ -73,7 +73,7 @@ class PDFReconApp:
         self._setup_main_frame()
         self._setup_drag_and_drop()
         
-        logging.info("PDFRecon v10.22 startet.")
+        logging.info("PDFRecon v10.23 startet.")
 
     def _(self, key):
         """Returnerer den oversatte tekst for en given nøgle."""
@@ -130,7 +130,7 @@ class PDFReconApp:
                 "manual_intro_header": "Introduktion",
                 "manual_intro_text": "PDFRecon er et værktøj designet til at assistere i efterforskningen af PDF-filer. Programmet analyserer filer for en række tekniske indikatorer, der kan afsløre manipulation, redigering eller skjult indhold. Resultaterne præsenteres i en overskuelig tabel, der kan eksporteres til Excel for videre dokumentation.\n\n",
                 "manual_disclaimer_header": "Vigtig bemærkning om tidsstempler",
-                "manual_disclaimer_text": "Kolonnerne 'Fil oprettet' og 'Fil sidst tilgået' viser tidsstempler fra computerens filsystem. Vær opmærksom på, at disse tidsstempler kan være upålidelige. En simpel handling som at kopiere en fil fra én placering til en anden vil typisk opdatere disse datoer til tidspunktet for kopieringen.\n\n",
+                "manual_disclaimer_text": "Kolonnerne 'Fil oprettet' og 'Fil sidst ændret' viser tidsstempler fra computerens filsystem. Vær opmærksom på, at disse tidsstempler kan være upålidelige. En simpel handling som at kopiere en fil fra én placering til en anden vil typisk opdatere disse datoer til tidspunktet for kopieringen. For en mere pålidelig tidslinje, brug funktionen 'Vis Tidslinje', som er baseret på metadata inde i selve filen.\n\n",
                 "manual_class_header": "Klassificeringssystem",
                 "manual_class_text": "Programmet klassificerer hver fil baseret på de fundne indikatorer. Dette gøres for hurtigt at kunne prioritere, hvilke filer der kræver nærmere undersøgelse.\n\n",
                 "manual_high_risk_header": "JA (Høj Risiko): ",
@@ -162,7 +162,13 @@ class PDFReconApp:
                 "manual_xref_header": "Multiple startxref",
                 "manual_xref_class": "Indikationer Fundet",
                 "manual_xref_desc": "• Hvad det betyder: 'startxref' er et nøgleord, der fortæller en PDF-læser, hvor den skal begynde at læse filens struktur. En standard, uændret fil har kun ét. Hvis der er flere, er det et tegn på, at der er foretaget inkrementelle ændringer (se 'Has Revisions').\n\n",
-                "revision_of": "Revision af #{id}"
+                "revision_of": "Revision af #{id}",
+                "about_purpose_header": "Formål",
+                "about_purpose_text": "PDFRecon identificerer potentielt manipulerede PDF-filer ved at:\n• Udtrække og analysere XMP-metadata, streams og revisioner\n• Detektere tegn på ændringer (f.eks. /TouchUp_TextEdit, /Prev)\n• Udtrække komplette, tidligere versioner af dokumentet\n• Generere en overskuelig rapport i Excel-format\n\n",
+                "about_included_software_header": "Inkluderet Software",
+                "about_included_software_text": "Dette værktøj benytter og inkluderer {tool} af Phil Harvey.\n{tool} er distribueret under Artistic/GPL-licens.\n\n",
+                "about_website": "Officiel {tool} Hjemmeside: ",
+                "about_source": "{tool} Kildekode: "
             },
             "en": {
                 "choose_folder": "📁 Choose folder and scan",
@@ -212,7 +218,7 @@ class PDFReconApp:
                 "manual_intro_header": "Introduction",
                 "manual_intro_text": "PDFRecon is a tool designed to assist in the forensic investigation of PDF files. The program analyzes files for a range of technical indicators that can reveal manipulation, editing, or hidden content. The results are presented in a clear table that can be exported to Excel for further documentation.\n\n",
                 "manual_disclaimer_header": "Important Note on Timestamps",
-                "manual_disclaimer_text": "The 'File Created' and 'File Modified' columns show timestamps from the computer's file system. Be aware that these timestamps can be unreliable. A simple action like copying a file from one location to another will typically update these dates to the time of the copy.\n\n",
+                "manual_disclaimer_text": "The 'File Created' and 'File Modified' columns show timestamps from the computer's file system. Be aware that these timestamps can be unreliable. A simple action like copying a file from one location to another will typically update these dates to the time of the copy. For a more reliable timeline, use the 'Show Timeline' feature, which is based on metadata inside the file itself.\n\n",
                 "manual_class_header": "Classification System",
                 "manual_class_text": "The program classifies each file based on the indicators found. This is done to quickly prioritize which files require closer examination.\n\n",
                 "manual_high_risk_header": "YES (High Risk): ",
@@ -244,7 +250,13 @@ class PDFReconApp:
                 "manual_xref_header": "Multiple startxref",
                 "manual_xref_class": "Indications Found",
                 "manual_xref_desc": "• What it means: 'startxref' is a keyword that tells a PDF reader where to start reading the file's structure. A standard, unchanged file has only one. If there are more, it is a sign that incremental changes have been made (see 'Has Revisions').\n\n",
-                "revision_of": "Revision of #{id}"
+                "revision_of": "Revision of #{id}",
+                "about_purpose_header": "Purpose",
+                "about_purpose_text": "PDFRecon identifies potentially manipulated PDF files by:\n• Extracting and analyzing XMP metadata, streams, and revisions\n• Detecting signs of alteration (e.g., /TouchUp_TextEdit, /Prev)\n• Extracting complete, previous versions of the document\n• Generating a clear report in Excel format\n\n",
+                "about_included_software_header": "Included Software",
+                "about_included_software_text": "This tool utilizes and includes {tool} by Phil Harvey.\n{tool} is distributed under the Artistic/GPL license.\n\n",
+                "about_website": "Official {tool} Website: ",
+                "about_source": "{tool} Source Code: "
             }
         }
 
@@ -929,23 +941,16 @@ class PDFReconApp:
         about_text_widget.tag_configure("bold", font=("Segoe UI", 9, "bold"))
         about_text_widget.tag_configure("link", foreground="blue", underline=True)
         about_text_widget.tag_configure("header", font=("Segoe UI", 9, "bold", "underline"))
-        about_text_widget.insert("end", f"PDFRecon v10.15 ({datetime.now().strftime('%d-%m-%Y')})\n", "bold")
+        about_text_widget.insert("end", f"PDFRecon v10.22 ({datetime.now().strftime('%d-%m-%Y')})\n", "bold")
         about_text_widget.insert("end", f"\nOrganisation: NC3\nUdvikler: Rasmus Riis\nE-mail: RRK001@politi.dk\n")
         about_text_widget.insert("end", "\n------------------------------------\n\n")
-        about_text_widget.insert("end", "Formål\n", "header")
-        about_text_widget.insert("end", "PDFRecon identificerer potentielt manipulerede PDF-filer ved at:\n")
-        about_text_widget.insert("end", "• Udtrække og analysere XMP-metadata, streams og revisioner\n")
-        about_text_widget.insert("end", "• Detektere tegn på ændringer (f.eks. /TouchUp_TextEdit, /Prev)\n")
-        about_text_widget.insert("end", "• Udtrække komplette, tidligere versioner af dokumentet\n")
-        about_text_widget.insert("end", "• Generere en overskuelig rapport i Excel-format\n\n")
-        about_text_widget.insert("end", "Inkluderet Software\n", "header")
-        about_text_widget.insert("end", "Dette værktøj benytter og inkluderer ")
-        about_text_widget.insert("end", "ExifTool", "bold")
-        about_text_widget.insert("end", " af Phil Harvey.\n")
-        about_text_widget.insert("end", "ExifTool er distribueret under Artistic/GPL-licens.\n\n")
-        about_text_widget.insert("end", "Officiel ExifTool Hjemmeside: ", "bold")
+        about_text_widget.insert("end", self._("about_purpose_header") + "\n", "header")
+        about_text_widget.insert("end", self._("about_purpose_text"))
+        about_text_widget.insert("end", self._("about_included_software_header") + "\n", "header")
+        about_text_widget.insert("end", self._("about_included_software_text").format(tool="ExifTool"))
+        about_text_widget.insert("end", self._("about_website").format(tool="ExifTool"), "bold")
         about_text_widget.insert("end", "https://exiftool.org\n", "link")
-        about_text_widget.insert("end", "ExifTool Kildekode: ", "bold")
+        about_text_widget.insert("end", self._("about_source").format(tool="ExifTool"), "bold")
         about_text_widget.insert("end", "https://github.com/exiftool/exiftool\n", "link")
         about_text_widget.config(state="disabled")
         close_button = ttk.Button(outer_frame, text="Luk", command=about_popup.destroy)
