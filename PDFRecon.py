@@ -942,7 +942,7 @@ class PDFReconApp:
         about_text_widget.tag_configure("link", foreground="blue", underline=True)
         about_text_widget.tag_configure("header", font=("Segoe UI", 9, "bold", "underline"))
         about_text_widget.insert("end", f"PDFRecon v10.22 ({datetime.now().strftime('%d-%m-%Y')})\n", "bold")
-        about_text_widget.insert("end", f"\nOrganisation: NC3\nUdvikler: Rasmus Riis\nE-mail: RRK001@politi.dk\n")
+        about_text_widget.insert("end", f"\nOrganisation: NC3\nUdvikler: Rasmus Riis\n\n")
         about_text_widget.insert("end", "\n------------------------------------\n\n")
         about_text_widget.insert("end", self._("about_purpose_header") + "\n", "header")
         about_text_widget.insert("end", self._("about_purpose_text"))
