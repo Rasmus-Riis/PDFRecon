@@ -31,7 +31,7 @@ except ImportError:
 class PDFReconApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("PDFRecon v10.23 – NC3")
+        self.root.title("PDFRecon v11.5 – NC3")
         self.root.geometry("1200x700")
 
         # OPDATERET: Tilføjet kode til at indlæse et brugerdefineret ikon
@@ -73,7 +73,7 @@ class PDFReconApp:
         self._setup_main_frame()
         self._setup_drag_and_drop()
         
-        logging.info("PDFRecon v10.23 startet.")
+        logging.info("PDFRecon v11.5 startet.")
 
     def _(self, key):
         """Returnerer den oversatte tekst for en given nøgle."""
@@ -168,7 +168,8 @@ class PDFReconApp:
                 "about_included_software_header": "Inkluderet Software",
                 "about_included_software_text": "Dette værktøj benytter og inkluderer {tool} af Phil Harvey.\n{tool} er distribueret under Artistic/GPL-licens.\n\n",
                 "about_website": "Officiel {tool} Hjemmeside: ",
-                "about_source": "{tool} Kildekode: "
+                "about_source": "{tool} Kildekode: ",
+                "copy": "Kopiér",
             },
             "en": {
                 "choose_folder": "📁 Choose folder and scan",
@@ -216,7 +217,7 @@ class PDFReconApp:
                 "open_folder_error_message": "Could not automatically open the folder.",
                 "manual_title": "PDFRecon - Manual",
                 "manual_intro_header": "Introduction",
-                "manual_intro_text": "PDFRecon is a tool designed to assist in the forensic investigation of PDF files. The program analyzes files for a range of technical indicators that can reveal manipulation, editing, or hidden content. The results are presented in a clear table that can be exported to Excel for further documentation.\n\n",
+                "manual_intro_text": "PDFRecon is a tool designed to assist in the forensic investigation of PDF files.\n\n",
                 "manual_disclaimer_header": "Important Note on Timestamps",
                 "manual_disclaimer_text": "The 'File Created' and 'File Modified' columns show timestamps from the computer's file system. Be aware that these timestamps can be unreliable. A simple action like copying a file from one location to another will typically update these dates to the time of the copy. For a more reliable timeline, use the 'Show Timeline' feature, which is based on metadata inside the file itself.\n\n",
                 "manual_class_header": "Classification System",
@@ -251,12 +252,7 @@ class PDFReconApp:
                 "manual_xref_class": "Indications Found",
                 "manual_xref_desc": "• What it means: 'startxref' is a keyword that tells a PDF reader where to start reading the file's structure. A standard, unchanged file has only one. If there are more, it is a sign that incremental changes have been made (see 'Has Revisions').\n\n",
                 "revision_of": "Revision of #{id}",
-                "about_purpose_header": "Purpose",
-                "about_purpose_text": "PDFRecon identifies potentially manipulated PDF files by:\n• Extracting and analyzing XMP metadata, streams, and revisions\n• Detecting signs of alteration (e.g., /TouchUp_TextEdit, /Prev)\n• Extracting complete, previous versions of the document\n• Generating a clear report in Excel format\n\n",
-                "about_included_software_header": "Included Software",
-                "about_included_software_text": "This tool utilizes and includes {tool} by Phil Harvey.\n{tool} is distributed under the Artistic/GPL license.\n\n",
-                "about_website": "Official {tool} Website: ",
-                "about_source": "{tool} Source Code: "
+                "copy": "Copy",
             }
         }
 
@@ -409,31 +405,41 @@ class PDFReconApp:
             messagebox.showwarning("Fejl", "Træk venligst en mappe, ikke en fil.")
 
     def _on_tree_motion(self, event):
-        """Ændrer cursor til en hånd, når den holdes over en klikbar EXIFTool-celle."""
+        """Ændrer cursor til en hånd, når den holdes over en klikbar celle."""
         col_id = self.tree.identify_column(event.x)
-        if col_id == '#8': # Justeret for ny ID-kolonne
-            row_id = self.tree.identify_row(event.y)
-            if row_id:
-                path_str = self.tree.item(row_id, "values")[3] # Justeret for ny ID-kolonne
-                if path_str in self.exif_outputs and self.exif_outputs[path_str] and not (self.exif_outputs[path_str].startswith("(exiftool ikke fundet") or self.exif_outputs[path_str].startswith("ExifTool Fejl:")):
-                    self.tree.config(cursor="hand2")
-                    return
+        row_id = self.tree.identify_row(event.y)
+        if not row_id:
+            self.tree.config(cursor="")
+            return
+
+        # Kolonne #8 er EXIFTool
+        if col_id == '#8':
+            path_str = self.tree.item(row_id, "values")[3]
+            if path_str in self.exif_outputs and self.exif_outputs[path_str] and not (self.exif_outputs[path_str].startswith("(exiftool ikke fundet") or self.exif_outputs[path_str].startswith("ExifTool Fejl:")):
+                self.tree.config(cursor="hand2")
+                return
+        
         self.tree.config(cursor="")
 
     def on_tree_click(self, event):
+        """Håndterer klik i tabellen for at åbne popups."""
         region = self.tree.identify("region", event.x, event.y)
         if region != "cell": return
+        
         col_id = self.tree.identify_column(event.x)
         col_index = int(col_id.replace("#", "")) - 1
-        if col_index == 7: # EXIFTool kolonne (justeret for ID)
-            row_id = self.tree.identify_row(event.y)
-            if not row_id: return
-            path_str = self.tree.item(row_id, "values")[3] # Justeret for ny ID-kolonne
+        row_id = self.tree.identify_row(event.y)
+        if not row_id: return
+
+        path_str = self.tree.item(row_id, "values")[3]
+
+        # Klik på EXIFTool-kolonnen (index 7)
+        if col_index == 7:
             if path_str in self.exif_outputs and self.exif_outputs[path_str]:
                 self.show_exif_popup(self.exif_outputs[path_str])
             else:
                 messagebox.showinfo(self._("no_exif_output_title"), self._("no_exif_output_message"), parent=self.root)
-
+        
     def show_context_menu(self, event):
         """Viser en højrekliks-menu for den valgte række."""
         item_id = self.tree.identify_row(event.y)
@@ -452,12 +458,38 @@ class PDFReconApp:
     def open_file_location(self, item_id):
         values = self.tree.item(item_id, "values")
         if values:
-            webbrowser.open(os.path.dirname(values[3])) # Justeret for ny ID-kolonne
+            webbrowser.open(os.path.dirname(values[3]))
 
     def show_exif_popup_from_item(self, item_id):
         values = self.tree.item(item_id, "values")
         if values:
-            self.show_exif_popup(self.exif_outputs.get(values[3])) # Justeret for ny ID-kolonne
+            self.show_exif_popup(self.exif_outputs.get(values[3]))
+
+    def _make_text_copyable(self, text_widget):
+        """Gør en Text widget skrivebeskyttet, men tillader tekstvalg og kopiering."""
+        
+        context_menu = tk.Menu(text_widget, tearoff=0)
+        
+        def copy_selection(event=None):
+            try:
+                selected_text = text_widget.get(tk.SEL_FIRST, tk.SEL_LAST)
+                self.root.clipboard_clear()
+                self.root.clipboard_append(selected_text)
+            except tk.TclError:
+                pass
+            return "break"
+
+        context_menu.add_command(label=self._("copy"), command=copy_selection)
+
+        def show_context_menu(event):
+            if text_widget.tag_ranges(tk.SEL):
+                context_menu.tk_popup(event.x_root, event.y_root)
+
+        text_widget.config(state="normal")
+        text_widget.bind("<Key>", lambda e: "break")
+        text_widget.bind("<Button-3>", show_context_menu)
+        text_widget.bind("<Control-c>", copy_selection)
+        text_widget.bind("<Command-c>", copy_selection)
 
     def show_exif_popup(self, content):
         if not content:
@@ -477,7 +509,7 @@ class PDFReconApp:
         text_widget.pack(side="left", fill="both", expand=True)
         scrollbar.config(command=text_widget.yview)
         text_widget.insert("1.0", content)
-        text_widget.config(state="disabled")
+        self._make_text_copyable(text_widget)
 
     def _resolve_path(self, filename):
         if getattr(sys, 'frozen', False):
@@ -571,22 +603,30 @@ class PDFReconApp:
                 raw = fp.read_bytes()
                 q.put(("scan_status", self._("analyzing_file").format(file=fp.name)))
                 
-                # Åbn med PyMuPDF for dybere analyse
                 doc = fitz.open(stream=raw, filetype="pdf")
-
                 txt = self.extract_text(raw)
-                indicators = self.detect_indicators(txt, doc) # Send 'doc' med til analyse
+                indicator_keys = self.detect_indicators(txt, doc)
                 md5_hash = hashlib.md5(raw).hexdigest()
                 exif = self.exiftool_output(fp, detailed=True)
                 timeline = self.extract_timeline(exif)
-
-                doc.close() # Luk dokumentet efter brug
-                
                 revisions = self.extract_revisions(raw, fp)
+                doc.close()
                 
-                original_row_data = { "path": fp, "flag": self.get_flag(indicators, False), "indicators": indicators, "md5": md5_hash, "exif": exif, "is_revision": False, "timeline": timeline }
+                final_indicator_keys = indicator_keys[:]
                 if revisions:
-                    original_row_data["flag"] = self.get_flag(indicators + ["Has Revisions"], False)
+                    final_indicator_keys.append("Has Revisions")
+                
+                flag = self.get_flag(final_indicator_keys, False)
+                
+                original_row_data = {
+                    "path": fp, 
+                    "flag": flag, 
+                    "indicator_keys": final_indicator_keys, 
+                    "md5": md5_hash,  
+                    "exif": exif, 
+                    "is_revision": False, 
+                    "timeline": timeline
+                }
                 q.put(("file_row", original_row_data))
                 
                 for rev_path, basefile, rev_raw in revisions:
@@ -594,7 +634,15 @@ class PDFReconApp:
                     rev_exif = self.exiftool_output(rev_path, detailed=True)
                     rev_timeline = self.extract_timeline(rev_exif)
 
-                    revision_row_data = { "path": rev_path, "flag": self.get_flag([], True, basefile), "indicators": ["Revision"], "md5": rev_md5, "exif": rev_exif, "is_revision": True, "timeline": rev_timeline, "original_path": fp }
+                    revision_row_data = {
+                        "path": rev_path, 
+                        "indicator_keys": ["Revision"], 
+                        "md5": rev_md5,  
+                        "exif": rev_exif, 
+                        "is_revision": True, 
+                        "timeline": rev_timeline, 
+                        "original_path": fp
+                    }
                     q.put(("file_row", revision_row_data))
                 
                 q.put(("progress_step", count))
@@ -620,7 +668,8 @@ class PDFReconApp:
         self.root.after(100, self._process_queue)
 
     def _add_row_to_table(self, data):
-        path, indicators_str = data["path"], "; ".join(data["indicators"])
+        path = data["path"]
+        indicators_str = "; ".join(data["indicator_keys"])
         self.row_counter += 1
         
         if data["is_revision"]:
@@ -666,6 +715,7 @@ class PDFReconApp:
         self.report_data.append(row_values)
         self.tree.insert("", "end", values=row_values, tags=(tag,))
 
+
     def _finalize_scan(self):
         self.scan_button.config(state="normal")
         self.export_button.config(state="normal")
@@ -708,6 +758,8 @@ class PDFReconApp:
             col_name = self.tree.heading(self.columns[i], "text")
             self.detail_text.insert(tk.END, f"{col_name}: ", ("bold",))
             if col_name == self._("col_path"): self.detail_text.insert(tk.END, val + "\n", ("link",))
+            elif col_name == self._("col_indicators"):
+                self.detail_text.insert(tk.END, val + "\n")
             else: self.detail_text.insert(tk.END, val + "\n")
         self.detail_text.config(state="disabled")
 
@@ -752,8 +804,12 @@ class PDFReconApp:
             
             command = [str(exe_path)]
             if detailed:
-                # OPDATERET: Ændret efter anmodning
+                # MODIFICERET: Bruger -s for korte tag-navne og -struct for at parse historik korrekt.
+                # -G1 tilføjer gruppe-info (f.eks. [XMP-xmpMM]) for klarhed.
+                command.extend(["-a", "-s", "-G1", "-struct"])
+            else:
                 command.extend(["-a"])
+            
             command.append(str(path))
 
             process = subprocess.run(command, capture_output=True, check=False, startupinfo=startupinfo)
@@ -774,10 +830,65 @@ class PDFReconApp:
             logging.error(f"Fejl ved kørsel af exiftool for fil {path}: {e}")
             return f"(fejl ved kørsel af exiftool: {e})"
 
+    
     def extract_timeline(self, exif_output):
         timeline_events = []
+        lines = exif_output.splitlines()
+        processed_lines = set()
+
+        # Trin 1: Håndter speciel fladtrykt historik-format: "History: [{...},{...}]"
+        flattened_history_pattern = re.compile(r"History\s*:\s*\[(.*)\]")
+        for i, line in enumerate(lines):
+            match = flattened_history_pattern.search(line)
+            if match:
+                content = match.group(1)
+                # Opdel strengen i individuelle hændelser baseret på '},{' separatoren
+                event_strings = content.split('},{')
+                for event_str in event_strings:
+                    # Ryd op i strengen for at fjerne resterende krøllede parenteser
+                    clean_event_str = event_str.strip('{} ')
+                    # Find tidsstempel i hændelsesstrengen
+                    when_match = re.search(r"When=([\d:\. Zz\+-]+)", clean_event_str)
+                    if when_match:
+                        date_str = when_match.group(1).strip()
+                        try:
+                            # Konverter tidsstempel til et datetime-objekt
+                            dt_obj = datetime.strptime(date_str.split('+')[0].split('-')[0].strip(), "%Y:%m:%d %H:%M:%S")
+                            # Opret en pæn linje til visning i tidslinjen
+                            display_line = f"History Event: {clean_event_str}"
+                            timeline_events.append((dt_obj, display_line))
+                        except (ValueError, IndexError):
+                            continue # Spring over, hvis datoformatet er ukendt
+                processed_lines.add(i) # Marker linjen som behandlet
+
+        # Trin 2: Håndter standard struktureret historik (History_0_...)
+        history_events_data = {}
+        history_pattern = re.compile(r"\[XMP-xmpMM\]\s+History_(\d+)_(\w+)\s+:\s+(.*)")
+        for i, line in enumerate(lines):
+            if i in processed_lines: continue
+            match = history_pattern.match(line)
+            if match:
+                event_index, tag, value = match.groups()
+                if event_index not in history_events_data:
+                    history_events_data[event_index] = {}
+                history_events_data[event_index][tag] = value
+                processed_lines.add(i)
+
+        for index, data in history_events_data.items():
+            if 'When' in data:
+                date_str = data['When']
+                try:
+                    dt_obj = datetime.strptime(date_str.split('+')[0].split('-')[0].split('Z')[0].strip(), "%Y:%m:%d %H:%M:%S")
+                    details = [f"Action: {data.get('Action', 'N/A')}", f"Agent: {data.get('SoftwareAgent', 'N/A')}", f"Changed: {data.get('Changed', 'N/A')}"]
+                    display_line = " | ".join(details)
+                    timeline_events.append((dt_obj, f"History Event [{index}]: {display_line}"))
+                except (ValueError, IndexError):
+                    continue
+
+        # Trin 3: Håndter alle andre generiske dato-linjer
         date_pattern = re.compile(r"(\d{4}:\d{2}:\d{2} \d{2}:\d{2}:\d{2})")
-        for line in exif_output.splitlines():
+        for i, line in enumerate(lines):
+            if i in processed_lines: continue
             match = date_pattern.search(line)
             if match:
                 try:
@@ -785,6 +896,67 @@ class PDFReconApp:
                     timeline_events.append((dt_obj, line))
                 except ValueError:
                     continue
+
+        return sorted(timeline_events, key=lambda x: x[0])
+        """
+        MODIFICERET: Denne funktion er blevet omskrevet til at parse struktureret output fra ExifTool.
+        Ved at bruge '-struct' parameteren, kan vi nu korrekt udtrække og gruppere hele 'xmpMM:History'
+        begivenheder (inklusive Action, Software Agent, etc.) og placere dem kronologisk i tidslinjen.
+        """
+        timeline_events = []
+        lines = exif_output.splitlines()
+        processed_lines = set()
+        
+        # --- Trin 1: Udtræk og sammensæt strukturerede XMP History-hændelser ---
+        history_events_data = {}  # Dict til at gemme hændelser, f.eks. { '0': {'When': '...', 'Action': '...'}, '1': {...} }
+        
+        # Regex til at finde indekserede historik-tags, f.eks. [XMP-xmpMM] History_0_When
+        history_pattern = re.compile(r"\[XMP-xmpMM\]\s+History_(\d+)_(\w+)\s+:\s+(.*)")
+
+        for i, line in enumerate(lines):
+            match = history_pattern.match(line)
+            if match:
+                event_index, tag, value = match.groups()
+                if event_index not in history_events_data:
+                    history_events_data[event_index] = {}
+                history_events_data[event_index][tag] = value
+                processed_lines.add(i)
+
+        # Bearbejd de samlede historik-hændelser
+        for index, data in history_events_data.items():
+            if 'When' not in data:
+                continue
+                
+            date_str = data['When']
+            try:
+                # Parse dato og ignorer evt. tidszoneinformation for simpel sortering
+                dt_obj = datetime.strptime(date_str.split('+')[0].split('-')[0].split('Z')[0].strip(), "%Y:%m:%d %H:%M:%S")
+            except (ValueError, IndexError):
+                continue  # Spring over, hvis datoen er fejlformateret
+                
+            # Byg en beskrivende linje til tidslinjen
+            details = []
+            if 'Action' in data: details.append(f"Action: {data['Action']}")
+            if 'SoftwareAgent' in data: details.append(f"Agent: {data['SoftwareAgent']}")
+            if 'Changed' in data: details.append(f"Changed: {data['Changed']}")
+            display_line = " | ".join(details)
+            
+            timeline_events.append((dt_obj, f"History Event [{index}]: {display_line}"))
+
+        # --- Trin 2: Bearbejd alle andre simple tidsstempler, som ikke var del af historik-strukturen ---
+        date_pattern = re.compile(r"(\d{4}:\d{2}:\d{2} \d{2}:\d{2}:\d{2})")
+        for i, line in enumerate(lines):
+            if i in processed_lines:
+                continue
+                
+            match = date_pattern.search(line)
+            if match:
+                try:
+                    dt_obj = datetime.strptime(match.group(1), "%Y:%m:%d %H:%M:%S")
+                    timeline_events.append((dt_obj, line))
+                except ValueError:
+                    continue
+
         return sorted(timeline_events, key=lambda x: x[0])
         
     def show_timeline_popup(self):
@@ -834,7 +1006,8 @@ class PDFReconApp:
             text_widget.insert("end", f"{delta_str}\n", "delta")
             last_dt_obj = dt_obj
         
-        text_widget.config(state="disabled")
+        # ÆNDRING: Kald den nye hjælpemetode
+        self._make_text_copyable(text_widget)
 
     @staticmethod
     def decompress_stream(b):
@@ -855,68 +1028,96 @@ class PDFReconApp:
     
     @staticmethod
     def analyze_fonts(doc):
-        """Analyserer skrifttyper i dokumentet for at finde tegn på manipulation."""
-        font_indicators = []
+        """Analyserer skrifttyper og returnerer True, hvis der findes flere subsets for den samme skrifttype."""
         font_subsets = {}
         for pno in range(len(doc)):
             fonts = doc.get_page_fonts(pno)
             for font in fonts:
                 font_name = font[3]
                 if '+' in font_name:
-                    prefix, base_font = font_name.split('+', 1)
-                    font_subsets.setdefault(base_font, set()).add(prefix)
+                    _, base_font = font_name.split('+', 1)
+                    font_subsets.setdefault(base_font, set()).add(font_name)
         
-        for base_font, prefixes in font_subsets.items():
-            if len(prefixes) > 1:
-                font_indicators.append(f"Multiple Font Subsets ({base_font})")
-        
-        return font_indicators
+        for base_font, subsets in font_subsets.items():
+            if len(subsets) > 1:
+                return True
+        return False
 
     def detect_indicators(self, txt, doc):
-        """Søger i den rå tekst og dokumentstruktur efter kendte indikatorer."""
+        """Søger efter indikatorer og returnerer en liste med de fundne indikatork-nøgler."""
         indicators = []
-        # Bruger re.I for case-insensitiv søgning
-        if re.search(r"touchup[\s_/]?textedit", txt, re.I): indicators.append("TouchUp_TextEdit")
-        if re.search(r"derivedfrom", txt, re.I): indicators.append("DerivedFrom")
-        if re.search(r"sourcemodified", txt, re.I): indicators.append("SourceModified")
-        if re.search(r"xmpmm:history", txt, re.I): indicators.append("xmpMM:History")
-        if re.search(r"documentancestors", txt, re.I): indicators.append("DocumentAncestors")
-        if txt.lower().count("startxref") > 1: indicators.append("Multiple startxref")
 
-        # OPDATERET: Fjernet indikatorer efter anmodning
-        if re.search(r"\/AA\b", txt): indicators.append("AdditionalAction")
-        if re.search(r"\/URI\b", txt): indicators.append("URI_Action")
-
-        # Analyse af InstanceID og DocumentID
-        iid_values = re.findall(r"(?:/|:)InstanceID[^<\(\[]*(?:<|[(])([^>)]+)", txt)
-        did_values = re.findall(r"(?:/|:)DocumentID[^<\(\[]*(?:<|[(])([^>)]+)", txt)
-        if len(set(iid_values)) > 2: indicators.append(f"Different InstanceID (x{len(set(iid_values))})")
-        if len(set(did_values)) > 1: indicators.append(f"Multiple DocumentID (x{len(set(did_values))})")
+        if re.search(r"touchup_textedit", txt, re.I):
+            indicators.append("TouchUp_TextEdit")
         
-        # Analyse af Creator/Producer
-        creators = set(re.findall(r"\/Creator[^\S\r\n]*\((.*?)\)", txt))
-        producers = set(re.findall(r"\/Producer[^\S\r\n]*\((.*?)\)", txt))
-        if len(creators) > 1: indicators.append(f"Multiple Creators (x{len(creators)})")
-        if len(producers) > 1: indicators.append(f"Multiple Producers (x{len(producers)})")
+        if txt.lower().count("startxref") > 1:
+            indicators.append("Multiple startxref")
 
-        # Analyse af skrifttyper
-        font_indicators = self.analyze_fonts(doc)
-        indicators.extend(font_indicators)
+        creators = set(re.findall(r"\/Creator\s*\((.*?)\)", txt, re.I))
+        if len(creators) > 1:
+            indicators.append(f"Multiple Creators (x{len(creators)})")
+        
+        producers = set(re.findall(r"\/Producer\s*\((.*?)\)", txt, re.I))
+        if len(producers) > 1:
+            indicators.append(f"Multiple Producers (x{len(producers)})")
 
-        # Returnerer en sorteret liste uden duplikater
-        return sorted(list(set(indicators)))
+        if re.search(r'<xmpMM:History>', txt, re.I | re.S):
+            indicators.append("xmpMM:History")
+            
+        if self.analyze_fonts(doc):
+            indicators.append("Multiple Font Subsets")
 
-    def get_flag(self, indicators, is_revision, parent_id=None):
+        # ID-INDSAMLING
+        all_instance_ids = []
+        all_doc_ids = []
+        
+        try:
+            trailer = doc.xref_get_trailer()
+            trailer_id = trailer.get("ID")
+            if isinstance(trailer_id, list) and len(trailer_id) == 2:
+                all_doc_ids.append(trailer_id[0].hex().upper())
+                all_instance_ids.append(trailer_id[1].hex().upper())
+        except Exception:
+            pass
+
+        xmp_instance_ids = re.findall(r'xmpMM:InstanceID(?:>|=")([^<"]+)', txt, re.I)
+        all_instance_ids.extend(xmp_instance_ids)
+        
+        xmp_doc_ids = re.findall(r'xmpMM:DocumentID(?:>|=")([^<"]+)', txt, re.I)
+        all_doc_ids.extend(xmp_doc_ids)
+
+        xmp_orig_doc_ids = re.findall(r'xmpMM:OriginalDocumentID(?:>|=")([^<"]+)', txt, re.I)
+        all_doc_ids.extend(xmp_orig_doc_ids)
+
+        history_block_match = re.search(r'<xmpMM:History>\s*<rdf:Seq>(.*?)</rdf:Seq>\s*</xmpMM:History>', txt, re.S | re.I)
+        if history_block_match:
+            history_events = re.findall(r'(?:stEvt:instanceID|instanceID)="([^"]+)"', history_block_match.group(1), re.I)
+            all_instance_ids.extend(history_events)
+
+        unique_instance_ids = set(filter(None, all_instance_ids))
+        if len(unique_instance_ids) > 1:
+            indicators.append(f"Multiple InstanceID (x{len(unique_instance_ids)})")
+
+        unique_doc_ids = set(filter(None, all_doc_ids))
+        if len(unique_doc_ids) > 1:
+            indicators.append(f"Multiple DocumentID (x{len(unique_doc_ids)})")
+
+        return indicators
+
+    def get_flag(self, indicator_keys, is_revision, parent_id=None):
+        """Bestemmer filens statusflag baseret på fundne indikatornøgler."""
         if is_revision:
             return self._("revision_of").format(id=parent_id)
-        if "Has Revisions" in indicators: 
+        
+        keys_set = set(indicator_keys)
+        if "Has Revisions" in keys_set:  
             return "YES" if self.language.get() == "en" else "JA"
         
         high_risk = {"TouchUp_TextEdit"}
-        if any(item in high_risk for item in indicators):
+        if any(item in high_risk for item in keys_set):
             return "YES" if self.language.get() == "en" else "JA"
         
-        if indicators: 
+        if indicator_keys:  
             return "Indications Found" if self.language.get() == "en" else "Indikationer Fundet"
         
         return "NOT DETECTED" if self.language.get() == "en" else "IKKE PÅVIST"
@@ -941,8 +1142,8 @@ class PDFReconApp:
         about_text_widget.tag_configure("bold", font=("Segoe UI", 9, "bold"))
         about_text_widget.tag_configure("link", foreground="blue", underline=True)
         about_text_widget.tag_configure("header", font=("Segoe UI", 9, "bold", "underline"))
-        about_text_widget.insert("end", f"PDFRecon v10.22 ({datetime.now().strftime('%d-%m-%Y')})\n", "bold")
-        about_text_widget.insert("end", f"\nOrganisation: NC3\nUdvikler: Rasmus Riis\n\n")
+        about_text_widget.insert("end", f"PDFRecon v11.5 ({datetime.now().strftime('%d-%m-%Y')})\n", "bold")
+        about_text_widget.insert("end", f"\nOrganisation: NC3\nUdvikler: Rasmus Riis\nE-mail: RRK001@politi.dk\n")
         about_text_widget.insert("end", "\n------------------------------------\n\n")
         about_text_widget.insert("end", self._("about_purpose_header") + "\n", "header")
         about_text_widget.insert("end", self._("about_purpose_text"))
@@ -1064,7 +1265,10 @@ class PDFReconApp:
         ws = wb.active
         ws.title = "PDFRecon Results"
         
+        # Ændrer den 9. kolonneoverskrift for klarhed i Excel
         headers = [self._(key) for key in self.columns_keys]
+        headers[8] = self._("col_indicators") + " (Oversigt)"
+
         for col_num, header in enumerate(headers, 1):
             cell = ws.cell(row=1, column=col_num, value=header)
             cell.font = Font(bold=True)
@@ -1072,12 +1276,13 @@ class PDFReconApp:
             cell.alignment = Alignment(wrap_text=True, horizontal="center", vertical="center")
         
         for row_idx, row_data in enumerate(self.report_data, start=2):
-            path = row_data[3] # Justeret for ny ID-kolonne
+            path = row_data[3]
             exif_text = self.exif_outputs.get(path, "")
             row_data_xlsx = row_data[:]
-            row_data_xlsx[7] = exif_text # Justeret for ny ID-kolonne
+            row_data_xlsx[7] = exif_text
+            
             for col_idx, value in enumerate(row_data_xlsx, start=1):
-                cell = ws.cell(row=row_idx, column=col_idx, value=value)
+                cell = ws.cell(row=row_idx, column=col_idx, value=str(value)) # Sikrer at alt er streng
                 cell.alignment = Alignment(wrap_text=True, vertical="top")
         
         ws.freeze_panes = "A2"
