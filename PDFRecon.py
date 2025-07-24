@@ -31,7 +31,7 @@ except ImportError:
 class PDFReconApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("PDFRecon v11.5 – NC3")
+        self.root.title("PDFRecon v11.5.1")
         self.root.geometry("1200x700")
 
         # OPDATERET: Tilføjet kode til at indlæse et brugerdefineret ikon
@@ -73,7 +73,7 @@ class PDFReconApp:
         self._setup_main_frame()
         self._setup_drag_and_drop()
         
-        logging.info("PDFRecon v11.5 startet.")
+        logging.info("PDFRecon v11.5.1 startet.")
 
     def _(self, key):
         """Returnerer den oversatte tekst for en given nøgle."""
@@ -1142,8 +1142,8 @@ class PDFReconApp:
         about_text_widget.tag_configure("bold", font=("Segoe UI", 9, "bold"))
         about_text_widget.tag_configure("link", foreground="blue", underline=True)
         about_text_widget.tag_configure("header", font=("Segoe UI", 9, "bold", "underline"))
-        about_text_widget.insert("end", f"PDFRecon v11.5 ({datetime.now().strftime('%d-%m-%Y')})\n", "bold")
-        about_text_widget.insert("end", f"\nOrganisation: NC3\nUdvikler: Rasmus Riis\nE-mail: RRK001@politi.dk\n")
+        about_text_widget.insert("end", f"PDFRecon v11.5.1 ({datetime.now().strftime('%d-%m-%Y')})\n", "bold")
+        about_text_widget.insert("end", f"\nUdvikler: Rasmus Riis\nE-mail: riisras@gmail.com\n")
         about_text_widget.insert("end", "\n------------------------------------\n\n")
         about_text_widget.insert("end", self._("about_purpose_header") + "\n", "header")
         about_text_widget.insert("end", self._("about_purpose_text"))
