@@ -1,6 +1,6 @@
 # PDFRecon - PDF Forensic Analysis Tool
 
-PDFRecon is a graphical forensic tool designed to analyze PDF files for signs of manipulation, editing, and hidden content. It provides a user-friendly interface to quickly assess a large number of documents, identify suspicious files, and export findings for reporting.
+PDFRecon is a graphical forensic tool designed to analyze PDF files for signs of manipulation and editing. It provides a user-friendly interface to quickly assess a large number of documents, identify suspicious files, and export findings for reporting.
 
 Developed for forensic investigators, analysts, and anyone needing to verify the integrity of PDF documents.
 
