@@ -470,8 +470,8 @@ class PDFReconApp:
         # OPDATERET: Tilføjet binding for højrekliks-menu
         self.tree.bind("<Button-3>", self.show_context_menu)
 
-        # ÆNDRET: height er sat til 9 for at gøre feltet én linje højere
-        self.detail_text = tk.Text(frame, height=9, wrap="word", font=("Segoe UI", 9))
+        # ÆNDRET: height er sat til 10 for at gøre feltet én linje højere
+        self.detail_text = tk.Text(frame, height=10, wrap="word", font=("Segoe UI", 9))
         self.detail_text.pack(fill="both", expand=False, pady=(10, 5))
         self.detail_text.tag_configure("bold", font=("Segoe UI", 9, "bold"))
         self.detail_text.tag_configure("link", foreground="blue", underline=True)
@@ -715,7 +715,8 @@ class PDFReconApp:
                 indicator_keys = self.detect_indicators(txt, doc)
                 md5_hash = hashlib.md5(raw).hexdigest()
                 exif = self.exiftool_output(fp, detailed=True)
-                timeline = self.extract_timeline(exif)
+                # **ÆNDRING**: Generer en komplet tidslinje fra alle kilder
+                timeline = self.generate_comprehensive_timeline(fp, txt, exif)
                 revisions = self.extract_revisions(raw, fp)
                 doc.close()
                 
@@ -724,7 +725,6 @@ class PDFReconApp:
                     final_indicator_keys.append("Has Revisions")
                     logging.info(f"Fil '{fp.name}': Fandt {len(revisions)} revision(er).")
                 
-                # **VIGTIGT**: Gem kun de RÅ, UOVERSATTE indikator-nøgler
                 original_row_data = {
                     "path": fp, 
                     "indicator_keys": final_indicator_keys,
@@ -738,7 +738,8 @@ class PDFReconApp:
                 for rev_path, basefile, rev_raw in revisions:
                     rev_md5 = hashlib.md5(rev_raw).hexdigest()
                     rev_exif = self.exiftool_output(rev_path, detailed=True)
-                    rev_timeline = self.extract_timeline(rev_exif)
+                    # For revisioner genbruger vi den oprindelige fils tidslinje
+                    rev_timeline = timeline 
 
                     revision_row_data = {
                         "path": rev_path, 
@@ -786,13 +787,12 @@ class PDFReconApp:
             modified_time = ""
             parent_id = self.path_to_id.get(str(data["original_path"]))
             flag = self.get_flag([], True, parent_id)
-            indicators_str = "" # Revisioner har ikke andre indikatorer
+            indicators_str = ""
         else:
             self.path_to_id[str(path)] = self.row_counter
             stat = path.stat()
             created_time = datetime.fromtimestamp(stat.st_ctime).strftime("%Y-%m-%d %H:%M:%S")
             modified_time = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
-            # **VIGTIGT**: Flagget oversættes her, "on the fly", baseret på de rå nøgler
             flag = self.get_flag(data["indicator_keys"], False)
             indicators_str = "; ".join(data["indicator_keys"])
 
@@ -909,8 +909,6 @@ class PDFReconApp:
             
             command = [str(exe_path)]
             if detailed:
-                # MODIFICERET: Bruger -s for korte tag-navne og -struct for at parse historik korrekt.
-                # -G1 tilføjer gruppe-info (f.eks. [XMP-xmpMM]) for klarhed.
                 command.extend(["-a", "-s", "-G1", "-struct"])
             else:
                 command.extend(["-a"])
@@ -935,74 +933,150 @@ class PDFReconApp:
             logging.error(f"Fejl ved kørsel af exiftool for fil {path}: {e}")
             return self._("exif_err_run").format(e=e)
 
-    
-    def extract_timeline(self, exif_output):
-        timeline_events = []
-        lines = exif_output.splitlines()
+    def _get_filesystem_times(self, filepath):
+        """Hjælpefunktion til at hente tidsstempler fra filsystemet."""
+        events = []
+        try:
+            stat = filepath.stat()
+            # st_mtime: Sidst ændret
+            mtime = datetime.fromtimestamp(stat.st_mtime)
+            events.append((mtime, f"File System: {self._('col_modified')}"))
+            # st_ctime: Oprettet (eller sidst ændret metadata på Unix)
+            ctime = datetime.fromtimestamp(stat.st_ctime)
+            events.append((ctime, f"File System: {self._('col_created')}"))
+        except FileNotFoundError:
+            pass
+        return events
+
+    def _parse_exiftool_timeline(self, exiftool_output):
+        """Hjælpefunktion til at parse tidsstempler fra ExifTool output."""
+        events = []
+        lines = exiftool_output.splitlines()
         processed_lines = set()
 
-        # Trin 1: Håndter speciel fladtrykt historik-format: "History: [{...},{...}]"
-        flattened_history_pattern = re.compile(r"History\s*:\s*\[(.*)\]")
+        # NY PARSING: Håndterer den komplekse, én-linjes XMP History-output
+        history_full_pattern = re.compile(r"\[XMP-xmpMM\]\s+History\s+:\s+(.*)")
         for i, line in enumerate(lines):
-            match = flattened_history_pattern.search(line)
-            if match:
-                content = match.group(1)
-                # Opdel strengen i individuelle hændelser baseret på '},{' separatoren
-                event_strings = content.split('},{')
-                for event_str in event_strings:
-                    # Ryd op i strengen for at fjerne resterende krøllede parenteser
-                    clean_event_str = event_str.strip('{} ')
-                    # Find tidsstempel i hændelsesstrengen
-                    when_match = re.search(r"When=([\d:\. Zz\+-]+)", clean_event_str)
-                    if when_match:
-                        date_str = when_match.group(1).strip()
+            full_match = history_full_pattern.match(line)
+            if full_match:
+                history_str = full_match.group(1)
+                # Find hver enkelt hændelse i { ... }
+                event_blocks = re.findall(r'\{([^}]+)\}', history_str)
+                for block in event_blocks:
+                    details = {}
+                    # Split hver hændelse op i key=value par
+                    pairs = block.split(',')
+                    for pair in pairs:
+                        if '=' in pair:
+                            key, value = pair.split('=', 1)
+                            details[key.strip()] = value.strip()
+                    
+                    if 'When' in details:
                         try:
-                            # Konverter tidsstempel til et datetime-objekt
-                            dt_obj = datetime.strptime(date_str.split('+')[0].split('-')[0].strip(), "%Y:%m:%d %H:%M:%S")
-                            # Opret en pæn linje til visning i tidslinjen
-                            display_line = f"History Event: {clean_event_str}"
-                            timeline_events.append((dt_obj, display_line))
+                            date_str = details['When']
+                            # Rens dato-strengen for tidszone og millisekunder
+                            dt_obj = datetime.strptime(date_str.split('+')[0].split('.')[0], "%Y:%m:%d %H:%M:%S")
+                            
+                            action = details.get('Action', 'N/A')
+                            agent = details.get('SoftwareAgent', '')
+                            changed = details.get('Changed', '')
+                            
+                            # Byg en pænere beskrivelse
+                            desc_parts = [f"Action: {action}"]
+                            if agent: desc_parts.append(f"Agent: {agent}")
+                            if changed: desc_parts.append(f"Changed: {changed}")
+                            
+                            display_line = f"XMP History   - {' | '.join(desc_parts)}"
+                            events.append((dt_obj, display_line))
                         except (ValueError, IndexError):
-                            continue # Spring over, hvis datoformatet er ukendt
+                            continue # Ignorer ugyldige datoformater i historikken
                 processed_lines.add(i) # Marker linjen som behandlet
 
-        # Trin 2: Håndter standard struktureret historik (History_0_...)
-        history_events_data = {}
-        history_pattern = re.compile(r"\[XMP-xmpMM\]\s+History_(\d+)_(\w+)\s+:\s+(.*)")
+        # Eksisterende parsing af datoer (nu med forbedret label)
+        generic_date_pattern = re.compile(r"(\d{4}:\d{2}:\d{2}\s\d{2}:\d{2}:\d{2})")
         for i, line in enumerate(lines):
             if i in processed_lines: continue
-            match = history_pattern.match(line)
-            if match:
-                event_index, tag, value = match.groups()
-                if event_index not in history_events_data:
-                    history_events_data[event_index] = {}
-                history_events_data[event_index][tag] = value
-                processed_lines.add(i)
-
-        for index, data in history_events_data.items():
-            if 'When' in data:
-                date_str = data['When']
-                try:
-                    dt_obj = datetime.strptime(date_str.split('+')[0].split('-')[0].split('Z')[0].strip(), "%Y:%m:%d %H:%M:%S")
-                    details = [f"Action: {data.get('Action', 'N/A')}", f"Agent: {data.get('SoftwareAgent', 'N/A')}", f"Changed: {data.get('Changed', 'N/A')}"]
-                    display_line = " | ".join(details)
-                    timeline_events.append((dt_obj, f"History Event [{index}]: {display_line}"))
-                except (ValueError, IndexError):
-                    continue
-
-        # Trin 3: Håndter alle andre generiske dato-linjer
-        date_pattern = re.compile(r"(\d{4}:\d{2}:\d{2} \d{2}:\d{2}:\d{2})")
-        for i, line in enumerate(lines):
-            if i in processed_lines: continue
-            match = date_pattern.search(line)
+            match = generic_date_pattern.search(line)
             if match:
                 try:
                     dt_obj = datetime.strptime(match.group(1), "%Y:%m:%d %H:%M:%S")
-                    timeline_events.append((dt_obj, line))
+                    # Gør linjen mere læselig ved at fjerne unødvendig info
+                    clean_line = line.split(':', 1)[-1].strip()
+                    source_match = re.search(r"\[(.*?)\]", line)
+                    source = source_match.group(1) if source_match else "ExifTool"
+                    display_line = f"ExifTool ({source:<10}) - {clean_line}"
+                    events.append((dt_obj, display_line))
                 except ValueError:
                     continue
+        return events
+    def _format_timedelta(self, delta):
+            """Formaterer et timedelta-objekt til en læsbar streng."""
+            if not delta or delta.total_seconds() < 0.001:
+                return ""
 
-        return sorted(timeline_events, key=lambda x: x[0])
+            s = delta.total_seconds()
+            days, remainder = divmod(s, 86400)
+            hours, remainder = divmod(remainder, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            
+            parts = []
+            if days > 0: parts.append(f"{int(days)}d")
+            if hours > 0: parts.append(f"{int(hours)}h")
+            if minutes > 0: parts.append(f"{int(minutes)}m")
+            if seconds > 0 or not parts: parts.append(f"{seconds:.2f}s")
+
+            return f"(+{ ' '.join(parts) })"
+    def _parse_raw_content_timeline(self, file_content_string):
+        """Hjælpefunktion til at parse tidsstempler direkte fra filens indhold."""
+        events = []
+        
+        pdf_date_pattern = re.compile(r"\/([A-Z][a-zA-Z0-9_]+)\s*\(\s*D:(\d{14})")
+        for match in pdf_date_pattern.finditer(file_content_string):
+            label, date_str = match.groups()
+            try:
+                dt_obj = datetime.strptime(date_str, "%Y%m%d%H%M%S")
+                display_line = f"Raw File: /{label}: {dt_obj.strftime('%Y-%m-%d %H:%M:%S')}"
+                events.append((dt_obj, display_line))
+            except ValueError:
+                continue
+
+        xmp_date_pattern = re.compile(r"<([a-zA-Z0-9:]+)[^>]*?>\s*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.*?)\s*<\/([a-zA-Z0-9:]+)>")
+        for match in xmp_date_pattern.finditer(file_content_string):
+            label, date_str, closing_label = match.groups()
+            if label != closing_label: continue
+            try:
+                clean_date_str = date_str.split('Z')[0].split('+')[0].split('-')[0].strip()
+                dt_obj = datetime.fromisoformat(clean_date_str)
+                display_line = f"Raw File: <{label}>: {date_str}"
+                events.append((dt_obj, display_line))
+            except (ValueError, IndexError):
+                continue
+        return events
+    
+    def _deduplicate_timeline(self, events):
+        """Fjerner hændelser med identiske tidsstempler."""
+        unique_events = []
+        seen_timestamps = set()
+        # Sorter for at sikre at den første (mest specifikke) hændelse bevares
+        for dt_obj, description in sorted(events, key=lambda x: (x[0], len(x[1]))):
+            if dt_obj not in seen_timestamps:
+                unique_events.append((dt_obj, description))
+                seen_timestamps.add(dt_obj)
+        return unique_events
+
+    def generate_comprehensive_timeline(self, filepath, raw_file_content, exiftool_output):
+        """Skaber en komplet tidslinje ved at kombinere alle kilder."""
+        all_events = []
+        all_events.extend(self._get_filesystem_times(filepath))
+        all_events.extend(self._parse_exiftool_timeline(exiftool_output))
+        all_events.extend(self._parse_raw_content_timeline(raw_file_content))
+        
+        # Denne linje, der fjerner dubletter, kan slettes eller forblive udkommenteret.
+        # unique_events = self._deduplicate_timeline(all_events)
+        
+        # KORREKTION: Vi sorterer og returnerer den oprindelige 'all_events' liste,
+        # som indeholder alle hændelser, inklusiv dubletter.
+        return sorted(all_events, key=lambda x: x[0])
         
     def show_timeline_popup(self):
         selected_item = self.tree.selection()
@@ -1016,7 +1090,7 @@ class PDFReconApp:
 
         popup = Toplevel(self.root)
         popup.title(f"Timeline for {os.path.basename(path_str)}")
-        popup.geometry("800x600")
+        popup.geometry("950x700") # Justeret størrelse
         popup.transient(self.root)
 
         text_frame = ttk.Frame(popup, padding=10)
@@ -1025,35 +1099,58 @@ class PDFReconApp:
         scrollbar = ttk.Scrollbar(text_frame)
         scrollbar.pack(side="right", fill="y")
         
-        text_widget = tk.Text(text_frame, wrap="word", font=("Courier New", 9), yscrollcommand=scrollbar.set, borderwidth=0, highlightthickness=0)
+        text_widget = tk.Text(text_frame, wrap="none", font=("Courier New", 10), yscrollcommand=scrollbar.set, borderwidth=0, highlightthickness=0)
         text_widget.pack(side="left", expand=True, fill="both")
-
+        
+        x_scrollbar = ttk.Scrollbar(text_frame, orient="horizontal", command=text_widget.xview)
+        x_scrollbar.pack(side="bottom", fill="x")
+        text_widget.config(xscrollcommand=x_scrollbar.set)
+        
         scrollbar.config(command=text_widget.yview)
         
-        text_widget.tag_configure("bold", font=("Courier New", 9, "bold"))
-        text_widget.tag_configure("delta", foreground="blue")
+        # Definer tags til formatering
+        text_widget.tag_configure("date_header", font=("Courier New", 11, "bold", "underline"), spacing1=10, spacing3=5)
+        text_widget.tag_configure("time", font=("Courier New", 10, "bold"))
+        text_widget.tag_configure("delta", foreground="#0078D7") # Blå farve
+        
+        # Farver for kilder
+        text_widget.tag_configure("source_fs", foreground="#008000") # Grøn
+        text_widget.tag_configure("source_exif", foreground="#555555") # Mørkegrå
+        text_widget.tag_configure("source_raw", foreground="#800080") # Lilla
+        text_widget.tag_configure("source_xmp", foreground="#C00000") # Rød
 
         last_date = None
         last_dt_obj = None
 
-        for dt_obj, line in events:
+        for dt_obj, description in events:
+            # Indsæt dato-overskrift ved ny dato
             if dt_obj.date() != last_date:
                 if last_date is not None: text_widget.insert("end", "\n")
-                text_widget.insert("end", f"--- {dt_obj.strftime('%Y-%m-%d')} ---\n", "bold")
+                text_widget.insert("end", f"--- {dt_obj.strftime('%Y-%m-%d')} ---\n", "date_header")
                 last_date = dt_obj.date()
 
+            # Beregn og formater tidsforskel
             delta_str = ""
             if last_dt_obj:
                 delta = dt_obj - last_dt_obj
-                delta_str = f" (+{delta})"
-            
-            text_widget.insert("end", f"{dt_obj.strftime('%H:%M:%S')} - {line}")
+                delta_str = self._format_timedelta(delta)
+
+            # Bestem kilde og tag for farve
+            source_tag = "source_exif" # Default
+            if description.startswith("File System"): source_tag = "source_fs"
+            elif description.startswith("Raw File"): source_tag = "source_raw"
+            elif description.startswith("XMP History"): source_tag = "source_xmp"
+                
+            # Indsæt tidspunkt
+            text_widget.insert("end", f"{dt_obj.strftime('%H:%M:%S')} ", "time")
+            # Indsæt beskrivelse med kilde-farve
+            text_widget.insert("end", f"| {description:<80} ", source_tag)
+            # Indsæt tidsforskel
             text_widget.insert("end", f"{delta_str}\n", "delta")
+            
             last_dt_obj = dt_obj
         
-        # ÆNDRING: Kald den nye hjælpemetode
         self._make_text_copyable(text_widget)
-
     @staticmethod
     def decompress_stream(b):
         for fn in (zlib.decompress, lambda d: __import__("base64").a85decode(re.sub(rb"\s", b"", d), adobe=True), lambda d: __import__("binascii").unhexlify(re.sub(rb"\s|>", b"", d))):
