@@ -15,10 +15,18 @@ import webbrowser
 import sys
 import logging
 import tempfile
+
+# --- NYT: Tilføjet imports og fejlhåndtering for Pillow ---
+try:
+    from PIL import Image, ImageTk, ImageChops, ImageOps
+except ImportError:
+    messagebox.showerror("Manglende Bibliotek", "Pillow biblioteket er ikke installeret.\n\nKør venligst 'pip install Pillow' i din terminal for at bruge dette program.")
+    sys.exit(1)
+# --- slut ---
+
 try:
     import fitz  # PyMuPDF
 except ImportError:
-    # Denne besked vil blive vist, hvis PyMuPDF ikke er installeret.
     messagebox.showerror("Manglende Bibliotek", "PyMuPDF er ikke installeret.\n\nKør venligst 'pip install PyMuPDF' i din terminal for at bruge dette program.")
     sys.exit(1)
 try:
@@ -31,16 +39,13 @@ except ImportError:
 class PDFReconApp:
     def __init__(self, root):
         # --- Applikationskonfiguration ---
-        self.app_version = "11.5.3"
+        self.app_version = "11.6.0" # Version opdateret for ny feature
         
         self.root = root
         self.root.title(f"PDFRecon v{self.app_version}")
         self.root.geometry("1200x700")
 
-        # OPDATERET: Tilføjet kode til at indlæse et brugerdefineret ikon
         try:
-            # Forsøger at indlæse 'icon.ico' fra samme mappe som scriptet.
-            # Sørg for at din ikon-fil hedder 'icon.ico'.
             icon_path = self._resolve_path('icon.ico')
             if icon_path.exists():
                 self.root.iconbitmap(icon_path)
@@ -53,8 +58,8 @@ class PDFReconApp:
 
 
         # --- Applikationens data ---
-        self.report_data = [] # Bruges til visning og Excel-eksport
-        self.scan_data = [] # Gemmer de rå, uprocesserede resultater til sprogskifte
+        self.report_data = [] 
+        self.scan_data = [] 
         self.exif_outputs = {}
         self.timeline_data = {}
         self.row_counter = 0
@@ -71,7 +76,7 @@ class PDFReconApp:
         
         # --- Opsætning af GUI ---
         self._setup_logging()
-        self.translations = self.get_translations() # Skal kaldes efter logging er sat op
+        self.translations = self.get_translations() 
         self._setup_styles()
         self._setup_menu()
         self._setup_main_frame()
@@ -85,7 +90,7 @@ class PDFReconApp:
 
     def get_translations(self):
         """Indeholder alle oversættelser for programmet."""
-        version_string = f"PDFRecon v{self.app_version} (Optimized)"
+        version_string = f"PDFRecon v{self.app_version} (Optimized with Diff)"
         return {
             "da": {
                 "choose_folder": "📁 Vælg mappe og scan",
@@ -186,6 +191,13 @@ class PDFReconApp:
                 "drop_error_message": "Træk venligst en mappe, ikke en fil.",
                 "timeline_no_data": "Der blev ikke fundet tidsstempeldata for denne fil.",
                 "choose_folder_title": "Vælg mappe til analyse",
+                "visual_diff": "Visuel sammenligning af revision",
+                "diff_error_title": "Fejl ved sammenligning",
+                "diff_error_msg": "Kunne ikke sammenligne filerne. En af filerne er muligvis korrupt eller tom.\n\nFejl: {e}",
+                "diff_popup_title": "Visuel Sammenligning",
+                "diff_original_label": "Original",
+                "diff_revision_label": "Revision",
+                "diff_differences_label": "Forskelle (markeret med rød)",
             },
             "en": {
                 "choose_folder": "📁 Choose folder and scan",
@@ -286,6 +298,13 @@ class PDFReconApp:
                 "drop_error_message": "Please drag a folder, not a file.",
                 "timeline_no_data": "No timestamp data was found for this file.",
                 "choose_folder_title": "Select folder for analysis",
+                "visual_diff": "Visually Compare Revision",
+                "diff_error_title": "Comparison Error",
+                "diff_error_msg": "Could not compare the files. One of the files might be corrupt or empty.\n\nError: {e}",
+                "diff_popup_title": "Visual Comparison",
+                "diff_original_label": "Original",
+                "diff_revision_label": "Revision",
+                "diff_differences_label": "Differences (highlighted in red)",
             }
         }
 
@@ -293,22 +312,18 @@ class PDFReconApp:
         """ Sætter en robust logger op, der skriver til en fil. """
         self.log_file_path = Path(sys.argv[0]).resolve().parent / "pdfrecon.log"
         
-        # Konfigurer root loggeren direkte for at undgå konflikter
         logger = logging.getLogger()
         logger.setLevel(logging.INFO)
         
-        # Fjern eventuelle eksisterende handlers for at undgå duplikat-logging
         if logger.hasHandlers():
             logger.handlers.clear()
             
-        # Opret og tilføj en ny file handler
         try:
             fh = logging.FileHandler(self.log_file_path, mode='a', encoding='utf-8')
             formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
             fh.setFormatter(formatter)
             logger.addHandler(fh)
         except Exception as e:
-            # Hvis logging fejler, prøv at vise en fejlmeddelelse som en sidste udvej.
             messagebox.showerror("Log Fejl", f"Kunne ikke oprette logfilen.\n\nDetaljer: {e}")
 
 
@@ -322,22 +337,21 @@ class PDFReconApp:
             "YES": "red_row",
             "Indications Found": "yellow_row"
         }
-        # OPDATERET: Tilføjet stil for blå progress bar
         self.style.configure("blue.Horizontal.TProgressbar",
                              troughcolor='#EAEAEA',
-                             background='#0078D7') # En standard blå farve
+                             background='#0078D7')
 
     def _setup_menu(self):
         self.menubar = tk.Menu(self.root)
         
         self.help_menu = tk.Menu(self.menubar, tearoff=0)
-        self.lang_menu = tk.Menu(self.help_menu, tearoff=0) # OPDATERET: Sprogmenu er nu en undermenu til Hjælp
+        self.lang_menu = tk.Menu(self.help_menu, tearoff=0) 
 
         self.menubar.add_cascade(label=self._("menu_help"), menu=self.help_menu)
         self.help_menu.add_command(label=self._("menu_manual"), command=self.show_manual)
         self.help_menu.add_command(label=self._("menu_about"), command=self.show_about)
         self.help_menu.add_separator()
-        self.help_menu.add_cascade(label=self._("menu_language"), menu=self.lang_menu) # OPDATERET: Tilføjet sprogmenu her
+        self.help_menu.add_cascade(label=self._("menu_language"), menu=self.lang_menu)
         self.lang_menu.add_radiobutton(label="Dansk", variable=self.language, value="da", command=self.switch_language)
         self.lang_menu.add_radiobutton(label="English", variable=self.language, value="en", command=self.switch_language)
         self.help_menu.add_separator()
@@ -356,7 +370,6 @@ class PDFReconApp:
         changed_count = sum(1 for row in self.report_data if row[2] in ["JA", "YES"])
         indications_found_count = sum(1 for row in self.report_data if row[2] in ["Indikationer Fundet", "Indications Found"])
         
-        # For at få et præcist 'clean' antal, skal vi tælle de faktiske originale filer
         original_files_count = len({str(data['path']) for data in self.scan_data if not data['is_revision']})
         not_flagged_count = original_files_count - changed_count - indications_found_count
 
@@ -372,13 +385,11 @@ class PDFReconApp:
 
     def switch_language(self):
         """Opdaterer al tekst i GUI'en til det valgte sprog."""
-        # Gem stien til den valgte række, hvis der er en
         path_of_selected = None
         if self.tree.selection():
             selected_item_id = self.tree.selection()[0]
             path_of_selected = self.tree.item(selected_item_id, "values")[3]
 
-        # Opdater statisk tekst
         self.menubar.entryconfig(1, label=self._("menu_help"))
         self.help_menu.entryconfig(0, label=self._("menu_manual"))
         self.help_menu.entryconfig(1, label=self._("menu_about"))
@@ -391,7 +402,6 @@ class PDFReconApp:
         for i, key in enumerate(self.columns_keys):
             self.tree.heading(self.columns[i], text=self._(key))
 
-        # GENTOLK OG GENINDSÆT ALLE RÆKKER I TABELLEN
         self.tree.delete(*self.tree.get_children(""))
         
         self.report_data.clear()
@@ -402,7 +412,6 @@ class PDFReconApp:
         for data in self.scan_data:
             self._add_row_to_table(data)
         
-        # Gen-vælg den række, der var valgt før, og opdater detaljeruden
         if path_of_selected:
             new_item_to_select = None
             for item_id in self.tree.get_children(""):
@@ -412,14 +421,12 @@ class PDFReconApp:
             if new_item_to_select:
                 self.tree.selection_set(new_item_to_select)
                 self.tree.focus(new_item_to_select)
-                self.on_select_item(None) # Kald manuelt for at opdatere detaljeruden
+                self.on_select_item(None)
         else:
-            # Hvis intet var valgt, ryd detaljeruden
             self.detail_text.config(state="normal")
             self.detail_text.delete("1.0", tk.END)
             self.detail_text.config(state="disabled")
 
-        # Opdater statuslinjen, hvis en scanning er afsluttet
         is_scan_finished = self.scan_button['state'] == 'normal'
         if is_scan_finished and self.scan_data:
             self._update_summary_status()
@@ -457,7 +464,7 @@ class PDFReconApp:
         
         self.tree.tag_configure("red_row", background='#FFDDDD')
         self.tree.tag_configure("yellow_row", background='#FFFFCC')
-        self.tree.tag_configure("blue_row", background='#E0E8F0') # Lyseblå for revisioner
+        self.tree.tag_configure("blue_row", background='#E0E8F0')
         
         for i, key in enumerate(self.columns_keys):
             self.tree.heading(self.columns[i], text=self._(key), command=lambda c=self.columns[i]: self._sort_column(c, False))
@@ -474,10 +481,8 @@ class PDFReconApp:
         self.tree.bind("<<TreeviewSelect>>", self.on_select_item)
         self.tree.bind("<Button-1>", self.on_tree_click)
         self.tree.bind("<Motion>", self._on_tree_motion)
-        # OPDATERET: Tilføjet binding for højrekliks-menu
         self.tree.bind("<Button-3>", self.show_context_menu)
 
-        # ÆNDRET: height er sat til 10 for at gøre feltet én linje højere
         self.detail_text = tk.Text(frame, height=10, wrap="word", font=("Segoe UI", 9))
         self.detail_text.pack(fill="both", expand=False, pady=(10, 5))
         self.detail_text.tag_configure("bold", font=("Segoe UI", 9, "bold"))
@@ -492,7 +497,6 @@ class PDFReconApp:
         self.export_button = ttk.Button(bottom_frame, text=self._("save_excel"), width=25, command=self.export_to_excel)
         self.export_button.pack(side="right", padx=5)
 
-        # OPDATERET: Anvender den nye blå stil på progress bar
         self.progressbar = ttk.Progressbar(bottom_frame, orient="horizontal", mode="determinate", style="blue.Horizontal.TProgressbar")
         self.progressbar.pack(side="left", fill="x", expand=True, padx=5)
 
@@ -503,7 +507,6 @@ class PDFReconApp:
 
     def handle_drop(self, event):
         """Håndterer filer, der bliver sluppet på vinduet."""
-        # Fjerner eventuelle '{' og '}' fra stien, som kan opstå på Windows
         folder_path = event.data.strip('{}')
         if os.path.isdir(folder_path):
             self.start_scan_thread(Path(folder_path))
@@ -518,11 +521,9 @@ class PDFReconApp:
             self.tree.config(cursor="")
             return
 
-        # Kolonne #8 er EXIFTool
         if col_id == '#8':
             path_str = self.tree.item(row_id, "values")[3]
             if path_str in self.exif_outputs and self.exif_outputs[path_str]:
-                 # Tjek om outputtet er en fejlmeddelelse
                 exif_output = self.exif_outputs[path_str]
                 is_error = (exif_output == self._("exif_err_notfound") or
                             exif_output.startswith(self._("exif_err_prefix")) or
@@ -545,7 +546,6 @@ class PDFReconApp:
 
         path_str = self.tree.item(row_id, "values")[3]
 
-        # Klik på EXIFTool-kolonnen (index 7)
         if col_index == 7:
             if path_str in self.exif_outputs and self.exif_outputs[path_str]:
                 self.show_exif_popup(self.exif_outputs[path_str])
@@ -559,10 +559,19 @@ class PDFReconApp:
             return
         
         self.tree.selection_set(item_id)
+        values = self.tree.item(item_id, "values")
         
         context_menu = tk.Menu(self.root, tearoff=0)
         context_menu.add_command(label="Vis EXIFTool-output", command=lambda: self.show_exif_popup_from_item(item_id))
         context_menu.add_command(label="Vis Tidslinje", command=self.show_timeline_popup)
+        
+        # --- NYT: Tilføj kun "Visuel sammenligning" for revisioner ---
+        if values and self._("revision_of").split("{")[0] in values[2]:
+            context_menu.add_separator()
+            context_menu.add_command(label=self._("visual_diff"), command=lambda: self.show_visual_diff_popup(item_id))
+        # --- slut ---
+
+        context_menu.add_separator()
         context_menu.add_command(label="Åbn filens placering", command=lambda: self.open_file_location(item_id))
         
         context_menu.tk_popup(event.x_root, event.y_root)
@@ -579,7 +588,6 @@ class PDFReconApp:
 
     def _make_text_copyable(self, text_widget):
         """Gør en Text widget skrivebeskyttet, men tillader tekstvalg og kopiering."""
-        
         context_menu = tk.Menu(text_widget, tearoff=0)
         
         def copy_selection(event=None):
@@ -602,6 +610,96 @@ class PDFReconApp:
         text_widget.bind("<Button-3>", show_context_menu)
         text_widget.bind("<Control-c>", copy_selection)
         text_widget.bind("<Command-c>", copy_selection)
+
+    # --- NYT: Funktion til at vise visuel sammenligning ---
+    def show_visual_diff_popup(self, item_id):
+        self.root.config(cursor="watch")
+        self.root.update_idletasks()
+
+        rev_path_str = self.tree.item(item_id, "values")[3]
+        
+        # Find den originale sti fra scan_data
+        original_path_str = None
+        for data in self.scan_data:
+            if str(data['path']) == rev_path_str and data.get('original_path'):
+                original_path_str = str(data['original_path'])
+                break
+        
+        if not original_path_str:
+            self.root.config(cursor="")
+            return
+
+        try:
+            # Render første side af hver PDF
+            doc_orig = fitz.open(original_path_str)
+            doc_rev = fitz.open(rev_path_str)
+
+            if doc_orig.page_count == 0 or doc_rev.page_count == 0:
+                raise ValueError("En af PDF-filerne er tom.")
+
+            page_orig = doc_orig.load_page(0).get_pixmap(dpi=150)
+            page_rev = doc_rev.load_page(0).get_pixmap(dpi=150)
+
+            img_orig = Image.frombytes("RGB", [page_orig.width, page_orig.height], page_orig.samples)
+            img_rev = Image.frombytes("RGB", [page_rev.width, page_rev.height], page_rev.samples)
+
+            doc_orig.close()
+            doc_rev.close()
+            
+            # Lav diff-billedet
+            diff = ImageChops.difference(img_orig, img_rev)
+            
+            # Gør forskellene mere synlige (rød markering)
+            diff_mask = diff.convert('L').point(lambda x: 255 if x > 20 else 0)
+            red_overlay = Image.new('RGB', img_orig.size, color='red')
+            
+            # Gør originalen gråtonet for bedre kontrast
+            img_orig_gray = ImageOps.grayscale(img_orig).convert('RGB')
+            
+            final_diff = Image.composite(red_overlay, img_orig_gray, diff_mask)
+
+            # Opret popup-vindue
+            popup = Toplevel(self.root)
+            popup.title(self._("diff_popup_title"))
+            
+            # Konverter til Tkinter-billeder (VIGTIGT: behold en reference!)
+            popup.img_tk_orig = ImageTk.PhotoImage(img_orig)
+            popup.img_tk_rev = ImageTk.PhotoImage(img_rev)
+            popup.img_tk_diff = ImageTk.PhotoImage(final_diff)
+            
+            # Opret rammer og labels
+            main_frame = ttk.Frame(popup, padding=10)
+            main_frame.pack(fill="both", expand=True)
+
+            frame_orig = ttk.Frame(main_frame)
+            frame_rev = ttk.Frame(main_frame)
+            frame_diff = ttk.Frame(main_frame)
+            
+            frame_orig.grid(row=1, column=0, padx=5, pady=5)
+            frame_rev.grid(row=1, column=1, padx=5, pady=5)
+            frame_diff.grid(row=1, column=2, padx=5, pady=5)
+            
+            ttk.Label(main_frame, text=self._("diff_original_label"), font=("Segoe UI", 10, "bold")).grid(row=0, column=0)
+            ttk.Label(main_frame, text=self._("diff_revision_label"), font=("Segoe UI", 10, "bold")).grid(row=0, column=1)
+            ttk.Label(main_frame, text=self._("diff_differences_label"), font=("Segoe UI", 10, "bold")).grid(row=0, column=2)
+
+            label_orig = ttk.Label(frame_orig, image=popup.img_tk_orig)
+            label_rev = ttk.Label(frame_rev, image=popup.img_tk_rev)
+            label_diff = ttk.Label(frame_diff, image=popup.img_tk_diff)
+            
+            label_orig.pack()
+            label_rev.pack()
+            label_diff.pack()
+
+            popup.transient(self.root)
+            popup.grab_set()
+
+        except Exception as e:
+            logging.error(f"Fejl under visuel sammenligning: {e}")
+            messagebox.showerror(self._("diff_error_title"), self._("diff_error_msg").format(e=e), parent=self.root)
+        finally:
+            self.root.config(cursor="")
+    # --- slut ---
 
     def show_exif_popup(self, content):
         if not content:
@@ -664,7 +762,6 @@ class PDFReconApp:
             messagebox.showinfo(self._("log_not_found_title"), self._("log_not_found_message"), parent=self.root)
 
     def _sort_column(self, col, reverse):
-        # Konverter til int hvis det er ID-kolonnen
         is_id_column = col == self.columns[0]
         def get_key(item):
             val = self.tree.set(item, col)
@@ -685,7 +782,7 @@ class PDFReconApp:
         logging.info(f"Starter scanning af mappe: {folder_path}")
         self.tree.delete(*self.tree.get_children())
         self.report_data.clear()
-        self.scan_data.clear() # Nulstil de rå resultater
+        self.scan_data.clear() 
         self.exif_outputs.clear()
         self.timeline_data.clear()
         self.row_counter = 0
@@ -699,7 +796,7 @@ class PDFReconApp:
         self.timeline_button.config(state="disabled")
 
         self.status_var.set(self._("preparing_analysis"))
-        self.progressbar.config(value=0) # Nulstil progressbar
+        self.progressbar.config(value=0)
 
         scan_thread = threading.Thread(target=self._scan_worker, args=(folder_path, self.scan_queue))
         scan_thread.daemon = True
@@ -715,12 +812,10 @@ class PDFReconApp:
                     yield Path(base) / fn
 
     def _scan_worker(self, folder, q):
-        # Skift til ubestemt progress bar, da vi ikke kender totalen endnu
         q.put(("progress_mode_indeterminate", None))
         
         count = 0
         original_file_count = 0
-        # Brug en generator til at få filer én ad gangen
         for fp in self._find_pdf_files_generator(folder):
             original_file_count += 1
             try:
@@ -772,7 +867,6 @@ class PDFReconApp:
                 logging.exception(f"Uventet fejl ved behandling af fil {fp.name}")
                 q.put(("error", f"Kunne ikke læse {fp.name}: {e}"))
                 
-        # Når løkken er færdig, kender vi det endelige antal
         q.put(("progress_mode_determinate", original_file_count))
         q.put(("finished", None))
 
@@ -783,17 +877,16 @@ class PDFReconApp:
                 
                 if msg_type == "progress_mode_indeterminate":
                     self.progressbar.config(mode='indeterminate')
-                    self.progressbar.start(10) # Start animationen
+                    self.progressbar.start(10) 
                 elif msg_type == "progress_mode_determinate":
-                    self.progressbar.stop() # Stop animationen
-                    # Sørg for at maximum er mindst 1 for at undgå fejl
+                    self.progressbar.stop()
                     max_val = data if data > 0 else 1
                     self.progressbar.config(mode='determinate', maximum=max_val, value=max_val)
                 elif msg_type == "scan_status": 
                     self.scanning_indicator_label.config(text=data)
                 elif msg_type == "file_row":
-                    self.scan_data.append(data) # Gem de rå resultater
-                    self._add_row_to_table(data) # Tilføj den nye række til tabellen
+                    self.scan_data.append(data) 
+                    self._add_row_to_table(data)
                 elif msg_type == "error": 
                     logging.warning(data)
                 elif msg_type == "finished":
@@ -876,7 +969,6 @@ class PDFReconApp:
 
 
         if not selected_items:
-            # Hvis intet er valgt, ryd detaljeruden
             self.detail_text.config(state="normal")
             self.detail_text.delete("1.0", tk.END)
             self.detail_text.config(state="disabled")
@@ -964,10 +1056,8 @@ class PDFReconApp:
         events = []
         try:
             stat = filepath.stat()
-            # st_mtime: Sidst ændret
             mtime = datetime.fromtimestamp(stat.st_mtime)
             events.append((mtime, f"File System: {self._('col_modified')}"))
-            # st_ctime: Oprettet (eller sidst ændret metadata på Unix)
             ctime = datetime.fromtimestamp(stat.st_ctime)
             events.append((ctime, f"File System: {self._('col_created')}"))
         except FileNotFoundError:
@@ -980,17 +1070,14 @@ class PDFReconApp:
         lines = exiftool_output.splitlines()
         processed_lines = set()
 
-        # NY PARSING: Håndterer den komplekse, én-linjes XMP History-output
         history_full_pattern = re.compile(r"\[XMP-xmpMM\]\s+History\s+:\s+(.*)")
         for i, line in enumerate(lines):
             full_match = history_full_pattern.match(line)
             if full_match:
                 history_str = full_match.group(1)
-                # Find hver enkelt hændelse i { ... }
                 event_blocks = re.findall(r'\{([^}]+)\}', history_str)
                 for block in event_blocks:
                     details = {}
-                    # Split hver hændelse op i key=value par
                     pairs = block.split(',')
                     for pair in pairs:
                         if '=' in pair:
@@ -1000,14 +1087,12 @@ class PDFReconApp:
                     if 'When' in details:
                         try:
                             date_str = details['When']
-                            # Rens dato-strengen for tidszone og millisekunder
                             dt_obj = datetime.strptime(date_str.split('+')[0].split('.')[0], "%Y:%m:%d %H:%M:%S")
                             
                             action = details.get('Action', 'N/A')
                             agent = details.get('SoftwareAgent', '')
                             changed = details.get('Changed', '')
                             
-                            # Byg en pænere beskrivelse
                             desc_parts = [f"Action: {action}"]
                             if agent: desc_parts.append(f"Agent: {agent}")
                             if changed: desc_parts.append(f"Changed: {changed}")
@@ -1015,10 +1100,9 @@ class PDFReconApp:
                             display_line = f"XMP History   - {' | '.join(desc_parts)}"
                             events.append((dt_obj, display_line))
                         except (ValueError, IndexError):
-                            continue # Ignorer ugyldige datoformater i historikken
-                processed_lines.add(i) # Marker linjen som behandlet
+                            continue
+                processed_lines.add(i)
 
-        # Eksisterende parsing af datoer (nu med forbedret label)
         generic_date_pattern = re.compile(r"(\d{4}:\d{2}:\d{2}\s\d{2}:\d{2}:\d{2})")
         for i, line in enumerate(lines):
             if i in processed_lines: continue
@@ -1026,7 +1110,6 @@ class PDFReconApp:
             if match:
                 try:
                     dt_obj = datetime.strptime(match.group(1), "%Y:%m:%d %H:%M:%S")
-                    # Gør linjen mere læselig ved at fjerne unødvendig info
                     clean_line = line.split(':', 1)[-1].strip()
                     source_match = re.search(r"\[(.*?)\]", line)
                     source = source_match.group(1) if source_match else "ExifTool"
@@ -1035,6 +1118,7 @@ class PDFReconApp:
                 except ValueError:
                     continue
         return events
+        
     def _format_timedelta(self, delta):
             """Formaterer et timedelta-objekt til en læsbar streng."""
             if not delta or delta.total_seconds() < 0.001:
@@ -1052,6 +1136,7 @@ class PDFReconApp:
             if seconds > 0 or not parts: parts.append(f"{seconds:.2f}s")
 
             return f"(+{ ' '.join(parts) })"
+            
     def _parse_raw_content_timeline(self, file_content_string):
         """Hjælpefunktion til at parse tidsstempler direkte fra filens indhold."""
         events = []
@@ -1071,24 +1156,13 @@ class PDFReconApp:
             label, date_str, closing_label = match.groups()
             if label != closing_label: continue
             try:
-                clean_date_str = date_str.split('Z')[0].split('+')[0].split('-')[0].strip()
+                clean_date_str = date_str.split('Z')[0].split('+')[0].split('.')[0].strip()
                 dt_obj = datetime.fromisoformat(clean_date_str)
                 display_line = f"Raw File: <{label}>: {date_str}"
                 events.append((dt_obj, display_line))
             except (ValueError, IndexError):
                 continue
         return events
-    
-    def _deduplicate_timeline(self, events):
-        """Fjerner hændelser med identiske tidsstempler."""
-        unique_events = []
-        seen_timestamps = set()
-        # Sorter for at sikre at den første (mest specifikke) hændelse bevares
-        for dt_obj, description in sorted(events, key=lambda x: (x[0], len(x[1]))):
-            if dt_obj not in seen_timestamps:
-                unique_events.append((dt_obj, description))
-                seen_timestamps.add(dt_obj)
-        return unique_events
 
     def generate_comprehensive_timeline(self, filepath, raw_file_content, exiftool_output):
         """Skaber en komplet tidslinje ved at kombinere alle kilder."""
@@ -1096,12 +1170,7 @@ class PDFReconApp:
         all_events.extend(self._get_filesystem_times(filepath))
         all_events.extend(self._parse_exiftool_timeline(exiftool_output))
         all_events.extend(self._parse_raw_content_timeline(raw_file_content))
-        
-        # Denne linje, der fjerner dubletter, kan slettes eller forblive udkommenteret.
-        # unique_events = self._deduplicate_timeline(all_events)
-        
-        # KORREKTION: Vi sorterer og returnerer den oprindelige 'all_events' liste,
-        # som indeholder alle hændelser, inklusiv dubletter.
+
         return sorted(all_events, key=lambda x: x[0])
         
     def show_timeline_popup(self):
@@ -1116,7 +1185,7 @@ class PDFReconApp:
 
         popup = Toplevel(self.root)
         popup.title(f"Timeline for {os.path.basename(path_str)}")
-        popup.geometry("950x700") # Justeret størrelse
+        popup.geometry("950x700")
         popup.transient(self.root)
 
         text_frame = ttk.Frame(popup, padding=10)
@@ -1134,49 +1203,42 @@ class PDFReconApp:
         
         scrollbar.config(command=text_widget.yview)
         
-        # Definer tags til formatering
         text_widget.tag_configure("date_header", font=("Courier New", 11, "bold", "underline"), spacing1=10, spacing3=5)
         text_widget.tag_configure("time", font=("Courier New", 10, "bold"))
-        text_widget.tag_configure("delta", foreground="#0078D7") # Blå farve
+        text_widget.tag_configure("delta", foreground="#0078D7")
         
-        # Farver for kilder
-        text_widget.tag_configure("source_fs", foreground="#008000") # Grøn
-        text_widget.tag_configure("source_exif", foreground="#555555") # Mørkegrå
-        text_widget.tag_configure("source_raw", foreground="#800080") # Lilla
-        text_widget.tag_configure("source_xmp", foreground="#C00000") # Rød
+        text_widget.tag_configure("source_fs", foreground="#008000")
+        text_widget.tag_configure("source_exif", foreground="#555555")
+        text_widget.tag_configure("source_raw", foreground="#800080")
+        text_widget.tag_configure("source_xmp", foreground="#C00000")
 
         last_date = None
         last_dt_obj = None
 
         for dt_obj, description in events:
-            # Indsæt dato-overskrift ved ny dato
             if dt_obj.date() != last_date:
                 if last_date is not None: text_widget.insert("end", "\n")
                 text_widget.insert("end", f"--- {dt_obj.strftime('%Y-%m-%d')} ---\n", "date_header")
                 last_date = dt_obj.date()
 
-            # Beregn og formater tidsforskel
             delta_str = ""
             if last_dt_obj:
                 delta = dt_obj - last_dt_obj
                 delta_str = self._format_timedelta(delta)
 
-            # Bestem kilde og tag for farve
-            source_tag = "source_exif" # Default
+            source_tag = "source_exif"
             if description.startswith("File System"): source_tag = "source_fs"
             elif description.startswith("Raw File"): source_tag = "source_raw"
             elif description.startswith("XMP History"): source_tag = "source_xmp"
                 
-            # Indsæt tidspunkt
             text_widget.insert("end", f"{dt_obj.strftime('%H:%M:%S')} ", "time")
-            # Indsæt beskrivelse med kilde-farve
             text_widget.insert("end", f"| {description:<80} ", source_tag)
-            # Indsæt tidsforskel
             text_widget.insert("end", f"{delta_str}\n", "delta")
             
             last_dt_obj = dt_obj
         
         self._make_text_copyable(text_widget)
+        
     @staticmethod
     def decompress_stream(b):
         for fn in (zlib.decompress, lambda d: __import__("base64").a85decode(re.sub(rb"\s", b"", d), adobe=True), lambda d: __import__("binascii").unhexlify(re.sub(rb"\s|>", b"", d))):
@@ -1235,7 +1297,6 @@ class PDFReconApp:
         if self.analyze_fonts(doc):
             indicators.append("Multiple Font Subsets")
 
-        # ID-INDSAMLING
         all_instance_ids = []
         all_doc_ids = []
         
@@ -1347,7 +1408,6 @@ class PDFReconApp:
         manual_text.pack(side="left", fill="both", expand=True, padx=5)
         scrollbar.config(command=manual_text.yview)
 
-        # Definer tags til formatering
         manual_text.tag_configure("h1", font=("Segoe UI", 16, "bold", "underline"), spacing3=10)
         manual_text.tag_configure("h2", font=("Segoe UI", 12, "bold"), spacing1=10, spacing3=5)
         manual_text.tag_configure("bold", font=("Segoe UI", 10, "bold"))
@@ -1357,7 +1417,6 @@ class PDFReconApp:
         manual_text.tag_configure("yellow", foreground="#C07000")
         manual_text.tag_configure("green", foreground="#008000")
 
-        # Indsæt manualens indhold
         manual_text.insert(tk.END, self._("manual_title") + "\n", "h1")
         
         manual_text.insert(tk.END, self._("manual_intro_header") + "\n", "h2")
@@ -1434,7 +1493,6 @@ class PDFReconApp:
         ws = wb.active
         ws.title = "PDFRecon Results"
         
-        # Ændrer den 9. kolonneoverskrift for klarhed i Excel
         headers = [self._(key) for key in self.columns_keys]
         headers[8] = f"{self._('col_indicators')} {self._('excel_indicators_overview')}"
 
@@ -1451,7 +1509,7 @@ class PDFReconApp:
             row_data_xlsx[7] = exif_text
             
             for col_idx, value in enumerate(row_data_xlsx, start=1):
-                cell = ws.cell(row=row_idx, column=col_idx, value=str(value)) # Sikrer at alt er streng
+                cell = ws.cell(row=row_idx, column=col_idx, value=str(value))
                 cell.alignment = Alignment(wrap_text=True, vertical="top")
         
         ws.freeze_panes = "A2"
@@ -1485,7 +1543,6 @@ class PDFReconApp:
 
 
 if __name__ == "__main__":
-    # VIGTIGT: Brug TkinterDnD.Tk() i stedet for tk.Tk()
     root = TkinterDnD.Tk()
     app = PDFReconApp(root)
     root.mainloop()
