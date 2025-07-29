@@ -472,7 +472,7 @@ class PDFReconApp:
         
         self.tree.tag_configure("red_row", background='#FFDDDD')
         self.tree.tag_configure("yellow_row", background='#FFFFCC')
-        self.tree.tag_configure("blue_row", background='#E0E8F0')
+        self.tree.tag_configure("blue_row", background='#CCE5FF')
         self.tree.tag_configure("gray_row", background='#E0E0E0') # Lysegrå farve
         
         for i, key in enumerate(self.columns_keys):
@@ -1086,23 +1086,29 @@ class PDFReconApp:
         exe_path = self._resolve_path("exiftool.exe")
         if not exe_path.is_file():
             return self._("exif_err_notfound")
+        
         try:
+            # Læs filens indhold direkte i Python for at undgå at sende
+            # problematiske filnavne til kommandolinjen.
+            file_content = path.read_bytes()
+
             startupinfo = None
             if sys.platform == "win32":
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             
             command = [str(exe_path)]
-            
-            command.extend(["-charset", "filename=latin1"])
             if detailed:
                 command.extend(["-a", "-s", "-G1", "-struct"])
             else:
                 command.extend(["-a"])
             
-            command.append(str(path))
+            # Brug "-" for at fortælle ExifTool, at den skal læse data fra standard input
+            # i stedet for fra en filsti.
+            command.append("-")
 
-            process = subprocess.run(command, capture_output=True, check=False, startupinfo=startupinfo)
+            # Send filens indhold til ExifTool via 'input'-parameteren
+            process = subprocess.run(command, input=file_content, capture_output=True, check=False, startupinfo=startupinfo)
             
             if process.returncode != 0 or process.stderr:
                 error_message = process.stderr.decode('latin-1', 'ignore').strip()
