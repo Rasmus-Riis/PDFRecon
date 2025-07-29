@@ -39,7 +39,7 @@ except ImportError:
 class PDFReconApp:
     def __init__(self, root):
         # --- Applikationskonfiguration ---
-        self.app_version = "11.6.0" # Version opdateret for ny feature
+        self.app_version = "12.0.0" # Version opdateret for ny feature
         
         self.root = root
         self.root.title(f"PDFRecon v{self.app_version}")
@@ -198,6 +198,10 @@ class PDFReconApp:
                 "diff_original_label": "Original",
                 "diff_revision_label": "Revision",
                 "diff_differences_label": "Forskelle (markeret med rød)",
+                "status_identical": "Visuelt Identisk (1-5 sider)",
+                "diff_page_label": "Viser side {current} af {total}",
+                "diff_prev_page": "Forrige Side",
+                "diff_next_page": "Næste Side"
             },
             "en": {
                 "choose_folder": "📁 Choose folder and scan",
@@ -305,6 +309,10 @@ class PDFReconApp:
                 "diff_original_label": "Original",
                 "diff_revision_label": "Revision",
                 "diff_differences_label": "Differences (highlighted in red)",
+                "status_identical": "Visually Identical (1-5 pages)",
+                "diff_page_label": "Showing page {current} of {total}",
+                 "diff_prev_page": "Previous Page",
+                "diff_next_page": "Next Page"
             }
         }
 
@@ -465,6 +473,7 @@ class PDFReconApp:
         self.tree.tag_configure("red_row", background='#FFDDDD')
         self.tree.tag_configure("yellow_row", background='#FFFFCC')
         self.tree.tag_configure("blue_row", background='#E0E8F0')
+        self.tree.tag_configure("gray_row", background='#E0E0E0') # Lysegrå farve
         
         for i, key in enumerate(self.columns_keys):
             self.tree.heading(self.columns[i], text=self._(key), command=lambda c=self.columns[i]: self._sort_column(c, False))
@@ -617,87 +626,111 @@ class PDFReconApp:
         self.root.update_idletasks()
 
         rev_path_str = self.tree.item(item_id, "values")[3]
-        
-        # Find den originale sti fra scan_data
-        original_path_str = None
-        for data in self.scan_data:
-            if str(data['path']) == rev_path_str and data.get('original_path'):
-                original_path_str = str(data['original_path'])
-                break
-        
+        original_path_str = next((str(d['original_path']) for d in self.scan_data if str(d['path']) == rev_path_str), None)
+
         if not original_path_str:
+            messagebox.showerror(self._("diff_error_title"), "Original file for revision not found.", parent=self.root)
             self.root.config(cursor="")
             return
 
         try:
-            # Render første side af hver PDF
-            doc_orig = fitz.open(original_path_str)
-            doc_rev = fitz.open(rev_path_str)
-
-            if doc_orig.page_count == 0 or doc_rev.page_count == 0:
-                raise ValueError("En af PDF-filerne er tom.")
-
-            page_orig = doc_orig.load_page(0).get_pixmap(dpi=150)
-            page_rev = doc_rev.load_page(0).get_pixmap(dpi=150)
-
-            img_orig = Image.frombytes("RGB", [page_orig.width, page_orig.height], page_orig.samples)
-            img_rev = Image.frombytes("RGB", [page_rev.width, page_rev.height], page_rev.samples)
-
-            doc_orig.close()
-            doc_rev.close()
-            
-            # Lav diff-billedet
-            diff = ImageChops.difference(img_orig, img_rev)
-            
-            # Gør forskellene mere synlige (rød markering)
-            diff_mask = diff.convert('L').point(lambda x: 255 if x > 20 else 0)
-            red_overlay = Image.new('RGB', img_orig.size, color='red')
-            
-            # Gør originalen gråtonet for bedre kontrast
-            img_orig_gray = ImageOps.grayscale(img_orig).convert('RGB')
-            
-            final_diff = Image.composite(red_overlay, img_orig_gray, diff_mask)
-
-            # Opret popup-vindue
+            # Opret pop-op vinduet og dets grundlæggende elementer
             popup = Toplevel(self.root)
             popup.title(self._("diff_popup_title"))
             
-            # Konverter til Tkinter-billeder (VIGTIGT: behold en reference!)
-            popup.img_tk_orig = ImageTk.PhotoImage(img_orig)
-            popup.img_tk_rev = ImageTk.PhotoImage(img_rev)
-            popup.img_tk_diff = ImageTk.PhotoImage(final_diff)
-            
-            # Opret rammer og labels
+            # Gem vigtig information direkte på popup-objektet for at holde styr på tilstanden
+            popup.current_page = 0
+            popup.path_orig = original_path_str
+            popup.path_rev = rev_path_str
+            with fitz.open(popup.path_orig) as doc:
+                popup.total_pages = doc.page_count
+
             main_frame = ttk.Frame(popup, padding=10)
             main_frame.pack(fill="both", expand=True)
 
-            frame_orig = ttk.Frame(main_frame)
-            frame_rev = ttk.Frame(main_frame)
-            frame_diff = ttk.Frame(main_frame)
+            # --- GUI Layout ---
+            # Opret en container til billederne
+            image_frame = ttk.Frame(main_frame)
+            image_frame.grid(row=1, column=0, columnspan=3, pady=5)
             
-            frame_orig.grid(row=1, column=0, padx=5, pady=5)
-            frame_rev.grid(row=1, column=1, padx=5, pady=5)
-            frame_diff.grid(row=1, column=2, padx=5, pady=5)
-            
-            ttk.Label(main_frame, text=self._("diff_original_label"), font=("Segoe UI", 10, "bold")).grid(row=0, column=0)
-            ttk.Label(main_frame, text=self._("diff_revision_label"), font=("Segoe UI", 10, "bold")).grid(row=0, column=1)
-            ttk.Label(main_frame, text=self._("diff_differences_label"), font=("Segoe UI", 10, "bold")).grid(row=0, column=2)
+            # Opret labels til billederne én gang
+            label_orig = ttk.Label(image_frame)
+            label_rev = ttk.Label(image_frame)
+            label_diff = ttk.Label(image_frame)
+            label_orig.grid(row=1, column=0, padx=5)
+            label_rev.grid(row=1, column=1, padx=5)
+            label_diff.grid(row=1, column=2, padx=5)
 
-            label_orig = ttk.Label(frame_orig, image=popup.img_tk_orig)
-            label_rev = ttk.Label(frame_rev, image=popup.img_tk_rev)
-            label_diff = ttk.Label(frame_diff, image=popup.img_tk_diff)
-            
-            label_orig.pack()
-            label_rev.pack()
-            label_diff.pack()
+            ttk.Label(image_frame, text=self._("diff_original_label"), font=("Segoe UI", 10, "bold")).grid(row=0, column=0)
+            ttk.Label(image_frame, text=self._("diff_revision_label"), font=("Segoe UI", 10, "bold")).grid(row=0, column=1)
+            ttk.Label(image_frame, text=self._("diff_differences_label"), font=("Segoe UI", 10, "bold")).grid(row=0, column=2)
 
+            # Opret navigationselementer
+            nav_frame = ttk.Frame(main_frame)
+            nav_frame.grid(row=2, column=0, columnspan=3, pady=(10,0))
+            
+            prev_button = ttk.Button(nav_frame, text=self._("diff_prev_page"))
+            page_label = ttk.Label(nav_frame, text="", font=("Segoe UI", 9, "italic"))
+            next_button = ttk.Button(nav_frame, text=self._("diff_next_page"))
+
+            prev_button.pack(side="left", padx=10)
+            page_label.pack(side="left", padx=10)
+            next_button.pack(side="left", padx=10)
+            
+            # --- Funktion til at opdatere sidevisningen ---
+            def update_page(page_num):
+                if not (0 <= page_num < popup.total_pages):
+                    return
+                
+                popup.current_page = page_num
+                self.root.config(cursor="watch")
+                self.root.update()
+
+                with fitz.open(popup.path_orig) as doc_orig, fitz.open(popup.path_rev) as doc_rev:
+                    page_orig = doc_orig.load_page(page_num)
+                    page_rev = doc_rev.load_page(page_num)
+
+                    pix_orig = page_orig.get_pixmap(dpi=150)
+                    pix_rev = page_rev.get_pixmap(dpi=150)
+                
+                img_orig = Image.frombytes("RGB", [pix_orig.width, pix_orig.height], pix_orig.samples)
+                img_rev = Image.frombytes("RGB", [pix_rev.width, pix_rev.height], pix_rev.samples)
+
+                diff = ImageChops.difference(img_orig, img_rev)
+                mask = diff.convert('L').point(lambda x: 255 if x > 20 else 0)
+                final_diff = Image.composite(Image.new('RGB', img_orig.size, 'red'), ImageOps.grayscale(img_orig).convert('RGB'), mask)
+                
+                screen_w, screen_h = popup.winfo_screenwidth(), popup.winfo_screenheight()
+                max_img_w, max_img_h = (screen_w * 0.95) / 3, screen_h * 0.8
+                orig_w, orig_h = img_orig.size
+                ratio = min(max_img_w / orig_w, max_img_h / orig_h) if orig_w > 0 and orig_h > 0 else 1
+                scaled_size = (int(orig_w * ratio), int(orig_h * ratio))
+
+                images_tk = [ImageTk.PhotoImage(img.resize(scaled_size, Image.Resampling.LANCZOS)) for img in [img_orig, img_rev, final_diff]]
+                popup.images_tk = images_tk
+                
+                label_orig.config(image=images_tk[0])
+                label_rev.config(image=images_tk[1])
+                label_diff.config(image=images_tk[2])
+
+                page_label.config(text=self._("diff_page_label").format(current=page_num + 1, total=popup.total_pages))
+                prev_button.config(state="normal" if page_num > 0 else "disabled")
+                next_button.config(state="normal" if page_num < popup.total_pages - 1 else "disabled")
+                self.root.config(cursor="")
+
+            # Konfigurer knapper til at kalde update_page
+            prev_button.config(command=lambda: update_page(popup.current_page - 1))
+            next_button.config(command=lambda: update_page(popup.current_page + 1))
+
+            # Start med at vise den første side
+            update_page(0)
+            
             popup.transient(self.root)
             popup.grab_set()
 
         except Exception as e:
-            logging.error(f"Fejl under visuel sammenligning: {e}")
+            logging.error(f"Visual diff error: {e}")
             messagebox.showerror(self._("diff_error_title"), self._("diff_error_msg").format(e=e), parent=self.root)
-        finally:
             self.root.config(cursor="")
     # --- slut ---
 
@@ -814,7 +847,6 @@ class PDFReconApp:
     def _scan_worker(self, folder, q):
         q.put(("progress_mode_indeterminate", None))
         
-        count = 0
         original_file_count = 0
         for fp in self._find_pdf_files_generator(folder):
             original_file_count += 1
@@ -835,31 +867,57 @@ class PDFReconApp:
                 final_indicator_keys = indicator_keys[:]
                 if revisions:
                     final_indicator_keys.append("Has Revisions")
-                    logging.info(f"Fil '{fp.name}': Fandt {len(revisions)} revision(er).")
                 
-                original_row_data = {
-                    "path": fp, 
-                    "indicator_keys": final_indicator_keys,
-                    "md5": md5_hash,  
-                    "exif": exif, 
-                    "is_revision": False, 
-                    "timeline": timeline
-                }
+                original_row_data = { "path": fp, "indicator_keys": final_indicator_keys, "md5": md5_hash, "exif": exif, "is_revision": False, "timeline": timeline }
                 q.put(("file_row", original_row_data))
                 
                 for rev_path, basefile, rev_raw in revisions:
                     rev_md5 = hashlib.md5(rev_raw).hexdigest()
                     rev_exif = self.exiftool_output(rev_path, detailed=True)
-                    rev_timeline = timeline 
+                    
+                    if "Warning" in rev_exif and "Invalid xref table" in rev_exif:
+                        logging.info(f"Skipping revision {rev_path.name} due to 'Invalid xref table' warning.")
+                        continue
 
-                    revision_row_data = {
+                    is_identical = False
+                    try:
+                        with fitz.open(fp) as doc_orig, fitz.open(rev_path) as doc_rev:
+                            pages_to_compare = min(doc_orig.page_count, doc_rev.page_count, 5)
+                            if pages_to_compare == 0:
+                                is_identical = False
+                            else:
+                                is_identical = True
+                                for i in range(pages_to_compare):
+                                    page_orig = doc_orig.load_page(i)
+                                    page_rev = doc_rev.load_page(i)
+                                    if page_orig.rect != page_rev.rect:
+                                        is_identical = False
+                                        break
+                                    pix_orig = page_orig.get_pixmap(dpi=96)
+                                    pix_rev = page_rev.get_pixmap(dpi=96)
+                                    img_orig = Image.frombytes("RGB", [pix_orig.width, pix_orig.height], pix_orig.samples)
+                                    img_rev = Image.frombytes("RGB", [pix_rev.width, pix_rev.height], pix_rev.samples)
+                                    if ImageChops.difference(img_orig, img_rev).getbbox() is not None:
+                                        is_identical = False
+                                        break
+                    except Exception as e:
+                        logging.warning(f"Could not visually compare {rev_path.name}, keeping it. Error: {e}")
+                        is_identical = False
+                    
+                    # --- ÆNDRING HER ---
+                    # FJERNET: 'if is_identical: continue' er væk.
+                    # Nu tilføjes resultatet i stedet til den data, vi sender videre.
+
+                    rev_timeline = timeline 
+                    revision_row_data = { 
                         "path": rev_path, 
                         "indicator_keys": ["Revision"], 
-                        "md5": rev_md5,  
+                        "md5": rev_md5, 
                         "exif": rev_exif, 
                         "is_revision": True, 
                         "timeline": rev_timeline, 
-                        "original_path": fp
+                        "original_path": fp,
+                        "is_identical": is_identical  # <-- NYT: Gemmer resultatet af tjekket
                     }
                     q.put(("file_row", revision_row_data))
 
@@ -906,8 +964,13 @@ class PDFReconApp:
             created_time = ""
             modified_time = ""
             parent_id = self.path_to_id.get(str(data["original_path"]))
-            flag = self.get_flag([], True, parent_id)
             indicators_str = ""
+            
+            # Sætter statusteksten korrekt
+            if data.get("is_identical"):
+                flag = self._("status_identical")
+            else:
+                flag = self.get_flag([], True, parent_id)
         else:
             self.path_to_id[str(path)] = self.row_counter
             stat = path.stat()
@@ -933,7 +996,11 @@ class PDFReconApp:
         
         tag = ""
         if data["is_revision"]:
-            tag = "blue_row"
+            # Sætter farven korrekt
+            if data.get("is_identical"):
+                tag = "gray_row"
+            else:
+                tag = "blue_row"
         else:
             tag_map = {
                 "JA": "red_row",
@@ -1026,6 +1093,8 @@ class PDFReconApp:
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             
             command = [str(exe_path)]
+            
+            command.extend(["-charset", "filename=latin1"])
             if detailed:
                 command.extend(["-a", "-s", "-G1", "-struct"])
             else:
