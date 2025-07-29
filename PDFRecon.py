@@ -30,8 +30,11 @@ except ImportError:
 
 class PDFReconApp:
     def __init__(self, root):
+        # --- Applikationskonfiguration ---
+        self.app_version = "11.5.3"
+        
         self.root = root
-        self.root.title("PDFRecon v11.5.1")
+        self.root.title(f"PDFRecon v{self.app_version}")
         self.root.geometry("1200x700")
 
         # OPDATERET: Tilføjet kode til at indlæse et brugerdefineret ikon
@@ -74,7 +77,7 @@ class PDFReconApp:
         self._setup_main_frame()
         self._setup_drag_and_drop()
         
-        logging.info("PDFRecon v11.5.1 startet.")
+        logging.info(f"PDFRecon v{self.app_version} startet.")
 
     def _(self, key):
         """Returnerer den oversatte tekst for en given nøgle."""
@@ -82,6 +85,7 @@ class PDFReconApp:
 
     def get_translations(self):
         """Indeholder alle oversættelser for programmet."""
+        version_string = f"PDFRecon v{self.app_version} (Optimized)"
         return {
             "da": {
                 "choose_folder": "📁 Vælg mappe og scan",
@@ -171,7 +175,7 @@ class PDFReconApp:
                 "about_website": "Officiel {tool} Hjemmeside: ",
                 "about_source": "{tool} Kildekode: ",
                 "about_developer_info": "\nUdvikler: Rasmus Riis\nE-mail: riisras@gmail.com\n",
-                "about_version": "PDFRecon v11.5.1",
+                "about_version": version_string,
                 "copy": "Kopiér",
                 "close_button_text": "Luk",
                 "excel_indicators_overview": "(Oversigt)",
@@ -271,7 +275,7 @@ class PDFReconApp:
                 "about_website": "Official {tool} Website: ",
                 "about_source": "Source Code: ",
                 "about_developer_info": "\nDeveloper: Rasmus Riis\nE-mail: riisras@gmail.com\n",
-                "about_version": "PDFRecon v11.5.1",
+                "about_version": version_string,
                 "copy": "Copy",
                 "close_button_text": "Close",
                 "excel_indicators_overview": "(Overview)",
@@ -351,10 +355,13 @@ class PDFReconApp:
         total_docs = self.progressbar['maximum']
         changed_count = sum(1 for row in self.report_data if row[2] in ["JA", "YES"])
         indications_found_count = sum(1 for row in self.report_data if row[2] in ["Indikationer Fundet", "Indications Found"])
-        not_flagged_count = total_docs - changed_count - indications_found_count
+        
+        # For at få et præcist 'clean' antal, skal vi tælle de faktiske originale filer
+        original_files_count = len({str(data['path']) for data in self.scan_data if not data['is_revision']})
+        not_flagged_count = original_files_count - changed_count - indications_found_count
 
         summary_text = self._("scan_complete_summary").format(
-            total=total_docs,
+            total=original_files_count,
             changed=changed_count,
             revs=self.revision_counter,
             inds=indications_found_count,
@@ -692,6 +699,7 @@ class PDFReconApp:
         self.timeline_button.config(state="disabled")
 
         self.status_var.set(self._("preparing_analysis"))
+        self.progressbar.config(value=0) # Nulstil progressbar
 
         scan_thread = threading.Thread(target=self._scan_worker, args=(folder_path, self.scan_queue))
         scan_thread.daemon = True
@@ -699,14 +707,24 @@ class PDFReconApp:
 
         self._process_queue()
 
+    def _find_pdf_files_generator(self, folder):
+        """En generator, der 'yield'er PDF-filer, så snart de findes."""
+        for base, _, files in os.walk(folder):
+            for fn in files:
+                if fn.lower().endswith(".pdf"):
+                    yield Path(base) / fn
+
     def _scan_worker(self, folder, q):
-        pdf_files = [Path(base) / fn for base, _, files in os.walk(folder) for fn in files if fn.lower().endswith(".pdf")]
-        total_files = len(pdf_files)
-        q.put(("progress_max", total_files))
-        logging.info(f"Fandt {total_files} PDF-filer i mappen.")
-        for count, fp in enumerate(pdf_files, 1):
+        # Skift til ubestemt progress bar, da vi ikke kender totalen endnu
+        q.put(("progress_mode_indeterminate", None))
+        
+        count = 0
+        original_file_count = 0
+        # Brug en generator til at få filer én ad gangen
+        for fp in self._find_pdf_files_generator(folder):
+            original_file_count += 1
             try:
-                logging.info(f"Behandler fil [{count}/{total_files}]: {fp}")
+                logging.info(f"Behandler fil [{original_file_count}]: {fp}")
                 q.put(("scan_status", self._("analyzing_file").format(file=fp.name)))
                 raw = fp.read_bytes()
                 
@@ -715,7 +733,6 @@ class PDFReconApp:
                 indicator_keys = self.detect_indicators(txt, doc)
                 md5_hash = hashlib.md5(raw).hexdigest()
                 exif = self.exiftool_output(fp, detailed=True)
-                # **ÆNDRING**: Generer en komplet tidslinje fra alle kilder
                 timeline = self.generate_comprehensive_timeline(fp, txt, exif)
                 revisions = self.extract_revisions(raw, fp)
                 doc.close()
@@ -738,7 +755,6 @@ class PDFReconApp:
                 for rev_path, basefile, rev_raw in revisions:
                     rev_md5 = hashlib.md5(rev_raw).hexdigest()
                     rev_exif = self.exiftool_output(rev_path, detailed=True)
-                    # For revisioner genbruger vi den oprindelige fils tidslinje
                     rev_timeline = timeline 
 
                     revision_row_data = {
@@ -751,24 +767,35 @@ class PDFReconApp:
                         "original_path": fp
                     }
                     q.put(("file_row", revision_row_data))
-                
-                q.put(("progress_step", count))
+
             except Exception as e:
                 logging.exception(f"Uventet fejl ved behandling af fil {fp.name}")
                 q.put(("error", f"Kunne ikke læse {fp.name}: {e}"))
+                
+        # Når løkken er færdig, kender vi det endelige antal
+        q.put(("progress_mode_determinate", original_file_count))
         q.put(("finished", None))
 
     def _process_queue(self):
         try:
             while True:
                 msg_type, data = self.scan_queue.get_nowait()
-                if msg_type == "progress_max": self.progressbar.config(maximum=data, value=0)
-                elif msg_type == "progress_step": self.progressbar.config(value=data)
-                elif msg_type == "scan_status": self.scanning_indicator_label.config(text=data)
+                
+                if msg_type == "progress_mode_indeterminate":
+                    self.progressbar.config(mode='indeterminate')
+                    self.progressbar.start(10) # Start animationen
+                elif msg_type == "progress_mode_determinate":
+                    self.progressbar.stop() # Stop animationen
+                    # Sørg for at maximum er mindst 1 for at undgå fejl
+                    max_val = data if data > 0 else 1
+                    self.progressbar.config(mode='determinate', maximum=max_val, value=max_val)
+                elif msg_type == "scan_status": 
+                    self.scanning_indicator_label.config(text=data)
                 elif msg_type == "file_row":
                     self.scan_data.append(data) # Gem de rå resultater
                     self._add_row_to_table(data) # Tilføj den nye række til tabellen
-                elif msg_type == "error": logging.warning(data)
+                elif msg_type == "error": 
+                    logging.warning(data)
                 elif msg_type == "finished":
                     self._finalize_scan()
                     return
@@ -831,7 +858,6 @@ class PDFReconApp:
         self.scan_button.config(state="normal")
         self.export_button.config(state="normal")
         self.scanning_indicator_label.config(text="")
-        if self.progressbar['maximum'] > 0: self.progressbar['value'] = self.progressbar['maximum']
         
         self._update_summary_status()
         logging.info(f"Analyse fuldført. {self.status_var.get()}")
