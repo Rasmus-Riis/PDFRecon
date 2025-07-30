@@ -55,8 +55,7 @@ PDFRecon depends on the stand-alone Windows executable of ExifTool. This ensures
 
 1. Download the **Windows Stand-Alone Executable** from the [official ExifTool website](https://exiftool.org/).
 2. The downloaded file is typically named `exiftool(-k).exe`. Rename it to **exiftool.exe**.
-3. Place the renamed `exiftool.exe` in the same directory as the `PDFRecon.py` script.  
-   The `exiftool_files` folder is not needed.
+3. Place the renamed `exiftool.exe` in the same directory as the `PDFRecon.py` script and also place `exiftool_files` folder in the same directory as the exe file.
 
 ---
 
