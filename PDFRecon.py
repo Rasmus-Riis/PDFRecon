@@ -39,7 +39,7 @@ except ImportError:
 class PDFReconApp:
     def __init__(self, root):
         # --- Applikationskonfiguration ---
-        self.app_version = "12.0.0" # Version opdateret for ny feature
+        self.app_version = "12.0.1" # Version opdateret for ny feature
         
         self.root = root
         self.root.title(f"PDFRecon v{self.app_version}")
