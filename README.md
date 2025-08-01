@@ -1,4 +1,4 @@
-# PDFRecon v12 - Advanced PDF Forensic Analysis Tool
+# PDFRecon - Advanced PDF Forensic Analysis Tool
 
 PDFRecon is a powerful and intuitive GUI tool designed for the forensic analysis of PDF documents. It enables investigators to rapidly scan a large number of files for signs of manipulation, editing, and hidden history.
 
