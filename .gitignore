@@ -1,2 +1,5 @@
 config.ini
 pdfrecon.log
+/build
+/dist
+PDFRecon.spec
