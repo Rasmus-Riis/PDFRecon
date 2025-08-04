@@ -72,7 +72,7 @@ class PDFEncryptedError(PDFProcessingError):
 class PDFReconApp:
     def __init__(self, root):
         # --- Applikationskonfiguration ---
-        self.app_version = "14.3.2" # added the functionality to have exiftool as a seperate tool that needs to be in the same folder and not built in like before
+        self.app_version = "14.3.3" # Added text in errormessage if exiftool isnt found
         self.config_path = self._resolve_path("config.ini", base_is_parent=True)
         self._load_or_create_config()
         
@@ -143,7 +143,7 @@ class PDFReconApp:
                 "scan_complete_summary": "✔ Færdig: {total} dokumenter | {changed} ændrede (JA) | {revs} revisioner | {inds} med indikationer | {clean} ikke påvist",
                 "scan_complete_summary_with_errors": "✔ Færdig: {total} dok. | {changed} JA | {revs} rev. | {inds} ind. | {errors} fejl | {clean} rene",
                 "no_exif_output_title": "Ingen EXIFTool-output", "no_exif_output_message": "Der er enten ingen EXIFTool-output for denne fil, eller også opstod der en fejl under kørsel.",
-                "exif_popup_title": "EXIFTool Output", "exif_no_output": "Intet output", "exif_error": "Fejl", "exif_view_output": "Klik for at se output ➡",
+                "exif_popup_title": "EXIFTool Output", "exif_no_output": "Intet output", "exif_error": "Fejl. Læs exiftool i samme mappe", "exif_view_output": "Klik for at se output ➡",
                 "license_error_title": "Fejl", "license_error_message": "Licensfilen 'license.txt' kunne ikke findes.\n\nSørg for, at filen hedder 'license.txt' og er inkluderet korrekt, når programmet pakkes.",
                 "license_popup_title": "Licensinformation",
                 "log_not_found_title": "Logfil ikke fundet", "log_not_found_message": "Logfilen er endnu ikke oprettet. Den oprettes første gang programmet logger en handling.",
@@ -199,7 +199,7 @@ class PDFReconApp:
                 "scan_complete_summary": "✔ Finished: {total} documents | {changed} altered (YES) | {revs} revisions | {inds} with indications | {clean} not detected",
                 "scan_complete_summary_with_errors": "✔ Done: {total} docs | {changed} YES | {revs} revs | {inds} ind. | {errors} errors | {clean} clean",
                 "no_exif_output_title": "No EXIFTool Output", "no_exif_output_message": "There is either no EXIFTool output for this file, or an error occurred during execution.",
-                "exif_popup_title": "EXIFTool Output", "exif_no_output": "No output", "exif_error": "Error", "exif_view_output": "Click to view output ➡",
+                "exif_popup_title": "EXIFTool Output", "exif_no_output": "No output", "exif_error": "Error. Missing Exiftool", "exif_view_output": "Click to view output ➡",
                 "license_error_title": "Error", "license_error_message": "The license file 'license.txt' could not be found.\n\nPlease ensure the file is named 'license.txt' and is included correctly when packaging the application.",
                 "license_popup_title": "License Information",
                 "log_not_found_title": "Log File Not Found", "log_not_found_message": "The log file has not been created yet. It is created the first time the program logs an action.",
