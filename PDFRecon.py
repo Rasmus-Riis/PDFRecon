@@ -72,7 +72,7 @@ class PDFEncryptedError(PDFProcessingError):
 class PDFReconApp:
     def __init__(self, root):
         # --- Applikationskonfiguration ---
-        self.app_version = "14.3.0" # Version hvor Anmærkninger og Javascript er fjernet som indikatorer
+        self.app_version = "14.3.2" # added the functionality to have exiftool as a seperate tool that needs to be in the same folder and not built in like before
         self.config_path = self._resolve_path("config.ini", base_is_parent=True)
         self._load_or_create_config()
         
@@ -1199,7 +1199,7 @@ class PDFReconApp:
 
     def exiftool_output(self, path, detailed=False):
         """Kører ExifTool på en sikker måde med timeout og forbedret fejlhåndtering."""
-        exe_path = self._resolve_path("exiftool.exe")
+        exe_path = self._resolve_path("exiftool.exe", base_is_parent=True)
         if not exe_path.is_file(): return self._("exif_err_notfound")
         
         try:
