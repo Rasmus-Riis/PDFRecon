@@ -29,7 +29,7 @@ PDFRecon combines deep forensic analysis with a user-friendly interface to deliv
   * ⚪ **Gray**: A revision that is visually identical to the latest version.
   * **White**: No specific indicators of manipulation were detected.
 * **Multi-Language Interface**: Switch between English and Danish on the fly.
-* **Excel Export**: Export the complete analysis to a formatted `.xlsx` file, ready for documentation and reporting.
+* **Multiple Export Formats**: Export the complete analysis to a formatted `.xlsx`, 'HTML', 'JSON' or 'CSV' file ready for documentation and reporting.
 
 ---
 
@@ -51,7 +51,7 @@ pip install -r requirements.txt
 ```
 
 ### 3. Download ExifTool (Important!)
-PDFRecon depends on the stand-alone Windows executable of ExifTool. This ensures you do not need a separate `lib` folder.
+PDFRecon depends on the Windows executable of ExifTool.
 
 1. Download exiftool from the [official ExifTool website](https://exiftool.org/).
 2. The downloaded file is typically named `exiftool(-k).exe`. Rename it to **exiftool.exe**.
