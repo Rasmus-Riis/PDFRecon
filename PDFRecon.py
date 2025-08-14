@@ -72,7 +72,7 @@ class PDFEncryptedError(PDFProcessingError):
 class PDFReconApp:
     def __init__(self, root):
         # --- Applikationskonfiguration ---
-        self.app_version = "14.3.3" # Added text in errormessage if exiftool isnt found
+        self.app_version = "14.3.4" # Added text in errormessage if exiftool isnt found
         self.config_path = self._resolve_path("config.ini", base_is_parent=True)
         self._load_or_create_config()
         
