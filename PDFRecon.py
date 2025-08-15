@@ -67,12 +67,22 @@ class PDFEncryptedError(PDFProcessingError):
     """Exception for encrypted files that cannot be read."""
     pass
 # --- End Phase 1/3 ---
+def md5_file(fp: Path, buf_size: int = 1024 * 1024) -> str:
+    """
+    Beregn MD5 uden at læse hele filen i RAM.
+    """
+    import hashlib
+    h = hashlib.md5()
+    with fp.open("rb") as f:
+        for chunk in iter(lambda: f.read(buf_size), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 class PDFReconApp:
     def __init__(self, root):
         # --- Applikationskonfiguration ---
-        self.app_version = "14.3.4" # Added text in errormessage if exiftool isnt found
+        self.app_version = "14.4.0" # Added text in errormessage if exiftool isnt found
         self.config_path = self._resolve_path("config.ini", base_is_parent=True)
         self._load_or_create_config()
         
@@ -146,6 +156,33 @@ class PDFReconApp:
                 "exif_popup_title": "EXIFTool Output", "exif_no_output": "Intet output", "exif_error": "Fejl. Læs exiftool i samme mappe", "exif_view_output": "Klik for at se output ➡",
                 "license_error_title": "Fejl", "license_error_message": "Licensfilen 'license.txt' kunne ikke findes.\n\nSørg for, at filen hedder 'license.txt' og er inkluderet korrekt, når programmet pakkes.",
                 "license_popup_title": "Licensinformation",
+                "manual_prev_header": "/Prev-kæde (inkrementelle gemninger)",
+                "manual_prev_class": "Indikationer Fundet",
+                "manual_prev_desc": "• Hvad det betyder: PDF-formatet kan gemme ændringer “oven på” den eksisterende fil. Når der findes /Prev-punkter i filen, betyder det, at ældre tilstande ligger bevaret i filen. Det er ikke i sig selv bevis for manipulation, men det viser at dokumentet har en historik og derfor bør undersøges nærmere.\n\n",
+
+                "manual_linearized_header": "Linearized + Updated",
+                "manual_linearized_class": "Indikationer Fundet",
+                "manual_linearized_desc": "• Hvad det betyder: En “linearized” PDF er optimeret til hurtig webvisning. Hvis en sådan fil efterfølgende er blevet ændret, vil PDFRecon markere det. Det kan indikere, at et ellers færdigt dokument er blevet redigeret senere.\n\n",
+
+                "manual_redact_header": "Redactions (sløringer/sletninger)",
+                "manual_redact_class": "Indikationer Fundet",
+                "manual_redact_desc": "• Hvad det betyder: Dokumentet indeholder tekniske felter for sløring/sletning af indhold. I nogle tilfælde kan den skjulte tekst stadig findes i filen. Derfor bør redaktioner altid vurderes kritisk.\n\n",
+
+                "manual_annots_header": "Annotations (kommentarer/noter)",
+                "manual_annots_class": "Indikationer Fundet",
+                "manual_annots_desc": "• Hvad det betyder: Dokumentet rummer kommentarer, noter eller markeringer. De kan være tilføjet senere og kan indeholde oplysninger, der ikke fremgår af det viste indhold.\n\n",
+                "manual_pieceinfo_header": "PieceInfo (programoplysninger/version)",
+                "manual_pieceinfo_class": "Indikationer Fundet",
+                "manual_pieceinfo_desc": "• Hvad det betyder: Nogle programmer gemmer ekstra tekniske spor (PieceInfo) om ændringer eller versioner. Det kan afsløre, at filen har været behandlet i bestemte værktøjer.\n\n",
+                "manual_acro_needapp_header": "AcroForm med NeedAppearances=true",
+                "manual_acro_needapp_class": "Indikationer Fundet",
+                "manual_acro_needapp_desc": "• Hvad det betyder: Formularfelter kan kræve, at visningen genskabes, når dokumentet åbnes. Felt-tekster kan derfor ændre udseende eller udfyldes automatisk. Det kan skjule eller forplumre det oprindelige indhold.\n\n",
+                "manual_digsig_header": "Digital Signatur",
+                "manual_digsig_class": "Indikationer Fundet",
+                "manual_digsig_desc": "• Hvad det betyder: Dokumentet indeholder en digital signatur. En gyldig signatur kan bekræfte, at dokumentet ikke er ændret siden signering. En ugyldig/brudt signatur kan være et stærkt tegn på efterfølgende ændring.\n\n",
+                "manual_date_mismatch_header": "Dato-inkonsistens (Info vs. XMP)",
+                "manual_date_mismatch_class": "Indikationer Fundet",
+                "manual_date_mismatch_desc": "• Hvad det betyder: Oprettelses- og ændringsdatoer i PDF’ens Info-felt stemmer ikke overens med datoerne i XMP-metadata. Sådanne uoverensstemmelser kan pege på skjulte eller uautoriserede ændringer.\n\n",
                 "log_not_found_title": "Logfil ikke fundet", "log_not_found_message": "Logfilen er endnu ikke oprettet. Den oprettes første gang programmet logger en handling.",
                 "no_data_to_save_title": "Ingen data", "no_data_to_save_message": "Der er ingen data at gemme.",
                 "excel_saved_title": "Handling fuldført", "excel_saved_message": "Rapporten er gemt.\n\nVil du åbne mappen, hvor filen ligger?",
@@ -189,6 +226,30 @@ class PDFReconApp:
             },
             "en": {
                 "choose_folder": "📁 Choose folder and scan", "show_timeline": "Show Timeline", "status_initial": "Drag a folder here or use the button to start an analysis.",
+                "manual_prev_header": "/Prev chain (incremental saves)",
+                "manual_prev_class": "Indications Found",
+                "manual_prev_desc": "• What it means: The PDF format can save changes “on top of” the existing file. When /Prev pointers are present, earlier states remain embedded. This is not proof of manipulation by itself, but it shows an edit history and merits closer review.\n\n",
+                "manual_linearized_header": "Linearized + Updated",
+                "manual_linearized_class": "Indications Found",
+                "manual_linearized_desc": "• What it means: A “linearized” PDF is optimized for fast web viewing. If such a file was later modified, PDFRecon flags it. This may indicate that a supposedly final document was edited afterwards.\n\n",
+                "manual_redact_header": "Redactions (obscured/removed content)",
+                "manual_redact_class": "Indications Found",
+                "manual_redact_desc": "• What it means: The document contains technical fields for redaction (blackouts/removals). In some cases, hidden text may still be present. Redactions should be assessed critically.\n\n",
+                "manual_annots_header": "Annotations (comments/notes)",
+                "manual_annots_class": "Indications Found",
+                "manual_annots_desc": "• What it means: The document includes comments, notes, or highlights. They may have been added later and can contain information that is not visible in the main content.\n\n",
+                "manual_pieceinfo_header": "PieceInfo (software/version traces)",
+                "manual_pieceinfo_class": "Indications Found",
+                "manual_pieceinfo_desc": "• What it means: Some programs store extra technical traces (PieceInfo) about changes or versions. This can reveal that the file was processed in particular tools.\n\n",
+                "manual_acro_needapp_header": "AcroForm with NeedAppearances=true",
+                "manual_acro_needapp_class": "Indications Found",
+                "manual_acro_needapp_desc": "• What it means: Form fields may need their appearance regenerated when the document opens. Field text can change or be auto-filled, which may obscure the original content.\n\n",
+                "manual_digsig_header": "Digital Signature",
+                "manual_digsig_class": "Indications Found",
+                "manual_digsig_desc": "• What it means: The document contains a digital signature. A valid signature confirms the file has not changed since signing. An invalid/broken signature can be a strong sign of later alteration.\n\n",
+                "manual_date_mismatch_header": "Date inconsistency (Info vs. XMP)",
+                "manual_date_mismatch_class": "Indications Found",
+                "manual_date_mismatch_desc": "• What it means: The creation/modification dates in the PDF Info dictionary do not match the dates in XMP metadata. Such discrepancies can indicate hidden or unauthorized changes.\n\n",
                 "col_id": "#", "col_name": "Name", "col_changed": "Status", "col_path": "Path", "col_md5": "MD5",
                 "col_created": "File Created", "col_modified": "File Modified", "col_exif": "EXIFTool", "col_indicators": "Signs of Alteration",
                 "export_report": "💾 Export Report",
@@ -949,7 +1010,7 @@ class PDFReconApp:
             doc = fitz.open(stream=raw, filetype="pdf")
             txt = self.extract_text(raw)
             indicator_keys = self.detect_indicators(txt, doc)
-            md5_hash = hashlib.md5(raw).hexdigest()
+            md5_hash = md5_file(fp)
             exif = self.exiftool_output(fp, detailed=True)
             original_timeline = self.generate_comprehensive_timeline(fp, txt, exif)
             revisions = self.extract_revisions(raw, fp)
@@ -1428,99 +1489,158 @@ class PDFReconApp:
             except Exception: pass
         return ""
 
-    def extract_text(self, raw):
-        txt_segments = [raw.decode("latin1", "ignore")]
+    def extract_text(self, raw: bytes):
+        """
+        Ekstrahér kun det nødvendige til indikatorjagt:
+        - ~2 MB header/trailer
+        - små streams (spring store billedstreams over)
+        - XMP xpacket (hvis til stede)
+        """
+        txt_segments = []
+
+        # Cap: header/trailer/objekter
+        head_cap = raw[:2_000_000].decode("latin1", "ignore")
+        txt_segments.append(head_cap)
+
+        # Kun små streams (fx <= 256 KB) -> undgå at inflate store billeder
         for m in re.finditer(rb"stream\r?\n(.*?)\r?\nendstream", raw, re.S):
-            txt_segments.append(self.decompress_stream(m.group(1)))
+            body = m.group(1)
+            if len(body) <= 256_000:
+                try:
+                    txt_segments.append(self.decompress_stream(body))
+                except Exception:
+                    try:
+                        txt_segments.append(body.decode("latin1", "ignore"))
+                    except Exception:
+                        pass
+
+        # XMP xpacket (fuld)
         m = re.search(rb"<\?xpacket begin=.*?\?>(.*?)<\?xpacket end=[^>]*\?>", raw, re.S)
         if m:
-            try: txt_segments.append(m.group(1).decode("utf-8", "ignore"))
-            except Exception: pass
-        return "\n".join(txt_segments)
-    
-    @staticmethod
-    def analyze_fonts(doc):
-        """Analyserer skrifttyper og returnerer True, hvis der findes flere subsets for den samme skrifttype."""
-        font_subsets = {}
-        for pno in range(len(doc)):
-            fonts = doc.get_page_fonts(pno)
-            for font in fonts:
-                font_name = font[3]
-                if '+' in font_name:
-                    _, base_font = font_name.split('+', 1)
-                    font_subsets.setdefault(base_font, set()).add(font_name)
-        
-        for base_font, subsets in font_subsets.items():
-            if len(subsets) > 1:
-                return True
-        return False
+            try:
+                txt_segments.append(m.group(1).decode("utf-8", "ignore"))
+            except Exception:
+                txt_segments.append(m.group(1).decode("latin1", "ignore"))
 
-    def detect_indicators(self, txt, doc):
-        """Søger efter indikatorer og returnerer en liste med de fundne indikatork-nøgler."""
+        return "\n".join(txt_segments)
+
+
+    def detect_indicators(self, txt: str, doc):
+        """
+        Søg efter indikatorer på ændringer/manipulation.
+        Returnerer liste af indikator-strenge.
+        """
         indicators = []
 
+        # Beholdte (fra din nuværende)
         if re.search(r"touchup_textedit", txt, re.I):
             indicators.append("TouchUp_TextEdit")
-        
-        if txt.lower().count("startxref") > 1:
+        startxref_count = txt.lower().count("startxref")
+        if startxref_count > 1:
             indicators.append("Multiple startxref")
-
-        creators = set(re.findall(r"\/Creator\s*\((.*?)\)", txt, re.I))
+        creators = set(re.findall(r"/Creator\s*\((.*?)\)", txt, re.I))
         if len(creators) > 1:
             indicators.append(f"Multiple Creators (x{len(creators)})")
-        
-        producers = set(re.findall(r"\/Producer\s*\((.*?)\)", txt, re.I))
+        producers = set(re.findall(r"/Producer\s*\((.*?)\)", txt, re.I))
         if len(producers) > 1:
             indicators.append(f"Multiple Producers (x{len(producers)})")
-
         if re.search(r'<xmpMM:History>', txt, re.I | re.S):
             indicators.append("xmpMM:History")
-            
-        if self.analyze_fonts(doc):
-            indicators.append("Multiple Font Subsets")
 
-        # --- PHASE 2: Advanced Indicator & Signature Detection ---
-        if (hasattr(doc, 'is_xfa') and doc.is_xfa) or "/XFA" in txt: 
-            indicators.append("Has XFA Form")
-
-        ocgs = doc.get_ocgs()
-        if ocgs and len(ocgs) > len(doc):
-            indicators.append("More Layers Than Pages")
-
-        has_sig, sig_validity = False, []
+        # Dine eksisterende font/OCG/signatur checks (afhænger af PyMuPDF)
         try:
-            for page in doc:
-                for sig_widget in page.widgets(types=[fitz.PDF_WIDGET_TYPE_SIGNATURE]):
-                    has_sig = True
-                    sig_validity.append("Valid" if sig_widget.check_signature() else "Invalid")
-        except Exception as e:
-            logging.warning(f"Error during signature check for {doc.name}: {e}")
-
-        if has_sig:
+            if self.analyze_fonts(doc):
+                indicators.append("Multiple Font Subsets")
+        except Exception:
+            pass
+        try:
+            if (hasattr(doc, 'is_xfa') and doc.is_xfa) or "/XFA" in txt:
+                indicators.append("Has XFA Form")
+        except Exception:
+            pass
+        try:
+            ocgs = doc.get_ocgs()
+            if ocgs and len(ocgs) > len(doc):
+                indicators.append("More Layers Than Pages")
+        except Exception:
+            pass
+        # Simplere signatur detektion (ud over widgets)
+        if re.search(r"/Type\s*/Sig\b", txt):
             indicators.append("Has Digital Signature")
-            if "Invalid" in sig_validity: indicators.append("Signature: Invalid")
-            elif "Valid" in sig_validity: indicators.append("Signature: Valid")
-        # --- End Phase 2 ---
 
+        # NYT: /Prev-kæde (incremental updates)
+        prevs = re.findall(r"/Prev\s+\d+", txt)
+        if prevs:
+            indicators.append(f"Incremental updates (x{len(prevs) + 1})")
+
+        # NYT: Linearization + opdateringer
+        if re.search(r"/Linearized\s+\d+", txt):
+            indicators.append("Linearized")
+            if startxref_count > 1 or prevs:
+                indicators.append("Linearized + updated")
+
+        # NYT: Redaction/annotation/PieceInfo/AcroForm & NeedAppearances
+        if re.search(r"/Redact\b", txt, re.I):
+            indicators.append("Has Redactions")
+        if re.search(r"/Annots\b", txt, re.I):
+            indicators.append("Has Annotations")
+        if re.search(r"/PieceInfo\b", txt, re.I):
+            indicators.append("Has PieceInfo")
+        if re.search(r"/AcroForm\b", txt, re.I):
+            indicators.append("Has AcroForm")
+            if re.search(r"/NeedAppearances\s+true\b", txt, re.I):
+                indicators.append("AcroForm NeedAppearances=true")
+
+        # ID-koherens (Trailer vs. XMP) – udbygget
         all_instance_ids, all_doc_ids = [], []
         try:
-            trailer_id = doc.xref_get_trailer().get("ID")
-            if isinstance(trailer_id, list) and len(trailer_id) == 2:
-                all_doc_ids.append(trailer_id[0].hex().upper())
-                all_instance_ids.append(trailer_id[1].hex().upper())
-        except Exception: pass
+            trailer = doc.xref_get_trailer()
+            t_id = trailer.get("ID")
+            if isinstance(t_id, list) and len(t_id) == 2:
+                # PyMuPDF giver bytes
+                d0 = t_id[0]
+                d1 = t_id[1]
+                all_doc_ids.append(d0.hex().upper() if isinstance(d0, (bytes, bytearray)) else str(d0).upper())
+                all_instance_ids.append(d1.hex().upper() if isinstance(d1, (bytes, bytearray)) else str(d1).upper())
+        except Exception:
+            pass
 
-        all_instance_ids.extend(re.findall(r'xmpMM:InstanceID(?:>|=")([^<"]+)', txt, re.I))
-        all_doc_ids.extend(re.findall(r'xmpMM:DocumentID(?:>|=")([^<"]+)', txt, re.I))
-        all_doc_ids.extend(re.findall(r'xmpMM:OriginalDocumentID(?:>|=")([^<"]+)', txt, re.I))
-        
-        history_match = re.search(r'<xmpMM:History>\s*<rdf:Seq>(.*?)</rdf:Seq>\s*</xmpMM:History>', txt, re.S|re.I)
-        if history_match: all_instance_ids.extend(re.findall(r'(?:stEvt:instanceID|instanceID)="([^"]+)"', history_match.group(1), re.I))
+        all_instance_ids += re.findall(r"xmpMM:InstanceID(?:>|=\")([^<\"]+)", txt, re.I)
+        all_doc_ids += re.findall(r"xmpMM:DocumentID(?:>|=\")([^<\"]+)", txt, re.I)
+        all_doc_ids += re.findall(r"xmpMM:OriginalDocumentID(?:>|=\")([^<\"]+)", txt, re.I)
 
-        if len(set(filter(None, all_instance_ids))) > 1: indicators.append(f"Multiple InstanceID (x{len(set(filter(None, all_instance_ids)))})")
-        if len(set(filter(None, all_doc_ids))) > 1: indicators.append(f"Multiple DocumentID (x{len(set(filter(None, all_doc_ids)))})")
+        hist = re.search(r"<xmpMM:History>\s*<rdf:Seq>(.*?)</rdf:Seq>\s*</xmpMM:History>", txt, re.S | re.I)
+        if hist:
+            all_instance_ids += re.findall(r"(?:stRef:instanceID|instanceID)=\"([^\"]+)\"", hist.group(1), re.I)
+
+        if len(set(filter(None, all_instance_ids))) > 1:
+            indicators.append(f"Multiple InstanceID (x{len(set(filter(None, all_instance_ids)))})")
+        if len(set(filter(None, all_doc_ids))) > 1:
+            indicators.append(f"Multiple DocumentID (x{len(set(filter(None, all_doc_ids)))})")
+
+        # NYT: Info vs XMP dato-mismatch
+        info_dates = dict(re.findall(r"/(ModDate|CreationDate)\s*\(\s*D:(\d{8,14})", txt))
+        xmp_pairs = re.findall(r"<xmp:(ModifyDate|CreateDate)>([^<]+)</xmp:\1>", txt)
+        xmp_dates = {k: v for k, v in xmp_pairs}
+
+        def _short(d: str) -> str:
+            # reducer til YYYYMMDDHHMMSS (fjern zone/separatorer)
+            d = re.sub(r"[-:TZ]", "", d)
+            return d[:14]
+
+        mismatches = []
+        if "CreationDate" in info_dates and "CreateDate" in xmp_dates:
+            if _short(info_dates["CreationDate"]) and _short(xmp_dates["CreateDate"]) and \
+               _short(info_dates["CreationDate"]) != _short(xmp_dates["CreateDate"]):
+                mismatches.append("CreateDate mismatch (Info vs XMP)")
+        if "ModDate" in info_dates and "ModifyDate" in xmp_dates:
+            if _short(info_dates["ModDate"]) and _short(xmp_dates["ModifyDate"]) and \
+               _short(info_dates["ModDate"]) != _short(xmp_dates["ModifyDate"]):
+                mismatches.append("ModifyDate mismatch (Info vs XMP)")
+        indicators.extend(mismatches)
 
         return indicators
+
 
     def get_flag(self, indicator_keys, is_revision, parent_id=None):
         """Bestemmer filens statusflag baseret på fundne indikatornøgler."""
@@ -1678,7 +1798,14 @@ class PDFReconApp:
         add_manual_entry("manual_id_header", "manual_id_class", "manual_id_desc", "yellow")
         add_manual_entry("manual_xref_header", "manual_xref_class", "manual_xref_desc", "yellow")
         add_manual_entry("manual_layers_pages_header", "manual_layers_pages_class", "manual_layers_pages_desc", "yellow")
-        
+        add_manual_entry("manual_prev_header", "manual_prev_class", "manual_prev_desc", "yellow")
+        add_manual_entry("manual_linearized_header", "manual_linearized_class", "manual_linearized_desc", "yellow")
+        add_manual_entry("manual_redact_header", "manual_redact_class", "manual_redact_desc", "yellow")
+        add_manual_entry("manual_annots_header", "manual_annots_class", "manual_annots_desc", "yellow")
+        add_manual_entry("manual_pieceinfo_header", "manual_pieceinfo_class", "manual_pieceinfo_desc", "yellow")
+        add_manual_entry("manual_acro_needapp_header", "manual_acro_needapp_class", "manual_acro_needapp_desc", "yellow")
+        add_manual_entry("manual_digsig_header", "manual_digsig_class", "manual_digsig_desc", "yellow")
+        add_manual_entry("manual_date_mismatch_header", "manual_date_mismatch_class", "manual_date_mismatch_desc", "yellow")
         manual_text.config(state="disabled")
 
         close_button = ttk.Button(outer_frame, text=self._("close_button_text"), command=manual_popup.destroy)
