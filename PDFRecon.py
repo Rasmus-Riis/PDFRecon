@@ -21,6 +21,7 @@ import configparser
 import csv
 import json
 import time
+import re as _re
 
 
 # --- NYT: Tilføjet imports og fejlhåndtering for Pillow ---
@@ -82,7 +83,7 @@ def md5_file(fp: Path, buf_size: int = 1024 * 1024) -> str:
 class PDFReconApp:
     def __init__(self, root):
         # --- Applikationskonfiguration ---
-        self.app_version = "14.4.0" # Added text in errormessage if exiftool isnt found
+        self.app_version = "14.6.0" # Removed redundant ID checks
         self.config_path = self._resolve_path("config.ini", base_is_parent=True)
         self._load_or_create_config()
         
@@ -222,7 +223,8 @@ class PDFReconApp:
                 "processing_error": "Processeringsfejl", "unknown_error": "Ukendt fejl",
                 "Has XFA Form": "Har XFA Formular", "Has Digital Signature": "Har Digital Signatur", "Signature: Valid": "Signatur: Gyldig", "Signature: Invalid": "Signatur: Ugyldig", "More Layers Than Pages": "Flere Lag End Sider",
                 "view_pdf": "Vis PDF", "pdf_viewer_title": "PDF Fremviser", "pdf_viewer_error_title": "Fremvisningsfejl",
-                "pdf_viewer_error_message": "Kunne ikke åbne eller vise PDF-filen.\n\nFejl: {e}"
+                "pdf_viewer_error_message": "Kunne ikke åbne eller vise PDF-filen.\n\nFejl: {e}",
+                "status_no": "NEJ"
             },
             "en": {
                 "choose_folder": "📁 Choose folder and scan", "show_timeline": "Show Timeline", "status_initial": "Drag a folder here or use the button to start an analysis.",
@@ -302,7 +304,8 @@ class PDFReconApp:
                 "processing_error": "Processing Error", "unknown_error": "Unknown Error",
                 "Has XFA Form": "Has XFA Form", "Has Digital Signature": "Has Digital Signature", "Signature: Valid": "Signature: Valid", "Signature: Invalid": "Signature: Invalid", "More Layers Than Pages": "More Layers Than Pages",
                 "view_pdf": "View PDF", "pdf_viewer_title": "PDF Viewer", "pdf_viewer_error_title": "Viewer Error",
-                "pdf_viewer_error_message": "Could not open or display the PDF file.\n\nError: {e}"
+                "pdf_viewer_error_message": "Could not open or display the PDF file.\n\nError: {e}",
+                "status_no": "NO"
             }
         }
 
@@ -359,9 +362,7 @@ class PDFReconApp:
         self.style.map('Treeview', background=[('selected', '#0078D7')])
         self.tree_tags = {
             "JA": "red_row",
-            "Indikationer Fundet": "yellow_row",
-            "YES": "red_row",
-            "Indications Found": "yellow_row"
+            "YES": "red_row"
         }
         self.style.configure("blue.Horizontal.TProgressbar",
                              troughcolor='#EAEAEA',
@@ -1174,7 +1175,10 @@ class PDFReconApp:
             created_time = datetime.fromtimestamp(stat.st_ctime).strftime("%Y-%m-%d %H:%M:%S")
             modified_time = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
             flag = self.get_flag(data["indicator_keys"], False)
-            indicators_str = "; ".join(self._(key) for key in data["indicator_keys"])
+            
+            YES = "YES" if self.language.get() == "en" else "JA"
+            NO = self._("status_no")
+            indicators_str = YES if data["indicator_keys"] else NO
 
         self.exif_outputs[str(path)] = data["exif"]
         self.timeline_data[str(path)] = data["timeline"]
@@ -1210,7 +1214,6 @@ class PDFReconApp:
 
     def on_select_item(self, event):
         selected_items = self.tree.selection()
-       
         if not selected_items:
             self.detail_text.config(state="normal")
             self.detail_text.delete("1.0", tk.END)
@@ -1218,16 +1221,34 @@ class PDFReconApp:
             return
         
         values = self.tree.item(selected_items[0], "values")
+        path_str = values[3]  # Sti er på index 3
+
         self.detail_text.config(state="normal")
         self.detail_text.delete("1.0", tk.END)
+
         for i, val in enumerate(values):
             col_name = self.tree.heading(self.columns[i], "text")
             self.detail_text.insert(tk.END, f"{col_name}: ", ("bold",))
-            if col_name == self._("col_path"): self.detail_text.insert(tk.END, val + "\n", ("link",))
+            
+            if col_name == self._("col_path"):
+                self.detail_text.insert(tk.END, val + "\n", ("link",))
             elif col_name == self._("col_indicators"):
+                # Find de oprindelige scanningsdata for den valgte sti
+                original_data = next((d for d in self.scan_data if str(d.get('path')) == path_str), None)
+                
+                # Tjek om der er indikatorer at vise
+                if original_data and original_data.get("indicator_keys"):
+                    # Vis listen af indikatorer, hver på sin egen linje med en prik foran
+                    full_indicators_str = "\n  • " + "\n  • ".join(self._(key) for key in original_data["indicator_keys"])
+                    self.detail_text.insert(tk.END, full_indicators_str + "\n")
+                else:
+                    # Hvis ingen indikatorer (eller det er en revision), vis blot værdien fra kolonnen (f.eks. NEJ)
+                    self.detail_text.insert(tk.END, val + "\n")
+            else:
                 self.detail_text.insert(tk.END, val + "\n")
-            else: self.detail_text.insert(tk.END, val + "\n")
+                
         self.detail_text.config(state="disabled")
+
 
     def _open_path_from_detail(self, event):
         index = self.detail_text.index(f"@{event.x},{event.y}")
@@ -1532,7 +1553,7 @@ class PDFReconApp:
         """
         indicators = []
 
-        # Beholdte (fra din nuværende)
+        # Beholdte checks
         if re.search(r"touchup_textedit", txt, re.I):
             indicators.append("TouchUp_TextEdit")
         startxref_count = txt.lower().count("startxref")
@@ -1547,7 +1568,7 @@ class PDFReconApp:
         if re.search(r'<xmpMM:History>', txt, re.I | re.S):
             indicators.append("xmpMM:History")
 
-        # Dine eksisterende font/OCG/signatur checks (afhænger af PyMuPDF)
+        # Fonts / OCG / Signatur mv.
         try:
             if self.analyze_fonts(doc):
                 indicators.append("Multiple Font Subsets")
@@ -1564,22 +1585,21 @@ class PDFReconApp:
                 indicators.append("More Layers Than Pages")
         except Exception:
             pass
-        # Simplere signatur detektion (ud over widgets)
         if re.search(r"/Type\s*/Sig\b", txt):
             indicators.append("Has Digital Signature")
 
-        # NYT: /Prev-kæde (incremental updates)
+        # /Prev-kæde
         prevs = re.findall(r"/Prev\s+\d+", txt)
         if prevs:
             indicators.append(f"Incremental updates (x{len(prevs) + 1})")
 
-        # NYT: Linearization + opdateringer
+        # Linearization
         if re.search(r"/Linearized\s+\d+", txt):
             indicators.append("Linearized")
             if startxref_count > 1 or prevs:
                 indicators.append("Linearized + updated")
 
-        # NYT: Redaction/annotation/PieceInfo/AcroForm & NeedAppearances
+        # Redactions / annots / pieceinfo / acroform
         if re.search(r"/Redact\b", txt, re.I):
             indicators.append("Has Redactions")
         if re.search(r"/Annots\b", txt, re.I):
@@ -1591,55 +1611,79 @@ class PDFReconApp:
             if re.search(r"/NeedAppearances\s+true\b", txt, re.I):
                 indicators.append("AcroForm NeedAppearances=true")
 
-        # ID-koherens (Trailer vs. XMP) – udbygget
-        all_instance_ids, all_doc_ids = [], []
-        try:
-            trailer = doc.xref_get_trailer()
-            t_id = trailer.get("ID")
-            if isinstance(t_id, list) and len(t_id) == 2:
-                # PyMuPDF giver bytes
-                d0 = t_id[0]
-                d1 = t_id[1]
-                all_doc_ids.append(d0.hex().upper() if isinstance(d0, (bytes, bytearray)) else str(d0).upper())
-                all_instance_ids.append(d1.hex().upper() if isinstance(d1, (bytes, bytearray)) else str(d1).upper())
-        except Exception:
-            pass
+        # ---------- ID-sammenligning (familier adskilt) ----------
+        def _norm_uuid(x):
+            if x is None:
+                return None
+            if isinstance(x, (bytes, bytearray)):
+                return x.hex().upper()
+            s = str(x).strip()
+            s = re.sub(r"^urn:uuid:", "", s, flags=re.I)
+            s = s.strip("<>")
+            return s.upper() if s else None
 
-        all_instance_ids += re.findall(r"xmpMM:InstanceID(?:>|=\")([^<\"]+)", txt, re.I)
-        all_doc_ids += re.findall(r"xmpMM:DocumentID(?:>|=\")([^<\"]+)", txt, re.I)
-        all_doc_ids += re.findall(r"xmpMM:OriginalDocumentID(?:>|=\")([^<\"]+)", txt, re.I)
+        # ——— XMP-familien ———
+        xmp_orig = xmp_doc = xmp_inst = None
+        m = re.search(r"xmpMM:OriginalDocumentID(?:>|=\")([^<\"]+)", txt, re.I)
+        if m: xmp_orig = _norm_uuid(m.group(1))
+        m = re.search(r"xmpMM:DocumentID(?:>|=\")([^<\"]+)", txt, re.I)
+        if m: xmp_doc  = _norm_uuid(m.group(1))
+        m = re.search(r"xmpMM:InstanceID(?:>|=\")([^<\"]+)", txt, re.I)
+        if m: xmp_inst = _norm_uuid(m.group(1))
 
-        hist = re.search(r"<xmpMM:History>\s*<rdf:Seq>(.*?)</rdf:Seq>\s*</xmpMM:History>", txt, re.S | re.I)
-        if hist:
-            all_instance_ids += re.findall(r"(?:stRef:instanceID|instanceID)=\"([^\"]+)\"", hist.group(1), re.I)
+        # STRAM LOGIK: flag KUN hvis current ≠ original (og begge findes)
+        if xmp_orig and xmp_doc and xmp_doc != xmp_orig:
+            indicators.append("XMP_ID_CHANGE")
+        if xmp_orig and xmp_inst and xmp_inst != xmp_orig:
+            indicators.append("XMP_ID_CHANGE")
 
-        if len(set(filter(None, all_instance_ids))) > 1:
-            indicators.append(f"Multiple InstanceID (x{len(set(filter(None, all_instance_ids)))})")
-        if len(set(filter(None, all_doc_ids))) > 1:
-            indicators.append(f"Multiple DocumentID (x{len(set(filter(None, all_doc_ids)))})")
+        # ——— Trailer-familien (regex + PyMuPDF fallback) ———
+        trailer_orig = trailer_curr = None
+        m = re.search(r"/ID\s*\[\s*<\s*([0-9A-Fa-f]+)\s*>\s*<\s*([0-9A-Fa-f]+)\s*>\s*\]", txt)
+        if m:
+            trailer_orig = m.group(1).upper()
+            trailer_curr = m.group(2).upper()
+        if trailer_orig is None or trailer_curr is None:
+            try:
+                trailer = doc.xref_get_trailer() or {}
+                t_id = trailer.get("ID")
+                if isinstance(t_id, (list, tuple)) and len(t_id) == 2:
+                    if trailer_orig is None:
+                        trailer_orig = _norm_uuid(t_id[0])
+                    if trailer_curr is None:
+                        trailer_curr = _norm_uuid(t_id[1])
+            except Exception:
+                pass
 
-        # NYT: Info vs XMP dato-mismatch
+        if trailer_orig and trailer_curr and trailer_curr != trailer_orig:
+            indicators.append("TRAILER_ID_CHANGE")
+
+        # Info vs XMP dato-mismatch
         info_dates = dict(re.findall(r"/(ModDate|CreationDate)\s*\(\s*D:(\d{8,14})", txt))
         xmp_pairs = re.findall(r"<xmp:(ModifyDate|CreateDate)>([^<]+)</xmp:\1>", txt)
         xmp_dates = {k: v for k, v in xmp_pairs}
 
         def _short(d: str) -> str:
-            # reducer til YYYYMMDDHHMMSS (fjern zone/separatorer)
             d = re.sub(r"[-:TZ]", "", d)
             return d[:14]
 
-        mismatches = []
         if "CreationDate" in info_dates and "CreateDate" in xmp_dates:
-            if _short(info_dates["CreationDate"]) and _short(xmp_dates["CreateDate"]) and \
-               _short(info_dates["CreationDate"]) != _short(xmp_dates["CreateDate"]):
-                mismatches.append("CreateDate mismatch (Info vs XMP)")
+            a = _short(info_dates["CreationDate"]); b = _short(xmp_dates["CreateDate"])
+            if a and b and a != b:
+                indicators.append("CreateDate mismatch (Info vs XMP)")
         if "ModDate" in info_dates and "ModifyDate" in xmp_dates:
-            if _short(info_dates["ModDate"]) and _short(xmp_dates["ModifyDate"]) and \
-               _short(info_dates["ModDate"]) != _short(xmp_dates["ModifyDate"]):
-                mismatches.append("ModifyDate mismatch (Info vs XMP)")
-        indicators.extend(mismatches)
+            a = _short(info_dates["ModDate"]); b = _short(xmp_dates["ModifyDate"])
+            if a and b and a != b:
+                indicators.append("ModifyDate mismatch (Info vs XMP)")
+
+        # --- To linjer med FULDE ID-værdier (til detaljevinduet) ---
+        if any([xmp_orig, xmp_doc, xmp_inst]):
+            indicators.append(f"XMP IDs:\n  Orig={xmp_orig}\n  Doc={xmp_doc}\n  Inst={xmp_inst}")
+        if any([trailer_orig, trailer_curr]):
+            indicators.append(f"Trailer IDs:\n  Orig={trailer_orig}\n  Curr={trailer_curr}")
 
         return indicators
+
 
 
     def get_flag(self, indicator_keys, is_revision, parent_id=None):
@@ -1647,18 +1691,26 @@ class PDFReconApp:
         if is_revision:
             return self._("revision_of").format(id=parent_id)
         
-        keys_set = set(indicator_keys)
-        if "Has Revisions" in keys_set:  
-            return "YES" if self.language.get() == "en" else "JA"
+        keys_set = set(indicator_keys or [])
+        YES = "YES" if self.language.get() == "en" else "JA"
+        NO = self._("status_no")
+
+        # Kritiske indikatorer, der resulterer i "JA"
+        high_risk_indicators = {
+            "Has Revisions",
+            "TouchUp_TextEdit",
+            "Signature: Invalid",
+            "XMP_ID_CHANGE",
+            "TRAILER_ID_CHANGE"
+        }
+
+        if any(indicator in high_risk_indicators for indicator in keys_set):
+            return YES
         
-        high_risk = {"TouchUp_TextEdit", "Signature: Invalid"}
-        if any(item in high_risk for item in keys_set):
-            return "YES" if self.language.get() == "en" else "JA"
-        
-        if indicator_keys:  
-            return "Indications Found" if self.language.get() == "en" else "Indikationer Fundet"
-        
-        return "NOT DETECTED" if self.language.get() == "en" else "IKKE PÅVIST"
+        # Alle andre tilfælde (inklusive ingen indikatorer) resulterer i "NEJ"
+        return NO
+
+
     
     def show_about(self):
         about_popup = Toplevel(self.root)
