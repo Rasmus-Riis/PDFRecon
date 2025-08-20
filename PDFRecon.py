@@ -83,7 +83,7 @@ def md5_file(fp: Path, buf_size: int = 1024 * 1024) -> str:
 class PDFReconApp:
     def __init__(self, root):
         # --- Applikationskonfiguration ---
-        self.app_version = "14.6.0" # Removed redundant ID checks
+        self.app_version = "14.6.1" # Removed redundant ID checks
         self.config_path = self._resolve_path("config.ini", base_is_parent=True)
         self._load_or_create_config()
         
@@ -144,7 +144,7 @@ class PDFReconApp:
                 "choose_folder": "📁 Vælg mappe og scan",
                 "show_timeline": "Vis Tidslinje",
                 "status_initial": "Træk en mappe hertil eller brug knappen for at starte en analyse.",
-                "col_id": "#", "col_name": "Navn", "col_changed": "Status", "col_path": "Sti", "col_md5": "MD5",
+                "col_id": "#", "col_name": "Navn", "col_changed": "Ændret", "col_path": "Sti", "col_md5": "MD5",
                 "col_created": "Fil oprettet", "col_modified": "Fil sidst ændret", "col_exif": "EXIFTool", "col_indicators": "Tegn på ændring",
                 "export_report": "💾 Eksporter rapport",
                 "menu_help": "Hjælp", "menu_manual": "Manual", "menu_about": "Om PDFRecon", "menu_license": "Vis Licens",
@@ -252,7 +252,7 @@ class PDFReconApp:
                 "manual_date_mismatch_header": "Date inconsistency (Info vs. XMP)",
                 "manual_date_mismatch_class": "Indications Found",
                 "manual_date_mismatch_desc": "• What it means: The creation/modification dates in the PDF Info dictionary do not match the dates in XMP metadata. Such discrepancies can indicate hidden or unauthorized changes.\n\n",
-                "col_id": "#", "col_name": "Name", "col_changed": "Status", "col_path": "Path", "col_md5": "MD5",
+                "col_id": "#", "col_name": "Name", "col_changed": "Changed", "col_path": "Path", "col_md5": "MD5",
                 "col_created": "File Created", "col_modified": "File Modified", "col_exif": "EXIFTool", "col_indicators": "Signs of Alteration",
                 "export_report": "💾 Export Report",
                 "menu_help": "Help", "menu_manual": "Manual", "menu_about": "About PDFRecon", "menu_license": "Show License",
@@ -362,11 +362,15 @@ class PDFReconApp:
         self.style.map('Treeview', background=[('selected', '#0078D7')])
         self.tree_tags = {
             "JA": "red_row",
-            "YES": "red_row"
+            "YES": "red_row",
+            # NYT: "Sandsynligt"/"Possible" vises gult
+            "Sandsynligt": "yellow_row",
+            "Possible": "yellow_row",
         }
         self.style.configure("blue.Horizontal.TProgressbar",
                              troughcolor='#EAEAEA',
                              background='#0078D7')
+
 
     def _setup_menu(self):
         self.menubar = tk.Menu(self.root)
@@ -477,8 +481,6 @@ class PDFReconApp:
 
         self.scan_button = ttk.Button(button_frame, text=self._("choose_folder"), width=25, command=self.choose_folder)
         self.scan_button.pack(side="left", padx=5)
-       
-        
 
         self.scanning_indicator_label = ttk.Label(button_frame, text="", foreground="blue", font=("Segoe UI", 9))
         self.scanning_indicator_label.pack(side="left", padx=15, pady=5)
@@ -516,8 +518,18 @@ class PDFReconApp:
         self.tree.bind("<Motion>", self._on_tree_motion)
         self.tree.bind("<Button-3>", self.show_context_menu)
 
-        self.detail_text = tk.Text(frame, height=10, wrap="word", font=("Segoe UI", 9))
-        self.detail_text.pack(fill="both", expand=False, pady=(10, 5))
+        # --- Scrollable details box ---
+        detail_frame = ttk.Frame(frame)
+        detail_frame.pack(fill="both", expand=False, pady=(10, 5))
+
+        detail_scrollbar = ttk.Scrollbar(detail_frame, orient="vertical")
+        self.detail_text = tk.Text(detail_frame, height=10, wrap="word", font=("Segoe UI", 9),
+                                   yscrollcommand=detail_scrollbar.set)
+        detail_scrollbar.config(command=self.detail_text.yview)
+
+        self.detail_text.pack(side="left", fill="both", expand=True)
+        detail_scrollbar.pack(side="right", fill="y")
+
         self.detail_text.tag_configure("bold", font=("Segoe UI", 9, "bold"))
         self.detail_text.tag_configure("link", foreground="blue", underline=True)
         self.detail_text.tag_bind("link", "<Enter>", lambda e: self.detail_text.config(cursor="hand2"))
@@ -539,6 +551,7 @@ class PDFReconApp:
 
         self.progressbar = ttk.Progressbar(bottom_frame, orient="horizontal", mode="determinate", style="blue.Horizontal.TProgressbar")
         self.progressbar.pack(side="left", fill="x", expand=True, padx=5)
+
 
     def _setup_drag_and_drop(self):
         """Aktiverer drag and drop for hovedvinduet."""
@@ -998,6 +1011,114 @@ class PDFReconApp:
         """(Placeholder) Processerer en stor PDF-fil ved hjælp af streaming for at spare hukommelse."""
         logging.info(f"Streaming-processering er endnu ikke implementeret. Behandler {filepath.name} normalt.")
         pass
+    def extract_additional_xmp_ids(self, txt: str) -> dict:
+        """
+        Harvest XMP IDs beyond basic xmpMM:{Original,Document,Instance}:
+        - stRef:documentID / stRef:instanceID   (both attribute AND element forms)
+        - xmpMM:DerivedFrom   (stRef:* and OriginalDocumentID inside)
+        - xmpMM:Ingredients   (stRef:* inside)
+        - xmpMM:History       (stRef:* and any InstanceID-like values)
+        - photoshop:DocumentAncestors (Bag of GUIDs/uuids)
+        Returns a dict of sets with normalized uppercase IDs.
+        """
+        import re
+
+        def _norm(val):
+            if val is None:
+                return None
+            if isinstance(val, (bytes, bytearray)):
+                val = val.decode("utf-8", "ignore")
+            s = str(val).strip()
+            # strip known prefixes & wrappers
+            s = re.sub(r"^urn:uuid:", "", s, flags=re.I)
+            s = re.sub(r"^(uuid:|xmp\.iid:|xmp\.did:)", "", s, flags=re.I)
+            s = s.strip("<>").strip()
+            return s.upper() if s else None
+
+        out = {
+            "stref_doc_ids": set(),
+            "stref_inst_ids": set(),
+            "derived_doc_ids": set(),
+            "derived_inst_ids": set(),
+            "derived_orig_ids": set(),
+            "ingredient_doc_ids": set(),
+            "ingredient_inst_ids": set(),
+            "history_inst_ids": set(),
+            "history_doc_ids": set(),
+            "ps_doc_ancestors": set(),
+        }
+
+        # ---------------- stRef anywhere (attribute form) ----------------
+        for m in re.finditer(r'stRef:documentID="([^"]+)"', txt, re.I):
+            v = _norm(m.group(1));  out["stref_doc_ids"].add(v) if v else None
+        for m in re.finditer(r'stRef:instanceID="([^"]+)"', txt, re.I):
+            v = _norm(m.group(1));  out["stref_inst_ids"].add(v) if v else None
+
+        # ---------------- stRef anywhere (element form) ----------------
+        for m in re.finditer(r"<stRef:documentID>([^<]+)</stRef:documentID>", txt, re.I):
+            v = _norm(m.group(1));  out["history_doc_ids"].add(v) if v else None
+        for m in re.finditer(r"<stRef:instanceID>([^<]+)</stRef:instanceID>", txt, re.I):
+            v = _norm(m.group(1));  out["history_inst_ids"].add(v) if v else None
+
+        # ---------------- DerivedFrom block ----------------
+        df = re.search(r"<xmpMM:DerivedFrom\b[^>]*>(.*?)</xmpMM:DerivedFrom>", txt, re.I | re.S)
+        if df:
+            blk = df.group(1)
+            # stRef:* within DerivedFrom
+            for m in re.finditer(r'stRef:documentID="([^"]+)"', blk, re.I):
+                v = _norm(m.group(1)); out["derived_doc_ids"].add(v) if v else None
+            for m in re.finditer(r'stRef:instanceID="([^"]+)"', blk, re.I):
+                v = _norm(m.group(1)); out["derived_inst_ids"].add(v) if v else None
+            for m in re.finditer(r"<stRef:documentID>([^<]+)</stRef:documentID>", blk, re.I):
+                v = _norm(m.group(1)); out["derived_doc_ids"].add(v) if v else None
+            for m in re.finditer(r"<stRef:instanceID>([^<]+)</stRef:instanceID>", blk, re.I):
+                v = _norm(m.group(1)); out["derived_inst_ids"].add(v) if v else None
+            # OriginalDocumentID sometimes appears explicitly inside DerivedFrom
+            for m in re.finditer(r"(?:xmpMM:|)OriginalDocumentID(?:>|=\")([^<\">]+)", blk, re.I):
+                v = _norm(m.group(1)); out["derived_orig_ids"].add(v) if v else None
+
+        # ---------------- Ingredients block ----------------
+        ing = re.search(r"<xmpMM:Ingredients\b[^>]*>(.*?)</xmpMM:Ingredients>", txt, re.I | re.S)
+        if ing:
+            blk = ing.group(1)
+            for m in re.finditer(r'stRef:documentID="([^"]+)"', blk, re.I):
+                v = _norm(m.group(1)); out["ingredient_doc_ids"].add(v) if v else None
+            for m in re.finditer(r'stRef:instanceID="([^"]+)"', blk, re.I):
+                v = _norm(m.group(1)); out["ingredient_inst_ids"].add(v) if v else None
+            for m in re.finditer(r"<stRef:documentID>([^<]+)</stRef:documentID>", blk, re.I):
+                v = _norm(m.group(1)); out["ingredient_doc_ids"].add(v) if v else None
+            for m in re.finditer(r"<stRef:instanceID>([^<]+)</stRef:instanceID>", blk, re.I):
+                v = _norm(m.group(1)); out["ingredient_inst_ids"].add(v) if v else None
+
+        # ---------------- History block ----------------
+        hist = re.search(r"<xmpMM:History\b[^>]*>(.*?)</xmpMM:History>", txt, re.I | re.S)
+        if hist:
+            blk = hist.group(1)
+            # attribute-style summary sometimes exists in certain producers
+            for m in re.finditer(r'(?:InstanceID|stRef:instanceID)="([^"]+)"', blk, re.I):
+                v = _norm(m.group(1)); out["history_inst_ids"].add(v) if v else None
+            for m in re.finditer(r'(?:DocumentID|stRef:documentID)="([^"]+)"', blk, re.I):
+                v = _norm(m.group(1)); out["history_doc_ids"].add(v) if v else None
+            # element-style
+            for m in re.finditer(r"<stRef:instanceID>([^<]+)</stRef:instanceID>", blk, re.I):
+                v = _norm(m.group(1)); out["history_inst_ids"].add(v) if v else None
+            for m in re.finditer(r"<stRef:documentID>([^<]+)</stRef:documentID>", blk, re.I):
+                v = _norm(m.group(1)); out["history_doc_ids"].add(v) if v else None
+            # catch any xmp.iid/xmp.did that appear as plain text within History
+            for m in re.finditer(r"(uuid:[0-9a-f\-]+|xmp\.iid:[^,<>} \]]+|xmp\.did:[^,<>} \]]+)", blk, re.I):
+                v = _norm(m.group(1)); out["history_inst_ids"].add(v) if v else None
+
+        # ---------------- Photoshop DocumentAncestors ----------------
+        ps = re.search(r"<photoshop:DocumentAncestors\b[^>]*>(.*?)</photoshop:DocumentAncestors>", txt, re.I | re.S)
+        if ps:
+            for m in re.finditer(r"<rdf:li[^>]*>([^<]+)</rdf:li>", ps.group(1), re.I):
+                v = _norm(m.group(1)); out["ps_doc_ancestors"].add(v) if v else None
+
+        # Deduplicate and purge empty
+        for k in out:
+            out[k] = {v for v in out[k] if v}
+
+        return out
 
     def _process_single_file(self, fp):
         """
@@ -1013,6 +1134,9 @@ class PDFReconApp:
             indicator_keys = self.detect_indicators(txt, doc)
             md5_hash = md5_file(fp)
             exif = self.exiftool_output(fp, detailed=True)
+            tool_changed, ctool, mtool, _ = self._detect_tool_change_from_exif(exif)
+            if tool_changed:
+                indicator_keys.append("Tool Change")
             original_timeline = self.generate_comprehensive_timeline(fp, txt, exif)
             revisions = self.extract_revisions(raw, fp)
             doc.close()
@@ -1176,7 +1300,7 @@ class PDFReconApp:
             modified_time = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
             flag = self.get_flag(data["indicator_keys"], False)
             
-            YES = "YES" if self.language.get() == "en" else "JA"
+            YES = "See details" if self.language.get() == "en" else "Se detaljer"
             NO = self._("status_no")
             indicators_str = YES if data["indicator_keys"] else NO
 
@@ -1327,61 +1451,377 @@ class PDFReconApp:
         except FileNotFoundError:
             pass
         return events
+    def _detect_tool_change_from_exif(self, exiftool_output: str):
+        """
+        Returnerer dict med:
+          {
+            'changed': bool,
+            'create_tool': str, 'modify_tool': str,
+            'create_engine': str, 'modify_engine': str,
+            'modify_dt': datetime|None,
+            'reason': 'producer'|'software'|'engine'|'mixed'
+          }
+        Sætter changed=True hvis værktøj eller XMP-engine har ændret sig mellem første create og seneste modify.
+        """
+        lines = exiftool_output.splitlines()
+        kv_re = re.compile(r'^\[(?P<group>[^\]]+)\]\s*(?P<tag>[\w\-/ ]+?)\s*:\s*(?P<value>.+)$')
+        date_re = re.compile(
+            r'^\[(?P<group>[^\]]+)\]\s*(?P<tag>[\w\-/ ]+?)\s*:\s*(?P<value>.*?)(?P<date>\d{4}:\d{2}:\d{2}\s\d{2}:\d{2}:\d{2}(?:[+\-]\d{2}:\d{2}|Z)?).*$'
+        )
+
+        # Opsaml felter
+        producer_pdf = producer_xmppdf = ""
+        softwareagent = application = software = creatortool = ""
+        create_engine = modify_engine = ""  # XMPToolkit ved create/modify (heuristik)
+        xmptoolkit = ""                    # generel værdi
+
+        software_tokens = re.compile(
+            r"(adobe|acrobat|indesign|illustrator|photoshop|framemaker|pdf|ghostscript|"
+            r"microsoft|word|excel|powerpoint|office|libreoffice|openoffice|prince|"
+            r"latex|tex|pdflatex|xetex|wkhtmltopdf|canva|nitro|foxit|pdf24|reportlab|"
+            r"tcpdf|fpdf|itext|cairo|skia|quartz|clibpdf|wkhtml|chrome|chromium|edge|safari|firefox)",
+            re.IGNORECASE
+        )
+        def looks_like_software(s: str) -> bool:
+            return bool(s and software_tokens.search(s))
+
+        # Først: samle K/V
+        for ln in lines:
+            m = kv_re.match(ln)
+            if not m:
+                continue
+            group = m.group("group").strip().lower()
+            tag   = m.group("tag").strip().lower().replace(" ", "")
+            val   = m.group("value").strip()
+
+            if tag == "producer":
+                if group == "pdf" and not producer_pdf:
+                    producer_pdf = val
+                elif group in ("xmp-pdf", "xmp_pdf") and not producer_xmppdf:
+                    producer_xmppdf = val
+                if not producer_pdf and producer_xmppdf:
+                    producer_pdf = producer_xmppdf
+                if not producer_xmppdf and producer_pdf:
+                    producer_xmppdf = producer_pdf
+
+            elif tag == "softwareagent" and not softwareagent:
+                softwareagent = val
+            elif tag == "application" and not application:
+                application = val
+            elif tag == "software" and not software:
+                software = val
+            elif tag == "creatortool" and not creatortool:
+                if looks_like_software(val):
+                    creatortool = val
+            elif tag == "xmptoolkit" and not xmptoolkit:
+                xmptoolkit = val
+
+        # Udvælg tool-prioritet
+        def choose_tool_for_create():
+            return producer_pdf or producer_xmppdf or application or software or creatortool or ""
+        def choose_tool_for_modify():
+            return softwareagent or producer_pdf or producer_xmppdf or application or software or creatortool or ""
+
+        # Find første Create* og seneste Modify*/MetadataDate tidspunkt
+        create_dt = None
+        modify_dt = None
+        for ln in lines:
+            m = date_re.match(ln)
+            if not m:
+                continue
+            tag = m.group("tag").strip().lower().replace(" ", "")
+            date_str = m.group("date")
+            base = date_str.replace("Z", "+00:00").split('+')[0].split('-')[0]
+            try:
+                dt = datetime.strptime(base, "%Y:%m:%d %H:%M:%S")
+            except ValueError:
+                continue
+            if tag in {"createdate", "creationdate"} and create_dt is None:
+                create_dt = dt
+            elif tag in {"modifydate", "metadatadate"}:
+                if (modify_dt is None) or (dt > modify_dt):
+                    modify_dt = dt
+
+        create_tool = choose_tool_for_create()
+        modify_tool = choose_tool_for_modify()
+
+        # Heuristik: bind XMPToolkit som engine til både create/modify hvis kendt.
+        # Hvis der er Modify, antag at samme toolkit var aktiv ved sidste ændring.
+        if xmptoolkit:
+            if create_dt:
+                create_engine = xmptoolkit
+            if modify_dt:
+                modify_engine = xmptoolkit
+
+        # Evaluer ændring
+        changed_tool = bool(create_tool and modify_tool and create_tool.strip() != modify_tool.strip())
+        changed_engine = bool(create_engine and modify_engine and create_engine.strip() != modify_engine.strip())
+
+        reason = None
+        if changed_tool and changed_engine:
+            reason = "mixed"
+        elif changed_tool:
+            reason = "producer" if (producer_pdf or producer_xmppdf) else "software"
+        elif changed_engine:
+            reason = "engine"
+        else:
+            reason = ""
+
+        return {
+            "changed": bool(changed_tool or changed_engine),
+            "create_tool": create_tool, "modify_tool": modify_tool,
+            "create_engine": create_engine, "modify_engine": modify_engine,
+            "modify_dt": modify_dt,
+            "reason": reason
+        }
 
     def _parse_exiftool_timeline(self, exiftool_output):
-        """Hjælpefunktion til at parse tidsstempler fra ExifTool output."""
+        """
+        Parser ExifTool-output til tidslinje med tydelig type (Created/Modified/Metadata),
+        korrekt 'Tool' (SoftwareAgent/Producer/Application/Software; CreatorTool kun hvis software),
+        og separat 'XMP Engine' fra XMPToolkit.
+        """
         events = []
         lines = exiftool_output.splitlines()
-        processed_lines = set()
 
+        # --- Opsaml relevante felter ---
+        kv_re = re.compile(r'^\[(?P<group>[^\]]+)\]\s*(?P<tag>[\w\-/ ]+?)\s*:\s*(?P<value>.+)$')
+        producer_pdf = ""       # [PDF] Producer
+        producer_xmppdf = ""    # [XMP-pdf] Producer
+        softwareagent = ""      # XMP History SoftwareAgent eller [XMP-*] SoftwareAgent
+        application = ""        # Application
+        software = ""           # Software
+        creatortool = ""        # CreatorTool (kun hvis det ligner software)
+        xmptoolkit = ""         # XMP Engine (Adobe XMP Core ...)
+
+        software_tokens = re.compile(
+            r"(adobe|acrobat|indesign|illustrator|photoshop|framemaker|pdf|ghostscript|"
+            r"microsoft|word|excel|powerpoint|office|libreoffice|openoffice|prince|"
+            r"latex|tex|pdflatex|xetex|wkhtmltopdf|canva|nitro|foxit|pdf24|reportlab|"
+            r"tcpdf|fpdf|itext|cairo|skia|quartz|clibpdf|wkhtml|chrome|chromium|edge|safari|firefox)",
+            re.IGNORECASE
+        )
+        def looks_like_software(s: str) -> bool:
+            return bool(s and software_tokens.search(s))
+
+        for ln in lines:
+            m = kv_re.match(ln)
+            if not m:
+                continue
+            group = m.group("group").strip().lower()   # fx "pdf", "xmp-pdf", "xmp-xmp", "xmp-x"
+            tag   = m.group("tag").strip().lower().replace(" ", "")
+            val   = m.group("value").strip()
+
+            if tag == "producer":
+                if group == "pdf" and not producer_pdf:
+                    producer_pdf = val
+                elif group in ("xmp-pdf", "xmp_pdf") and not producer_xmppdf:
+                    producer_xmppdf = val
+                if not producer_pdf and producer_xmppdf:
+                    producer_pdf = producer_xmppdf
+                if not producer_xmppdf and producer_pdf:
+                    producer_xmppdf = producer_pdf
+
+            elif tag == "softwareagent" and not softwareagent:
+                softwareagent = val
+
+            elif tag == "application" and not application:
+                application = val
+
+            elif tag == "software" and not software:
+                software = val
+
+            elif tag == "creatortool" and not creatortool:
+                if looks_like_software(val):
+                    creatortool = val
+
+            elif tag == "xmptoolkit" and not xmptoolkit:
+                xmptoolkit = val
+
+            # 'creator' ignoreres bevidst
+
+        # Forvalg til visning
+        tool_for_create = producer_pdf or producer_xmppdf or application or software or creatortool or ""
+        tool_for_modify = softwareagent or producer_pdf or producer_xmppdf or application or software or creatortool or ""
+
+        # --- XMP History (Action/Agent/Changed) ---
         history_full_pattern = re.compile(r"\[XMP-xmpMM\]\s+History\s+:\s+(.*)")
-        for i, line in enumerate(lines):
+        for line in lines:
             full_match = history_full_pattern.match(line)
             if full_match:
                 history_str = full_match.group(1)
                 event_blocks = re.findall(r'\{([^}]+)\}', history_str)
                 for block in event_blocks:
                     details = {}
-                    pairs = block.split(',')
-                    for pair in pairs:
+                    for pair in block.split(','):
                         if '=' in pair:
                             key, value = pair.split('=', 1)
                             details[key.strip()] = value.strip()
-                    
                     if 'When' in details:
                         try:
                             date_str = details['When']
-                            dt_obj = datetime.strptime(date_str.split('+')[0].split('.')[0], "%Y:%m:%d %H:%M:%S")
-                            
+                            dt_obj = datetime.strptime(date_str.replace("Z", "+00:00").split('+')[0].split('.')[0], "%Y:%m:%d %H:%M:%S")
                             action = details.get('Action', 'N/A')
-                            agent = details.get('SoftwareAgent', '')
+                            agent  = details.get('SoftwareAgent', '')
                             changed = details.get('Changed', '')
-                            
-                            desc_parts = [f"Action: {action}"]
-                            if agent: desc_parts.append(f"Agent: {agent}")
-                            if changed: desc_parts.append(f"Changed: {changed}")
-                            
-                            display_line = f"XMP History   - {' | '.join(desc_parts)}"
-                            events.append((dt_obj, display_line))
-                        except (ValueError, IndexError):
-                            continue
-                processed_lines.add(i)
 
-        generic_date_pattern = re.compile(r"(\d{4}:\d{2}:\d{2}\s\d{2}:\d{2}:\d{2})")
-        for i, line in enumerate(lines):
-            if i in processed_lines: continue
-            match = generic_date_pattern.search(line)
-            if match:
-                try:
-                    dt_obj = datetime.strptime(match.group(1), "%Y:%m:%d %H:%M:%S")
-                    clean_line = line.split(':', 1)[-1].strip()
-                    source_match = re.search(r"\[(.*?)\]", line)
-                    source = source_match.group(1) if source_match else "ExifTool"
-                    display_line = f"ExifTool ({source:<10}) - {clean_line}"
-                    events.append((dt_obj, display_line))
-                except ValueError:
-                    continue
+                            desc = [f"Action: {action}"]
+                            if agent:   desc.append(f"Agent: {agent}")
+                            if changed: desc.append(f"Changed: {changed}")
+
+                            events.append((dt_obj, f"XMP History   - {' | '.join(desc)}"))
+                        except (ValueError, IndexError):
+                            pass
+
+        # --- Generiske dato-linjer ---
+        date_re = re.compile(
+            r'^\[(?P<group>[^\]]+)\]\s*(?P<tag>[\w\-/ ]+?)\s*:\s*(?P<value>.*?)(?P<date>\d{4}:\d{2}:\d{2}\s\d{2}:\d{2}:\d{2}(?:[+\-]\d{2}:\d{2}|Z)?).*$'
+        )
+        def _ts_label(tag: str) -> str:
+            t = tag.replace(" ", "").lower()
+            if self.language.get() == "da":
+                return {"createdate": "Oprettet",
+                        "creationdate": "Oprettet",
+                        "modifydate": "Ændret",
+                        "metadatadate": "Metadata"}.get(t, tag)
+            else:
+                return {"createdate": "Created",
+                        "creationdate": "Created",
+                        "modifydate": "Modified",
+                        "metadatadate": "Metadata"}.get(t, tag)
+
+        for line in lines:
+            m = date_re.match(line)
+            if not m:
+                continue
+            date_str = m.group("date")
+            try:
+                base = date_str.replace("Z", "+00:00").split('+')[0].split('-')[0]
+                dt_obj = datetime.strptime(base, "%Y:%m:%d %H:%M:%S")
+            except ValueError:
+                continue
+
+            group = m.group("group").strip()      # fx "PDF", "XMP-xmp"
+            tag   = m.group("tag").strip()        # fx "CreateDate", "ModifyDate"
+            tag_lc = tag.replace(" ", "").lower()
+
+            label = _ts_label(tag)
+            source = group if group else "ExifTool"
+
+            if tag_lc in {"createdate", "creationdate"}:
+                tool = tool_for_create
+            elif tag_lc in {"modifydate", "metadatadate"}:
+                tool = tool_for_modify
+            else:
+                tool = softwareagent or producer_pdf or producer_xmppdf or application or software or creatortool or ""
+
+            tool_part = f" | Tool: {tool}" if tool else ""
+            events.append((dt_obj, f"ExifTool ({source}) - {label}: {date_str}{tool_part}"))
+
+        # --- Vis XMP Engine særskilt (uden dato – tilføj ved første kendte tid) ---
+        if xmptoolkit:
+            # find en passende "anker-dato": første Create eller Modify hvis muligt
+            anchor_dt = None
+            for dt, _ in sorted(events, key=lambda x: x[0]):
+                anchor_dt = dt
+                break
+            if not anchor_dt:
+                anchor_dt = datetime.now()
+            label_engine = "XMP Engine" if self.language.get() == "en" else "XMP-motor"
+            events.append((anchor_dt, f"{label_engine}: {xmptoolkit}"))
+
         return events
+
+
+    def _detect_tool_change_from_exif(self, exiftool_output: str):
+        """
+        Returnerer (changed: bool, create_tool: str, modify_tool: str, modify_dt: datetime|None)
+        changed=True hvis tool ved create != tool ved seneste modify.
+        """
+        lines = exiftool_output.splitlines()
+
+        # 1) Slug mulige software-/værktøjsfelter
+        line_kv_re = re.compile(r'^\[(?P<group>[^\]]+)\]\s*(?P<tag>[\w\-/ ]+?)\s*:\s*(?P<value>.+)$')
+        tool_fields = {}
+        for ln in lines:
+            m = line_kv_re.match(ln)
+            if not m:
+                continue
+            group = m.group("group").strip()
+            tag   = m.group("tag").strip()
+            val   = m.group("value").strip()
+            key_base = tag.replace(" ", "").lower()
+            gkey     = group.lower().replace("-", "")
+            if key_base in {"softwareagent", "software", "application"}:
+                tool_fields[key_base] = val
+            elif key_base == "producer":
+                tool_fields["producer"] = val
+                tool_fields[f"{gkey}_producer"] = val
+            elif key_base == "creatortool":
+                tool_fields["creatortool"] = val
+
+        software_tokens = re.compile(
+            r"(adobe|acrobat|indesign|illustrator|photoshop|framemaker|pdf|ghostscript|"
+            r"microsoft|word|excel|powerpoint|office|libreoffice|openoffice|prince|"
+            r"latex|tex|pdflatex|xetex|wkhtmltopdf|canva|nitro|foxit|pdf24|reportlab|"
+            r"tcpdf|fpdf|itext|cairo|skia|quartz|clibpdf|wkhtml|chrome|chromium|edge|safari|firefox)",
+            re.IGNORECASE
+        )
+        def looks_like_software(s: str) -> bool:
+            return bool(s and software_tokens.search(s))
+
+        def select_tool(tag_lc: str, group_lc: str) -> str:
+            if tool_fields.get("softwareagent"):  # XMP History / SoftwareAgent
+                return tool_fields["softwareagent"]
+            group_key = f"{group_lc.replace('-', '')}_producer"
+            if group_key in tool_fields and tool_fields[group_key]:
+                return tool_fields[group_key]
+            if tool_fields.get("producer"):
+                return tool_fields["producer"]
+            if tool_fields.get("application"):
+                return tool_fields["application"]
+            if tool_fields.get("software"):
+                return tool_fields["software"]
+            ct = tool_fields.get("creatortool", "")
+            return ct if looks_like_software(ct) else ""
+
+        # 2) Find create- og *seneste* modify-stempler + grupper (PDF/XMP-xmp)
+        date_re = re.compile(
+            r'^\[(?P<group>[^\]]+)\]\s*(?P<tag>[\w\-/ ]+?)\s*:\s*(?P<value>.*?)(?P<date>\d{4}:\d{2}:\d{2}\s\d{2}:\d{2}:\d{2}(?:[+\-]\d{2}:\d{2}|Z)?).*$'
+        )
+
+        create_tool, modify_tool = "", ""
+        latest_modify_dt = None
+        latest_modify_group = ""
+
+        for ln in lines:
+            m = date_re.match(ln)
+            if not m:
+                continue
+            group = m.group("group").strip()
+            tag   = m.group("tag").strip()
+            date_str = m.group("date")
+            base = date_str.replace("Z", "+00:00").split('+')[0].split('-')[0]
+            try:
+                dt_obj = datetime.strptime(base, "%Y:%m:%d %H:%M:%S")
+            except ValueError:
+                continue
+
+            tag_lc = tag.replace(" ", "").lower()
+            glc = group.lower()
+            if tag_lc in {"createdate", "creationdate"} and not create_tool:
+                create_tool = select_tool(tag_lc, glc)
+            elif tag_lc in {"modifydate", "metadatadate"}:
+                if latest_modify_dt is None or dt_obj > latest_modify_dt:
+                    latest_modify_dt = dt_obj
+                    latest_modify_group = glc
+
+        if latest_modify_dt:
+            modify_tool = select_tool("modifydate", latest_modify_group)
+
+        changed = bool(create_tool and modify_tool and create_tool.strip() != modify_tool.strip())
+        return changed, create_tool, modify_tool, latest_modify_dt
+
         
     def _format_timedelta(self, delta):
             """Formaterer et timedelta-objekt til en læsbar streng."""
@@ -1429,13 +1869,52 @@ class PDFReconApp:
         return events
 
     def generate_comprehensive_timeline(self, filepath, raw_file_content, exiftool_output):
-        """Skaber en komplet tidslinje ved at kombinere alle kilder."""
+        """Samler alle kilder til en tidslinje og indsætter hændelse ved værktøjsskifte."""
         all_events = []
+
+        # 1) Filsystem
         all_events.extend(self._get_filesystem_times(filepath))
+
+        # 2) ExifTool (med labels, Tool og XMP Engine)
         all_events.extend(self._parse_exiftool_timeline(exiftool_output))
+
+        # 3) Rå PDF/XMP
         all_events.extend(self._parse_raw_content_timeline(raw_file_content))
 
+        # 4) Tool change (uanset om det skyldes engine eller producer/software)
+        try:
+            info = self._detect_tool_change_from_exif(exiftool_output)
+            if info.get("changed"):
+                when = info.get("modify_dt")
+                if not when and all_events:
+                    when = max(all_events, key=lambda x: x[0])[0]
+                if not when:
+                    when = datetime.now()
+
+                if self.language.get() == "da":
+                    label = "Værktøj skiftet"
+                    parts = []
+                    if info.get("create_tool") or info.get("modify_tool"):
+                        parts.append(f"{info.get('create_tool','?')} → {info.get('modify_tool','?')}")
+                    if info.get("reason") == "engine" and (info.get('create_engine') or info.get('modify_engine')):
+                        parts.append(f"(XMP-motor: {info.get('create_engine','?')} → {info.get('modify_engine','?')})")
+                    line = f"{label}: " + " ".join(parts) if parts else label
+                else:
+                    label = "Tool changed"
+                    parts = []
+                    if info.get("create_tool") or info.get("modify_tool"):
+                        parts.append(f"{info.get('create_tool','?')} → {info.get('modify_tool','?')}")
+                    if info.get("reason") == "engine" and (info.get('create_engine') or info.get('modify_engine')):
+                        parts.append(f"(XMP engine: {info.get('create_engine','?')} → {info.get('modify_engine','?')})")
+                    line = f"{label}: " + " ".join(parts) if parts else label
+
+                all_events.append((when, line))
+        except Exception:
+            pass
+
+        # 5) Sorteret retur
         return sorted(all_events, key=lambda x: x[0])
+
         
     def show_timeline_popup(self):
         selected_item = self.tree.selection()
@@ -1657,7 +2136,7 @@ class PDFReconApp:
 
         if trailer_orig and trailer_curr and trailer_curr != trailer_orig:
             indicators.append("TRAILER_ID_CHANGE")
-
+        
         # Info vs XMP dato-mismatch
         info_dates = dict(re.findall(r"/(ModDate|CreationDate)\s*\(\s*D:(\d{8,14})", txt))
         xmp_pairs = re.findall(r"<xmp:(ModifyDate|CreateDate)>([^<]+)</xmp:\1>", txt)
@@ -1681,11 +2160,83 @@ class PDFReconApp:
             indicators.append(f"XMP IDs:\n  Orig={xmp_orig}\n  Doc={xmp_doc}\n  Inst={xmp_inst}")
         if any([trailer_orig, trailer_curr]):
             indicators.append(f"Trailer IDs:\n  Orig={trailer_orig}\n  Curr={trailer_curr}")
+            try:
+                extra_ids = self.extract_additional_xmp_ids(txt)
+                lines = []
 
+                if extra_ids["stref_doc_ids"] or extra_ids["stref_inst_ids"]:
+                    lines.append("stRef anywhere:")
+                    if extra_ids["stref_doc_ids"]:
+                        for v in sorted(extra_ids["stref_doc_ids"]):
+                            lines.append(f"  stRef:documentID = {v}")
+                    if extra_ids["stref_inst_ids"]:
+                        for v in sorted(extra_ids["stref_inst_ids"]):
+                            lines.append(f"  stRef:instanceID = {v}")
+
+                if extra_ids["derived_doc_ids"] or extra_ids["derived_inst_ids"]:
+                    lines.append("DerivedFrom:")
+                    for v in sorted(extra_ids["derived_doc_ids"]):
+                        lines.append(f"  stRef:documentID = {v}")
+                    for v in sorted(extra_ids["derived_inst_ids"]):
+                        lines.append(f"  stRef:instanceID = {v}")
+
+                if extra_ids["ingredient_doc_ids"] or extra_ids["ingredient_inst_ids"]:
+                    lines.append("Ingredients:")
+                    for v in sorted(extra_ids["ingredient_doc_ids"]):
+                        lines.append(f"  stRef:documentID = {v}")
+                    for v in sorted(extra_ids["ingredient_inst_ids"]):
+                        lines.append(f"  stRef:instanceID = {v}")
+
+                if extra_ids["ps_doc_ancestors"]:
+                    lines.append("Photoshop:DocumentAncestors:")
+                    for v in sorted(extra_ids["ps_doc_ancestors"]):
+                        lines.append(f"  {v}")
+                    # --- Additional XMP ID sources (Ancestors / DerivedFrom / Ingredients / History) ---
+                try:
+                    extra = self.extract_additional_xmp_ids(txt)
+                    lines = []
+
+                    if extra["derived_orig_ids"] or extra["derived_doc_ids"] or extra["derived_inst_ids"]:
+                        lines.append("DerivedFrom:")
+                        for v in sorted(extra["derived_orig_ids"]):
+                            lines.append(f"  OriginalDocumentID = {v}")
+                        for v in sorted(extra["derived_doc_ids"]):
+                            lines.append(f"  stRef:documentID   = {v}")
+                        for v in sorted(extra["derived_inst_ids"]):
+                            lines.append(f"  stRef:instanceID   = {v}")
+
+                    if extra["ingredient_doc_ids"] or extra["ingredient_inst_ids"]:
+                        lines.append("Ingredients:")
+                        for v in sorted(extra["ingredient_doc_ids"]):
+                            lines.append(f"  stRef:documentID   = {v}")
+                        for v in sorted(extra["ingredient_inst_ids"]):
+                            lines.append(f"  stRef:instanceID   = {v}")
+
+                    if extra["history_doc_ids"] or extra["history_inst_ids"]:
+                        lines.append("History (stRef/InstanceID):")
+                        for v in sorted(extra["history_doc_ids"]):
+                            lines.append(f"  documentID         = {v}")
+                        for v in sorted(extra["history_inst_ids"]):
+                            lines.append(f"  instanceID         = {v}")
+
+                    if extra["ps_doc_ancestors"]:
+                        lines.append("Photoshop:DocumentAncestors:")
+                        for v in sorted(extra["ps_doc_ancestors"]):
+                            lines.append(f"  {v}")
+
+                    if lines:
+                        indicators.append("Additional XMP IDs:\n" + "\n".join(lines))
+                except Exception:
+                    pass
+        
+
+                if lines:
+                    indicators.append("Additional XMP IDs:\n" + "\n".join(lines))
+
+            except Exception:
+                pass
         return indicators
-
-
-
+    
     def get_flag(self, indicator_keys, is_revision, parent_id=None):
         """Bestemmer filens statusflag baseret på fundne indikatornøgler."""
         if is_revision:
@@ -1695,22 +2246,31 @@ class PDFReconApp:
         YES = "YES" if self.language.get() == "en" else "JA"
         NO = self._("status_no")
 
-        # Kritiske indikatorer, der resulterer i "JA"
+        # Kritiske indikatorer, der resulterer i RØD (JA/YES)
         high_risk_indicators = {
             "Has Revisions",
             "TouchUp_TextEdit",
             "Signature: Invalid",
+            # Bemærk: XMP_ID_CHANGE og TRAILER_ID_CHANGE er flyttet til "possible"
+        }
+
+        # Mellem-risiko: GUL (Sandsynligt/Possible)
+        possible_indicators = {
             "XMP_ID_CHANGE",
-            "TRAILER_ID_CHANGE"
+            "TRAILER_ID_CHANGE",
         }
 
         if any(indicator in high_risk_indicators for indicator in keys_set):
             return YES
-        
-        # Alle andre tilfælde (inklusive ingen indikatorer) resulterer i "NEJ"
+
+        if any(indicator in possible_indicators for indicator in keys_set):
+            return "Possible" if self.language.get() == "en" else "Sandsynligt"
+
+        # Alle andre tilfælde (inkl. ingen indikatorer)
         return NO
 
 
+    
     
     def show_about(self):
         about_popup = Toplevel(self.root)
@@ -1906,12 +2466,32 @@ class PDFReconApp:
             cell.fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
             cell.alignment = Alignment(wrap_text=True, horizontal="center", vertical="center")
         
+        def _indicators_for_path(path_str: str) -> str:
+            rec = next((d for d in self.scan_data if str(d.get('path')) == path_str), None)
+            if not rec:
+                return ""
+            keys = rec.get('indicator_keys') or []
+            if not keys:
+                return ""
+            parts = []
+            for k in keys:
+                try:
+                    parts.append(self._(k))
+                except Exception:
+                    parts.append(str(k))
+            return "• " + "\n• ".join(parts)
+
         for row_idx, row_data in enumerate(self.report_data, start=2):
             path = row_data[3]
             exif_text = self.exif_outputs.get(path, "")
             row_data_xlsx = row_data[:]
             row_data_xlsx[7] = exif_text
             
+            # Replace indicators column (index 8) with full list instead of "Se detaljer"
+            indicators_full = _indicators_for_path(path)
+            if indicators_full:
+                row_data_xlsx[8] = indicators_full
+
             for col_idx, value in enumerate(row_data_xlsx, start=1):
                 cell = ws.cell(row=row_idx, column=col_idx, value=str(value))
                 cell.alignment = Alignment(wrap_text=True, vertical="top")
@@ -1927,13 +2507,31 @@ class PDFReconApp:
     def _export_to_csv(self, file_path):
         headers = [self._(key) for key in self.columns_keys]
         
-        # NYT: Forbered data med fuldt EXIF-output
+        def _indicators_for_path(path_str: str) -> str:
+            rec = next((d for d in self.scan_data if str(d.get('path')) == path_str), None)
+            if not rec:
+                return ""
+            keys = rec.get('indicator_keys') or []
+            if not keys:
+                return ""
+            parts = []
+            for k in keys:
+                try:
+                    parts.append(self._(k))
+                except Exception:
+                    parts.append(str(k))
+            return "; ".join(parts)
+
+        # NYT: Forbered data med fuldt EXIF-output + fulde indikatorer
         data_for_export = []
         for row_data in self.report_data:
             new_row = row_data[:]
             path = new_row[3]
             exif_output = self.exif_outputs.get(path, "")
-            new_row[7] = exif_output  # Erstat "Klik for at se..." med det faktiske output
+            new_row[7] = exif_output  # Erstat "Klik for at se." med det faktiske output
+            indicators_full = _indicators_for_path(path)
+            if indicators_full:
+                new_row[8] = indicators_full
             data_for_export.append(new_row)
 
         with open(file_path, 'w', newline='', encoding='utf-8-sig') as f: # Brug utf-8-sig for Excel-kompatibilitet
