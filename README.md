@@ -54,4 +54,5 @@ PDFRecon requires Python 3.6+ and a few external libraries.
 
 ### 1. Clone the Repository
 git clone https://github.com/Rasmus-Riis/PDFRecon.git
+
 cd PDFRecon
