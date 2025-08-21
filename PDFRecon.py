@@ -83,7 +83,7 @@ def md5_file(fp: Path, buf_size: int = 1024 * 1024) -> str:
 class PDFReconApp:
     def __init__(self, root):
         # --- Applikationskonfiguration ---
-        self.app_version = "14.6.1" # Removed redundant ID checks
+        self.app_version = "14.8.0" # Added live filter functionality
         self.config_path = self._resolve_path("config.ini", base_is_parent=True)
         self._load_or_create_config()
         
@@ -105,10 +105,9 @@ class PDFReconApp:
 
         # --- Applikationens data ---
         self.report_data = [] 
-        self.scan_data = [] 
+        self.all_scan_data = []
         self.exif_outputs = {}
         self.timeline_data = {}
-        self.row_counter = 0
         self.path_to_id = {}
         self.scan_start_time = 0
 
@@ -120,6 +119,7 @@ class PDFReconApp:
 
         # --- Sprogopsætning ---
         self.language = tk.StringVar(value="da")
+        self.filter_var = tk.StringVar()
         
         # --- Opsætning af GUI ---
         self._setup_logging()
@@ -160,15 +160,12 @@ class PDFReconApp:
                 "manual_prev_header": "/Prev-kæde (inkrementelle gemninger)",
                 "manual_prev_class": "Indikationer Fundet",
                 "manual_prev_desc": "• Hvad det betyder: PDF-formatet kan gemme ændringer “oven på” den eksisterende fil. Når der findes /Prev-punkter i filen, betyder det, at ældre tilstande ligger bevaret i filen. Det er ikke i sig selv bevis for manipulation, men det viser at dokumentet har en historik og derfor bør undersøges nærmere.\n\n",
-
                 "manual_linearized_header": "Linearized + Updated",
                 "manual_linearized_class": "Indikationer Fundet",
                 "manual_linearized_desc": "• Hvad det betyder: En “linearized” PDF er optimeret til hurtig webvisning. Hvis en sådan fil efterfølgende er blevet ændret, vil PDFRecon markere det. Det kan indikere, at et ellers færdigt dokument er blevet redigeret senere.\n\n",
-
                 "manual_redact_header": "Redactions (sløringer/sletninger)",
                 "manual_redact_class": "Indikationer Fundet",
                 "manual_redact_desc": "• Hvad det betyder: Dokumentet indeholder tekniske felter for sløring/sletning af indhold. I nogle tilfælde kan den skjulte tekst stadig findes i filen. Derfor bør redaktioner altid vurderes kritisk.\n\n",
-
                 "manual_annots_header": "Annotations (kommentarer/noter)",
                 "manual_annots_class": "Indikationer Fundet",
                 "manual_annots_desc": "• Hvad det betyder: Dokumentet rummer kommentarer, noter eller markeringer. De kan være tilføjet senere og kan indeholde oplysninger, der ikke fremgår af det viste indhold.\n\n",
@@ -184,6 +181,10 @@ class PDFReconApp:
                 "manual_date_mismatch_header": "Dato-inkonsistens (Info vs. XMP)",
                 "manual_date_mismatch_class": "Indikationer Fundet",
                 "manual_date_mismatch_desc": "• Hvad det betyder: Oprettelses- og ændringsdatoer i PDF’ens Info-felt stemmer ikke overens med datoerne i XMP-metadata. Sådanne uoverensstemmelser kan pege på skjulte eller uautoriserede ændringer.\n\n",
+                "obj_gen_gt_zero": "Objekt med generation > 0",
+                "manual_obj_gen_header": "Objekter med generation > 0",
+                "manual_obj_gen_class": "Indikationer Fundet",
+                "manual_obj_gen_desc": "• Hvad det betyder: Hvert objekt i en PDF-fil har et versionsnummer (generation). I en original, uændret fil er dette nummer typisk 0 for alle objekter. Hvis der findes objekter med et højere generationsnummer (f.eks. '12 1 obj'), er det et tegn på, at objektet er blevet overskrevet i en senere, inkrementel gemning. Dette indikerer, at filen er blevet opdateret.\n\n",
                 "log_not_found_title": "Logfil ikke fundet", "log_not_found_message": "Logfilen er endnu ikke oprettet. Den oprettes første gang programmet logger en handling.",
                 "no_data_to_save_title": "Ingen data", "no_data_to_save_message": "Der er ingen data at gemme.",
                 "excel_saved_title": "Handling fuldført", "excel_saved_message": "Rapporten er gemt.\n\nVil du åbne mappen, hvor filen ligger?",
@@ -224,7 +225,8 @@ class PDFReconApp:
                 "Has XFA Form": "Har XFA Formular", "Has Digital Signature": "Har Digital Signatur", "Signature: Valid": "Signatur: Gyldig", "Signature: Invalid": "Signatur: Ugyldig", "More Layers Than Pages": "Flere Lag End Sider",
                 "view_pdf": "Vis PDF", "pdf_viewer_title": "PDF Fremviser", "pdf_viewer_error_title": "Fremvisningsfejl",
                 "pdf_viewer_error_message": "Kunne ikke åbne eller vise PDF-filen.\n\nFejl: {e}",
-                "status_no": "NEJ"
+                "status_no": "NEJ",
+                "filter_label": "🔎 Filter:"
             },
             "en": {
                 "choose_folder": "📁 Choose folder and scan", "show_timeline": "Show Timeline", "status_initial": "Drag a folder here or use the button to start an analysis.",
@@ -252,6 +254,10 @@ class PDFReconApp:
                 "manual_date_mismatch_header": "Date inconsistency (Info vs. XMP)",
                 "manual_date_mismatch_class": "Indications Found",
                 "manual_date_mismatch_desc": "• What it means: The creation/modification dates in the PDF Info dictionary do not match the dates in XMP metadata. Such discrepancies can indicate hidden or unauthorized changes.\n\n",
+                "obj_gen_gt_zero": "Object with generation > 0",
+                "manual_obj_gen_header": "Objects with generation > 0",
+                "manual_obj_gen_class": "Indications Found",
+                "manual_obj_gen_desc": "• What it means: Each object in a PDF file has a version number (generation). In an original, unaltered file, this number is typically 0 for all objects. If objects are found with a higher generation number (e.g., '12 1 obj'), it is a sign that the object has been overwritten in a later, incremental save. This indicates that the file has been updated.\n\n",
                 "col_id": "#", "col_name": "Name", "col_changed": "Changed", "col_path": "Path", "col_md5": "MD5",
                 "col_created": "File Created", "col_modified": "File Modified", "col_exif": "EXIFTool", "col_indicators": "Signs of Alteration",
                 "export_report": "💾 Export Report",
@@ -305,7 +311,8 @@ class PDFReconApp:
                 "Has XFA Form": "Has XFA Form", "Has Digital Signature": "Has Digital Signature", "Signature: Valid": "Signature: Valid", "Signature: Invalid": "Signature: Invalid", "More Layers Than Pages": "More Layers Than Pages",
                 "view_pdf": "View PDF", "pdf_viewer_title": "PDF Viewer", "pdf_viewer_error_title": "Viewer Error",
                 "pdf_viewer_error_message": "Could not open or display the PDF file.\n\nError: {e}",
-                "status_no": "NO"
+                "status_no": "NO",
+                "filter_label": "🔎 Filter:"
             }
         }
 
@@ -392,21 +399,29 @@ class PDFReconApp:
         self.root.config(menu=self.menubar)
 
     def _update_summary_status(self):
-        """Opdaterer statuslinjen med en oversigt over resultaterne."""
-        if not self.report_data:
+        """Opdaterer statuslinjen med en oversigt over resultaterne baseret på den fulde scanning."""
+        if not self.all_scan_data:
             self.status_var.set(self._("status_initial"))
             return
 
-        error_keys = ["file_too_large", "file_corrupt", "file_encrypted", "validation_error", "processing_error", "unknown_error"]
-        error_st_da = [self.translations["da"].get(key, key) for key in error_keys]
-        error_st_en = [self.translations["en"].get(key, key) for key in error_keys]
-        error_statuses = set(error_st_da + error_st_en)
+        # Byg en midlertidig liste af flag for alle scannede filer
+        all_flags = []
+        for data in self.all_scan_data:
+            if data.get("status") == "error":
+                error_type_key = data.get("error_type", "unknown_error")
+                all_flags.append(self._(error_type_key))
+            elif not data.get("is_revision"):
+                flag = self.get_flag(data.get("indicator_keys", []), False)
+                all_flags.append(flag)
 
-        changed_count = sum(1 for row in self.report_data if row[2] in ["JA", "YES"])
-        indications_found_count = sum(1 for row in self.report_data if row[2] in ["Indikationer Fundet", "Indications Found"])
-        error_count = sum(1 for row in self.report_data if row[2] in error_statuses)
+        error_keys = ["file_too_large", "file_corrupt", "file_encrypted", "validation_error", "processing_error", "unknown_error"]
+        error_statuses = {self._(key) for key in error_keys}
         
-        original_files_count = len({str(data['path']) for data in self.scan_data if not data.get('is_revision')})
+        changed_count = all_flags.count("JA") + all_flags.count("YES")
+        indications_found_count = all_flags.count("Indikationer Fundet") + all_flags.count("Indications Found")
+        error_count = sum(1 for flag in all_flags if flag in error_statuses)
+        
+        original_files_count = len([d for d in self.all_scan_data if not d.get('is_revision')])
         not_flagged_count = original_files_count - changed_count - indications_found_count - error_count
 
         if error_count > 0:
@@ -437,23 +452,13 @@ class PDFReconApp:
         self.help_menu.entryconfig(6, label=self._("menu_log"))
         self.scan_button.config(text=self._("choose_folder"))
         self.export_menubutton.config(text=self._("export_report"))
+        self.filter_label.config(text=self._("filter_label"))
         
         for i, key in enumerate(self.columns_keys):
             self.tree.heading(self.columns[i], text=self._(key))
 
-        self.tree.delete(*self.tree.get_children(""))
-        
-        self.report_data.clear()
-        self.row_counter = 0
-        self.path_to_id.clear()
-        self.revision_counter = 0
-        
-        for data in self.scan_data:
-            if data.get("status") == "error":
-                self._add_error_row_to_table(data)
-            else:
-                self._add_row_to_table(data)
-        
+        self._apply_filter() # Genanvend filter for at opdatere tabel med nyt sprog
+
         if path_of_selected:
             new_item_to_select = next((item_id for item_id in self.tree.get_children("") if self.tree.item(item_id, "values")[3] == path_of_selected), None)
             if new_item_to_select:
@@ -466,9 +471,9 @@ class PDFReconApp:
             self.detail_text.config(state="disabled")
 
         is_scan_finished = self.scan_button['state'] == 'normal'
-        if is_scan_finished and self.scan_data:
+        if is_scan_finished and self.all_scan_data:
             self._update_summary_status()
-        elif not self.scan_data:
+        elif not self.all_scan_data:
             self.status_var.set(self._("status_initial"))
 
 
@@ -476,18 +481,25 @@ class PDFReconApp:
         frame = ttk.Frame(self.root, padding=10)
         frame.pack(fill="both", expand=True)
 
-        button_frame = ttk.Frame(frame)
-        button_frame.pack(pady=5, fill="x")
+        top_controls_frame = ttk.Frame(frame)
+        top_controls_frame.pack(pady=5, fill="x")
 
-        self.scan_button = ttk.Button(button_frame, text=self._("choose_folder"), width=25, command=self.choose_folder)
-        self.scan_button.pack(side="left", padx=5)
+        self.scan_button = ttk.Button(top_controls_frame, text=self._("choose_folder"), width=25, command=self.choose_folder)
+        self.scan_button.pack(side="left", padx=(0, 10))
 
-        self.scanning_indicator_label = ttk.Label(button_frame, text="", foreground="blue", font=("Segoe UI", 9))
-        self.scanning_indicator_label.pack(side="left", padx=15, pady=5)
+        self.filter_label = ttk.Label(top_controls_frame, text=self._("filter_label"))
+        self.filter_label.pack(side="left", padx=(5, 2))
+        
+        filter_entry = ttk.Entry(top_controls_frame, textvariable=self.filter_var)
+        filter_entry.pack(side="left", fill="x", expand=True)
+        self.filter_var.trace_add("write", self._apply_filter)
 
+        self.scanning_indicator_label = ttk.Label(frame, text="", foreground="blue", font=("Segoe UI", 9))
+        self.scanning_indicator_label.pack(pady=5)
+        
         self.status_var = tk.StringVar(value=self._("status_initial"))
         status_label = ttk.Label(frame, textvariable=self.status_var, foreground="darkgreen")
-        status_label.pack(pady=(5, 10))
+        status_label.pack(pady=(0, 10))
 
         tree_frame = ttk.Frame(frame)
         tree_frame.pack(fill="both", expand=True)
@@ -627,7 +639,7 @@ class PDFReconApp:
         path_str = values[3] if values else None
         is_revision = False
         if path_str:
-            scan_data_item = next((item for item in self.scan_data if str(item.get('path')) == path_str), None)
+            scan_data_item = next((item for item in self.all_scan_data if str(item.get('path')) == path_str), None)
             if scan_data_item and scan_data_item.get('is_revision'):
                 is_revision = True
 
@@ -767,7 +779,7 @@ class PDFReconApp:
         self.root.update_idletasks()
 
         rev_path_str = self.tree.item(item_id, "values")[3]
-        original_path_str = next((str(d['original_path']) for d in self.scan_data if str(d['path']) == rev_path_str), None)
+        original_path_str = next((str(d['original_path']) for d in self.all_scan_data if str(d['path']) == rev_path_str), None)
 
         if not original_path_str:
             messagebox.showerror(self._("diff_error_title"), "Original file for revision not found.", parent=self.root)
@@ -951,14 +963,14 @@ class PDFReconApp:
         logging.info(f"Starter scanning af mappe: {folder_path}")
         self.tree.delete(*self.tree.get_children())
         self.report_data.clear()
-        self.scan_data.clear() 
+        self.all_scan_data.clear()
         self.exif_outputs.clear()
         self.timeline_data.clear()
-        self.row_counter = 0
         self.path_to_id.clear()
         self.revision_counter = 0
         self.scan_queue = queue.Queue()
         self.scan_start_time = time.time()
+        self.filter_var.set("")
         
         self.scan_button.config(state="disabled")
         self.export_menubutton.config(state="disabled")
@@ -1252,11 +1264,15 @@ class PDFReconApp:
                 elif msg_type == "scan_status": 
                     self.scanning_indicator_label.config(text=data)
                 elif msg_type == "file_row":
-                    self.scan_data.append(data)
-                    if data.get("status") == "error":
-                        self._add_error_row_to_table(data)
-                    else:
-                        self._add_row_to_table(data)
+                    self.all_scan_data.append(data)
+                    if not data.get("is_revision"):
+                        self.exif_outputs[str(data["path"])] = data.get("exif")
+                        self.timeline_data[str(data["path"])] = data.get("timeline")
+                    else: # For revisions
+                        self.exif_outputs[str(data["path"])] = data.get("exif")
+                        self.timeline_data[str(data["path"])] = data.get("timeline")
+                        self.revision_counter += 1
+
                 elif msg_type == "error": 
                     logging.warning(data)
                     messagebox.showerror("Kritisk Fejl", data)
@@ -1267,66 +1283,18 @@ class PDFReconApp:
             pass
         self.root.after(100, self._process_queue)
 
-    def _add_error_row_to_table(self, data):
-        """Tilføjer en række til tabellen for en fil, der fejlede under processering."""
-        path = data["path"]
-        error_type_key = data.get("error_type", "unknown_error")
-        error_display_name = self._(error_type_key)
-
-        self.row_counter += 1
-        row_values = [
-            self.row_counter, path.name, error_display_name, str(path),
-            "N/A", "", "", self._("exif_error"), data.get("error_message", "Unknown error")
-        ]
-        
-        self.report_data.append(row_values)
-        self.tree.insert("", "end", values=row_values, tags=("red_row",))
-
-
-    def _add_row_to_table(self, data):
-        path = data["path"]
-        self.row_counter += 1
-        
-        if data["is_revision"]:
-            self.revision_counter += 1
-            created_time, modified_time = "", ""
-            parent_id = self.path_to_id.get(str(data["original_path"]))
-            indicators_str = ""
-            flag = self._("status_identical") if data.get("is_identical") else self.get_flag([], True, parent_id)
-        else:
-            self.path_to_id[str(path)] = self.row_counter
-            stat = path.stat()
-            created_time = datetime.fromtimestamp(stat.st_ctime).strftime("%Y-%m-%d %H:%M:%S")
-            modified_time = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
-            flag = self.get_flag(data["indicator_keys"], False)
-            
-            YES = "See details" if self.language.get() == "en" else "Se detaljer"
-            NO = self._("status_no")
-            indicators_str = YES if data["indicator_keys"] else NO
-
-        self.exif_outputs[str(path)] = data["exif"]
-        self.timeline_data[str(path)] = data["timeline"]
-
-        exif_text = self._("exif_no_output")
-        if data["exif"]:
-            is_error = (data["exif"] == self._("exif_err_notfound") or 
-                        data["exif"].startswith(self._("exif_err_prefix")) or 
-                        data["exif"].startswith(self._("exif_err_run").split("{")[0]))
-            exif_text = self._("exif_error") if is_error else self._("exif_view_output")
-
-        row_values = [self.row_counter, path.name, flag, str(path), data["md5"], created_time, modified_time, exif_text, indicators_str]
-        
-        tag = ""
-        if data["is_revision"]:
-            tag = "gray_row" if data.get("is_identical") else "blue_row"
-        else:
-            tag = self.tree_tags.get(flag, "")
-        
-        self.report_data.append(row_values)
-        self.tree.insert("", "end", values=row_values, tags=(tag,))
-
-
     def _finalize_scan(self):
+        # Byg path-to-ID-mappen én gang fra det komplette datasæt
+        self.path_to_id.clear()
+        temp_counter = 0
+        for data in self.all_scan_data:
+            if not data.get("is_revision"):
+                temp_counter += 1
+                self.path_to_id[str(data["path"])] = temp_counter
+
+        # Anvend filteret (som i starten er tomt) for at vise alle resultater
+        self._apply_filter()
+        
         self.scan_button.config(state="normal")
         self.export_menubutton.config(state="normal")
         self.scanning_indicator_label.config(text="")
@@ -1335,6 +1303,92 @@ class PDFReconApp:
         
         self._update_summary_status()
         logging.info(f"Analyse fuldført. {self.status_var.get()}")
+
+    def _apply_filter(self, *args):
+        search_term = self.filter_var.get().lower()
+        
+        items_to_show = []
+        if not search_term:
+            items_to_show = self.all_scan_data
+        else:
+            for data in self.all_scan_data:
+                path_str = str(data.get('path', ''))
+                
+                searchable_items = [
+                    path_str,
+                    data.get('md5', ''),
+                ]
+                
+                if not data.get('is_revision'):
+                    try:
+                        stat = data['path'].stat()
+                        searchable_items.append(datetime.fromtimestamp(stat.st_ctime).strftime("%Y-%m-%d %H:%M:%S"))
+                        searchable_items.append(datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S"))
+                    except (FileNotFoundError, KeyError):
+                        pass
+
+                exif_output = self.exif_outputs.get(path_str, '')
+                if exif_output:
+                    searchable_items.append(exif_output)
+                
+                full_searchable_text = " ".join(searchable_items).lower()
+
+                if search_term in full_searchable_text:
+                    items_to_show.append(data)
+        
+        self._populate_tree_from_data(items_to_show)
+
+    def _populate_tree_from_data(self, data_list):
+        self.tree.delete(*self.tree.get_children())
+        self.report_data.clear()
+        
+        display_counter = 0
+        for data in data_list:
+            display_counter += 1
+            
+            if data.get("status") == "error":
+                path = data["path"]
+                error_type_key = data.get("error_type", "unknown_error")
+                error_display_name = self._(error_type_key)
+                row_values = [
+                    display_counter, path.name, error_display_name, str(path),
+                    "N/A", "", "", self._("exif_error"), data.get("error_message", "Unknown error")
+                ]
+                self.report_data.append(row_values)
+                self.tree.insert("", "end", values=row_values, tags=("red_row",))
+            else:
+                path = data["path"]
+                if data["is_revision"]:
+                    created_time, modified_time = "", ""
+                    parent_id = self.path_to_id.get(str(data["original_path"]))
+                    indicators_str = ""
+                    flag = self._("status_identical") if data.get("is_identical") else self.get_flag([], True, parent_id)
+                else:
+                    stat = path.stat()
+                    created_time = datetime.fromtimestamp(stat.st_ctime).strftime("%Y-%m-%d %H:%M:%S")
+                    modified_time = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+                    flag = self.get_flag(data["indicator_keys"], False)
+                    YES = "See details" if self.language.get() == "en" else "Se detaljer"
+                    NO = self._("status_no")
+                    indicators_str = YES if data["indicator_keys"] else NO
+
+                exif_text = self._("exif_no_output")
+                if data["exif"]:
+                    is_error = (data["exif"] == self._("exif_err_notfound") or 
+                                data["exif"].startswith(self._("exif_err_prefix")) or 
+                                data["exif"].startswith(self._("exif_err_run").split("{")[0]))
+                    exif_text = self._("exif_error") if is_error else self._("exif_view_output")
+
+                row_values = [display_counter, path.name, flag, str(path), data["md5"], created_time, modified_time, exif_text, indicators_str]
+                
+                tag = ""
+                if data["is_revision"]:
+                    tag = "gray_row" if data.get("is_identical") else "blue_row"
+                else:
+                    tag = self.tree_tags.get(flag, "")
+                
+                self.report_data.append(row_values)
+                self.tree.insert("", "end", values=row_values, tags=(tag,))
 
     def on_select_item(self, event):
         selected_items = self.tree.selection()
@@ -1358,7 +1412,7 @@ class PDFReconApp:
                 self.detail_text.insert(tk.END, val + "\n", ("link",))
             elif col_name == self._("col_indicators"):
                 # Find de oprindelige scanningsdata for den valgte sti
-                original_data = next((d for d in self.scan_data if str(d.get('path')) == path_str), None)
+                original_data = next((d for d in self.all_scan_data if str(d.get('path')) == path_str), None)
                 
                 # Tjek om der er indikatorer at vise
                 if original_data and original_data.get("indicator_keys"):
@@ -2090,6 +2144,16 @@ class PDFReconApp:
             if re.search(r"/NeedAppearances\s+true\b", txt, re.I):
                 indicators.append("AcroForm NeedAppearances=true")
 
+        # Tjek for objekter med generation > 0
+        gen_gt_zero_found = False
+        for match in re.finditer(r"\b(\d+)\s+(\d+)\s+obj\b", txt):
+            generation = int(match.group(2))
+            if generation > 0:
+                gen_gt_zero_found = True
+                break
+        if gen_gt_zero_found:
+            indicators.append("obj_gen_gt_zero")
+
         # ---------- ID-sammenligning (familier adskilt) ----------
         def _norm_uuid(x):
             if x is None:
@@ -2418,6 +2482,7 @@ class PDFReconApp:
         add_manual_entry("manual_acro_needapp_header", "manual_acro_needapp_class", "manual_acro_needapp_desc", "yellow")
         add_manual_entry("manual_digsig_header", "manual_digsig_class", "manual_digsig_desc", "yellow")
         add_manual_entry("manual_date_mismatch_header", "manual_date_mismatch_class", "manual_date_mismatch_desc", "yellow")
+        add_manual_entry("manual_obj_gen_header", "manual_obj_gen_class", "manual_obj_gen_desc", "yellow")
         manual_text.config(state="disabled")
 
         close_button = ttk.Button(outer_frame, text=self._("close_button_text"), command=manual_popup.destroy)
@@ -2467,7 +2532,7 @@ class PDFReconApp:
             cell.alignment = Alignment(wrap_text=True, horizontal="center", vertical="center")
         
         def _indicators_for_path(path_str: str) -> str:
-            rec = next((d for d in self.scan_data if str(d.get('path')) == path_str), None)
+            rec = next((d for d in self.all_scan_data if str(d.get('path')) == path_str), None)
             if not rec:
                 return ""
             keys = rec.get('indicator_keys') or []
@@ -2508,7 +2573,7 @@ class PDFReconApp:
         headers = [self._(key) for key in self.columns_keys]
         
         def _indicators_for_path(path_str: str) -> str:
-            rec = next((d for d in self.scan_data if str(d.get('path')) == path_str), None)
+            rec = next((d for d in self.all_scan_data if str(d.get('path')) == path_str), None)
             if not rec:
                 return ""
             keys = rec.get('indicator_keys') or []
@@ -2542,7 +2607,7 @@ class PDFReconApp:
     def _export_to_json(self, file_path):
         # Creates a more detailed JSON export
         full_export = []
-        for item in self.scan_data:
+        for item in self.all_scan_data:
             path_str = str(item['path'])
             item_copy = item.copy()
             item_copy['path'] = path_str # Convert Path object to string
