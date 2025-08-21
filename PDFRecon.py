@@ -24,29 +24,29 @@ import time
 import re as _re
 
 
-# --- NYT: Tilføjet imports og fejlhåndtering for Pillow ---
+# --- NEW: Added imports and error handling for Pillow ---
 try:
     from PIL import Image, ImageTk, ImageChops, ImageOps
 except ImportError:
-    messagebox.showerror("Manglende Bibliotek", "Pillow biblioteket er ikke installeret.\n\nKør venligst 'pip install Pillow' i din terminal for at bruge dette program.")
+    messagebox.showerror("Missing Library", "The Pillow library is not installed.\n\nPlease run 'pip install Pillow' in your terminal to use this program.")
     sys.exit(1)
-# --- slut ---
+# --- End of new code ---
 
 try:
     import fitz  # PyMuPDF
 except ImportError:
-    messagebox.showerror("Manglende Bibliotek", "PyMuPDF er ikke installeret.\n\nKør venligst 'pip install PyMuPDF' i din terminal for at bruge dette program.")
+    messagebox.showerror("Missing Library", "PyMuPDF is not installed.\n\nPlease run 'pip install PyMuPDF' in your terminal to use this program.")
     sys.exit(1)
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
 except ImportError:
-    messagebox.showerror("Manglende Bibliotek", "tkinterdnd2 er ikke installeret.\n\nKør venligst 'pip install tkinterdnd2' i din terminal for at bruge dette program.")
+    messagebox.showerror("Missing Library", "tkinterdnd2 is not installed.\n\nPlease run 'pip install tkinterdnd2' in your terminal to use this program.")
     sys.exit(1)
 
 
 # --- PHASE 1/3: Configuration and Custom Exceptions ---
 class PDFReconConfig:
-    """Konfigurationsindstillinger for PDFRecon. Værdier loades fra config.ini."""
+    """Configuration settings for PDFRecon. Values are loaded from config.ini."""
     MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
     MAX_REVISIONS = 100
     EXIFTOOL_TIMEOUT = 30
@@ -70,7 +70,7 @@ class PDFEncryptedError(PDFProcessingError):
 # --- End Phase 1/3 ---
 def md5_file(fp: Path, buf_size: int = 1024 * 1024) -> str:
     """
-    Beregn MD5 uden at læse hele filen i RAM.
+    Calculate MD5 without loading the entire file into RAM.
     """
     import hashlib
     h = hashlib.md5()
@@ -82,28 +82,30 @@ def md5_file(fp: Path, buf_size: int = 1024 * 1024) -> str:
 
 class PDFReconApp:
     def __init__(self, root):
-        # --- Applikationskonfiguration ---
-        self.app_version = "14.8.0" # Added live filter functionality
+        # --- Application Configuration ---
+        self.app_version = "14.9.3" # Translated comments and commented the rest of the script
         self.config_path = self._resolve_path("config.ini", base_is_parent=True)
         self._load_or_create_config()
         
+        # --- Root Window Setup ---
         self.root = root
         self.root.title(f"PDFRecon v{self.app_version}")
         self.root.geometry("1200x700")
 
+        # --- Set Application Icon ---
         try:
             icon_path = self._resolve_path('icon.ico')
             if icon_path.exists():
                 self.root.iconbitmap(icon_path)
             else:
-                logging.warning("icon.ico blev ikke fundet. Bruger standard-ikon.")
+                logging.warning("icon.ico was not found. Using default icon.")
         except tk.TclError:
-            logging.warning("Kunne ikke indlæse icon.ico. Bruger standard-ikon.")
+            logging.warning("Could not load icon.ico. Using default icon.")
         except Exception as e:
-            logging.error(f"Uventet fejl ved indlæsning af ikon: {e}")
+            logging.error(f"Unexpected error when loading icon: {e}")
 
 
-        # --- Applikationens data ---
+        # --- Application Data ---
         self.report_data = [] 
         self.all_scan_data = []
         self.exif_outputs = {}
@@ -111,17 +113,19 @@ class PDFReconApp:
         self.path_to_id = {}
         self.scan_start_time = 0
 
+        # --- State Variables ---
         self.revision_counter = 0
         self.scan_queue = queue.Queue()
         self.tree_sort_column = None
         self.tree_sort_reverse = False
         self.exif_popup = None
+        self.indicator_popup = None
 
-        # --- Sprogopsætning ---
+        # --- Language and Filter Setup ---
         self.language = tk.StringVar(value="da")
         self.filter_var = tk.StringVar()
         
-        # --- Opsætning af GUI ---
+        # --- GUI Setup ---
         self._setup_logging()
         self.translations = self.get_translations() 
         self._setup_styles()
@@ -129,18 +133,194 @@ class PDFReconApp:
         self._setup_main_frame()
         self._setup_drag_and_drop()
         
-        logging.info(f"PDFRecon v{self.app_version} startet.")
+        logging.info(f"PDFRecon v{self.app_version} started.")
 
     def _(self, key):
-        """Returnerer den oversatte tekst for en given nøgle."""
+        """Returns the translated text for a given key."""
         # Fallback for keys that might not exist in a language
         return self.translations[self.language.get()].get(key, key)
 
     def get_translations(self):
-        """Indeholder alle oversættelser for programmet."""
+        """Contains all translations for the application."""
         version_string = f"PDFRecon v{self.app_version}"
+        
+        # --- Manual Texts ---
+        MANUAL_DA = f"""
+# PDFRecon - Manual
+
+## Introduktion
+PDFRecon er et værktøj designet til at assistere i efterforskningen af PDF-filer. Programmet analyserer filer for en række tekniske indikatorer, der kan afsløre ændring, redigering eller skjult indhold. Resultaterne præsenteres i en overskuelig tabel, der kan eksporteres til Excel for videre dokumentation.
+
+## Vigtig bemærkning om tidsstempler
+Kolonnerne 'Fil oprettet' og 'Fil sidst ændret' viser tidsstempler fra computerens filsystem. Vær opmærksom på, at disse tidsstempler kan være upålidelige. En simpel handling som at kopiere en fil fra én placering til en anden vil typisk opdatere disse datoer til tidspunktet for kopieringen. For en mere pålidelig tidslinje, brug funktionen 'Vis Tidslinje', som er baseret på metadata inde i selve filen.
+
+## Klassificeringssystem
+Programmet klassificerer hver fil baseret på de fundne indikatorer. Dette gøres for hurtigt at kunne prioritere, hvilke filer der kræver nærmere undersøgelse.
+
+<red><b>JA (Høj Risiko):</b></red> Tildeles filer, hvor der er fundet stærke beviser for ændring. Disse filer bør altid undersøges grundigt. Indikatorer, der udløser dette flag, er typisk svære at forfalske og peger direkte på en ændring i filens indhold eller struktur.
+
+<yellow><b>Indikationer Fundet (Mellem Risiko):</b></yellow> Tildeles filer, hvor der er fundet en eller flere tekniske spor, der afviger fra en standard, 'ren' PDF. Disse spor er ikke i sig selv et endegyldigt bevis på ændring, men de viser, at filen har en historik eller struktur, der berettiger et nærmere kig.
+
+<green><b>IKKE PÅVIST (Lav Risiko):</b></green> Tildeles filer, hvor programmet ikke har fundet nogen af de kendte indikatorer. Dette betyder ikke, at filen med 100% sikkerhed er uændret, men at den ikke udviser de typiske tegn på ændring, som værktøjet leder efter.
+
+## Forklaring af Indikatorer
+Nedenfor er en detaljeret forklaring af hver indikator, som PDFRecon leder efter.
+
+<b>Has Revisions</b>
+*<i>Ændret:</i>* <red>JA</red>
+• Hvad det betyder: PDF-standarden tillader, at man gemmer ændringer oven i en eksisterende fil (inkrementel lagring). Dette efterlader den oprindelige version af dokumentet intakt inde i filen. PDFRecon har fundet og udtrukket en eller flere af disse tidligere versioner. Dette er et utvetydigt bevis på, at filen er blevet ændret efter sin oprindelige oprettelse.
+
+<b>TouchUp_TextEdit</b>
+*<i>Ændret:</i>* <red>JA</red>
+• Hvad det betyder: Dette er et specifikt metadata-flag, som Adobe Acrobat efterlader, når en bruger manuelt har redigeret tekst direkte i PDF-dokumentet. Det er et meget stærkt bevis på direkte ændring af indholdet.
+
+<b>Multiple Font Subsets</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Når tekst tilføjes til en PDF, indlejres ofte kun de tegn fra en skrifttype, der rent faktisk bruges (et 'subset'). Hvis en fil redigeres med et andet program, der ikke har adgang til præcis samme skrifttype, kan der opstå et nyt subset af den samme grundlæggende skrifttype. At finde flere subsets (f.eks. 'ABCDE+Calibri' og 'FGHIJ+Calibri') er en stærk indikation på, at tekst er blevet tilføjet eller ændret på forskellige tidspunkter eller med forskellige værktøjer.
+
+<b>Multiple Creators / Producers</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: PDF-filer indeholder metadata om, hvilket program der har oprettet (/Creator) og genereret (/Producer) filen. Hvis der findes flere forskellige navne i disse felter (f.eks. både 'Microsoft Word' og 'Adobe Acrobat'), indikerer det, at filen er blevet behandlet af mere end ét program. Dette sker typisk, når en fil oprettes i ét program og derefter redigeres i et andet.
+
+<b>xmpMM:History / DerivedFrom / DocumentAncestors</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Dette er forskellige typer af XMP-metadata, som gemmer information om filens historik. De kan indeholde tidsstempler for, hvornår filen er gemt, ID'er fra tidligere versioner, og hvilket software der er brugt. Fund af disse felter beviser, at filen har en redigeringshistorik.
+
+<b>Multiple DocumentID / Different InstanceID</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Hver PDF har et unikt DocumentID, der ideelt set er det samme for alle versioner. InstanceID ændres derimod for hver gang, filen gemmes. Hvis der findes flere forskellige DocumentID'er, eller hvis der er et unormalt højt antal InstanceID'er, peger det på en kompleks redigeringshistorik, potentielt hvor dele fra forskellige dokumenter er blevet kombineret.
+
+<b>Multiple startxref</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: 'startxref' er et nøgleord, der fortæller en PDF-læser, hvor den skal begynde at læse filens struktur. En standard, uændret fil har kun ét. Hvis der er flere, er det et tegn på, at der er foretaget inkrementelle ændringer (se 'Has Revisions').
+
+<b>Objekter med generation > 0</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Hvert objekt i en PDF-fil har et versionsnummer (generation). I en original, uændret fil er dette nummer typisk 0 for alle objekter. Hvis der findes objekter med et højere generationsnummer (f.eks. '12 1 obj'), er det et tegn på, at objektet er blevet overskrevet i en senere, inkrementel gemning. Dette indikerer, at filen er blevet opdateret.
+
+<b>Flere Lag End Sider</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Dokumentets struktur indeholder flere lag (Optional Content Groups) end der er sider. Hvert lag er en container for indhold, som kan vises eller skjules. Selvom det er teknisk muligt, er det usædvanligt at have flere lag end sider. Det kan indikere et komplekst dokument, en fil der er blevet kraftigt redigeret, eller potentielt at information er skjult på lag, som ikke er knyttet til synligt indhold. Filer med denne indikation bør undersøges nærmere i en PDF-læser, der understøtter lag-funktionalitet.
+
+<b>Linearized / Linearized + updated</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: En "linearized" PDF er optimeret til hurtig webvisning. Hvis en sådan fil efterfølgende er blevet ændret (updated), vil PDFRecon markere det. Det kan indikere, at et ellers færdigt dokument er blevet redigeret senere.
+
+<b>Has PieceInfo</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Nogle programmer, især fra Adobe, gemmer ekstra tekniske spor (PieceInfo) om ændringer eller versioner. Det kan afsløre, at filen har været behandlet i bestemte værktøjer som f.eks. Illustrator.
+
+<b>Has Redactions</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Dokumentet indeholder tekniske felter for sløring/sletning af indhold. I nogle tilfælde kan den skjulte tekst stadig findes i filen. Derfor bør redaktioner altid vurderes kritisk.
+
+<b>Has Annotations</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Dokumentet rummer kommentarer, noter eller markeringer. De kan være tilføjet senere og kan indeholde oplysninger, der ikke fremgår af det viste indhold.
+
+<b>AcroForm NeedAppearances=true</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Formularfelter kan kræve, at visningen genskabes, når dokumentet åbnes. Felt-tekster kan derfor ændre udseende eller udfyldes automatisk. Det kan skjule eller forplumre det oprindelige indhold.
+
+<b>Has Digital Signature</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Dokumentet indeholder en digital signatur. En gyldig signatur kan bekræfte, at dokumentet ikke er ændret siden signering. En ugyldig/brudt signatur kan være et stærkt tegn på efterfølgende ændring.
+
+<b>Dato-inkonsistens (Info vs. XMP)</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Oprettelses- og ændringsdatoer i PDF’ens Info-felt stemmer ikke overens med datoerne i XMP-metadata. Sådanne uoverensstemmelser kan pege på skjulte eller uautoriserede ændringer.
+"""
+
+        MANUAL_EN = f"""
+# PDFRecon - Manual
+
+## Introduction
+PDFRecon is a tool designed to assist in the investigation of PDF files. The program analyzes files for a range of technical indicators that can reveal alteration, editing, or hidden content. The results are presented in a clear table that can be exported to Excel for further documentation.
+
+## Important Note on Timestamps
+The 'File Created' and 'File Modified' columns show timestamps from the computer's file system. Be aware that these timestamps can be unreliable. A simple action like copying a file from one location to another will typically update these dates to the time of the copy. For a more reliable timeline, use the 'Show Timeline' feature, which is based on metadata inside the file itself.
+
+## Classification System
+The program classifies each file based on the indicators found. This is done to quickly prioritize which files require closer examination.
+
+<red><b>YES (High Risk):</b></red> Assigned to files where strong evidence of alteration has been found. These files should always be thoroughly investigated. Indicators that trigger this flag are typically difficult to forge and point directly to a change in the file's content or structure.
+
+<yellow><b>Indications Found (Medium Risk):</b></yellow> Assigned to files where one or more technical traces have been found that deviate from a standard, 'clean' PDF. These traces are not definitive proof of alteration in themselves, but they show that the file has a history or structure that warrants a closer look.
+
+<green><b>NOT DETECTED (Low Risk):</b></green> Assigned to files where the program has not found any of the known indicators. This does not mean that the file is 100% unchanged, but that it does not exhibit the typical signs of alteration that the tool looks for.
+
+## Explanation of Indicators
+Below is a detailed explanation of each indicator that PDFRecon looks for.
+
+<b>Has Revisions</b>
+*<i>Changed:</i>* <red>YES</red>
+• What it means: The PDF standard allows changes to be saved on top of an existing file (incremental saving). This leaves the original version of the document intact inside the file. PDFRecon has found and extracted one or more of these previous versions. This is unequivocal proof that the file has been changed after its original creation.
+
+<b>TouchUp_TextEdit</b>
+*<i>Changed:</i>* <red>YES</red>
+• What it means: This is a specific metadata flag left by Adobe Acrobat when a user has manually edited text directly in the PDF document. It is very strong evidence of direct content alteration.
+
+<b>Multiple Font Subsets</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: When text is added to a PDF, often only the characters actually used from a font are embedded (a 'subset'). If a file is edited with another program that does not have access to the exact same font, a new subset of the same base font may be created. Finding multiple subsets (e.g., 'ABCDE+Calibri' and 'FGHIJ+Calibri') is a strong indication that text has been added or changed at different times or with different tools.
+
+<b>Multiple Creators / Producers</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: PDF files contain metadata about which program created (/Creator) and generated (/Producer) the file. If multiple different names are found in these fields (e.g., both 'Microsoft Word' and 'Adobe Acrobat'), it indicates that the file has been processed by more than one program. This typically happens when a file is created in one program and then edited in another.
+
+<b>xmpMM:History / DerivedFrom / DocumentAncestors</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: These are different types of XMP metadata that store information about the file's history. They can contain timestamps for when the file was saved, IDs from previous versions, and what software was used. The presence of these fields proves that the file has an editing history.
+
+<b>Multiple DocumentID / Different InstanceID</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: Each PDF has a unique DocumentID that should ideally be the same for all versions. The InstanceID, however, changes every time the file is saved. If multiple different DocumentIDs are found, or if there is an abnormally high number of InstanceIDs, it points to a complex editing history, potentially where parts from different documents have been combined.
+
+<b>Multiple startxref</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: 'startxref' is a keyword that tells a PDF reader where to start reading the file's structure. A standard, unchanged file has only one. If there are more, it is a sign that incremental changes have been made (see 'Has Revisions').
+
+<b>Objects with generation > 0</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: Each object in a PDF file has a version number (generation). In an original, unaltered file, this number is typically 0 for all objects. If objects are found with a higher generation number (e.g., '12 1 obj'), it is a sign that the object has been overwritten in a later, incremental save. This indicates that the file has been updated.
+
+<b>More Layers Than Pages</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: The document's structure contains more layers (Optional Content Groups) than it has pages. Each layer is a container for content that can be shown or hidden. While technically possible, having more layers than pages is unusual. It might indicate a complex document, a file that has been heavily edited, or potentially that information is hidden in layers not associated with visible content. Files with this indicator should be examined more closely in a PDF reader that supports layer functionality.
+
+<b>Linearized / Linearized + updated</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: A "linearized" PDF is optimized for fast web viewing. If such a file was later modified (updated), PDFRecon flags it. This may indicate that a supposedly final document was edited afterwards.
+
+<b>Has PieceInfo</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: Some applications, particularly from Adobe, store extra technical traces (PieceInfo) about changes or versions. This can reveal that the file has been processed in specific tools like Illustrator.
+
+<b>Has Redactions</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: The document contains technical fields for redaction (blackouts/removals). In some cases, hidden text may still be present. Redactions should always be assessed critically.
+
+<b>Has Annotations</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: The document includes comments, notes, or highlights. They may have been added later and can contain information that is not visible in the main content.
+
+<b>AcroForm NeedAppearances=true</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: Form fields may need their appearance regenerated when the document opens. Field text can change or be auto-filled, which may obscure the original content.
+
+<b>Has Digital Signature</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: The document contains a digital signature. A valid signature confirms the file has not changed since signing. An invalid/broken signature can be a strong sign of later alteration.
+
+<b>Date inconsistency (Info vs. XMP)</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: The creation/modification dates in the PDF Info dictionary do not match the dates in XMP metadata. Such discrepancies can indicate hidden or unauthorized changes.
+"""
+
+        # This dictionary holds all GUI text for easy language switching.
         return {
             "da": {
+                "full_manual": MANUAL_DA,
                 "choose_folder": "📁 Vælg mappe og scan",
                 "show_timeline": "Vis Tidslinje",
                 "status_initial": "Træk en mappe hertil eller brug knappen for at starte en analyse.",
@@ -155,59 +335,17 @@ class PDFReconApp:
                 "scan_complete_summary_with_errors": "✔ Færdig: {total} dok. | {changed} JA | {revs} rev. | {inds} ind. | {errors} fejl | {clean} rene",
                 "no_exif_output_title": "Ingen EXIFTool-output", "no_exif_output_message": "Der er enten ingen EXIFTool-output for denne fil, eller også opstod der en fejl under kørsel.",
                 "exif_popup_title": "EXIFTool Output", "exif_no_output": "Intet output", "exif_error": "Fejl. Læs exiftool i samme mappe", "exif_view_output": "Klik for at se output ➡",
+                "indicators_popup_title": "Fundne Indikatorer", "indicators_view_output": "Klik for at se detaljer ➡", "no_indicators_message": "Der er ingen indikatorer for denne fil.",
                 "license_error_title": "Fejl", "license_error_message": "Licensfilen 'license.txt' kunne ikke findes.\n\nSørg for, at filen hedder 'license.txt' og er inkluderet korrekt, når programmet pakkes.",
                 "license_popup_title": "Licensinformation",
-                "manual_prev_header": "/Prev-kæde (inkrementelle gemninger)",
-                "manual_prev_class": "Indikationer Fundet",
-                "manual_prev_desc": "• Hvad det betyder: PDF-formatet kan gemme ændringer “oven på” den eksisterende fil. Når der findes /Prev-punkter i filen, betyder det, at ældre tilstande ligger bevaret i filen. Det er ikke i sig selv bevis for manipulation, men det viser at dokumentet har en historik og derfor bør undersøges nærmere.\n\n",
-                "manual_linearized_header": "Linearized + Updated",
-                "manual_linearized_class": "Indikationer Fundet",
-                "manual_linearized_desc": "• Hvad det betyder: En “linearized” PDF er optimeret til hurtig webvisning. Hvis en sådan fil efterfølgende er blevet ændret, vil PDFRecon markere det. Det kan indikere, at et ellers færdigt dokument er blevet redigeret senere.\n\n",
-                "manual_redact_header": "Redactions (sløringer/sletninger)",
-                "manual_redact_class": "Indikationer Fundet",
-                "manual_redact_desc": "• Hvad det betyder: Dokumentet indeholder tekniske felter for sløring/sletning af indhold. I nogle tilfælde kan den skjulte tekst stadig findes i filen. Derfor bør redaktioner altid vurderes kritisk.\n\n",
-                "manual_annots_header": "Annotations (kommentarer/noter)",
-                "manual_annots_class": "Indikationer Fundet",
-                "manual_annots_desc": "• Hvad det betyder: Dokumentet rummer kommentarer, noter eller markeringer. De kan være tilføjet senere og kan indeholde oplysninger, der ikke fremgår af det viste indhold.\n\n",
-                "manual_pieceinfo_header": "PieceInfo (programoplysninger/version)",
-                "manual_pieceinfo_class": "Indikationer Fundet",
-                "manual_pieceinfo_desc": "• Hvad det betyder: Nogle programmer gemmer ekstra tekniske spor (PieceInfo) om ændringer eller versioner. Det kan afsløre, at filen har været behandlet i bestemte værktøjer.\n\n",
-                "manual_acro_needapp_header": "AcroForm med NeedAppearances=true",
-                "manual_acro_needapp_class": "Indikationer Fundet",
-                "manual_acro_needapp_desc": "• Hvad det betyder: Formularfelter kan kræve, at visningen genskabes, når dokumentet åbnes. Felt-tekster kan derfor ændre udseende eller udfyldes automatisk. Det kan skjule eller forplumre det oprindelige indhold.\n\n",
-                "manual_digsig_header": "Digital Signatur",
-                "manual_digsig_class": "Indikationer Fundet",
-                "manual_digsig_desc": "• Hvad det betyder: Dokumentet indeholder en digital signatur. En gyldig signatur kan bekræfte, at dokumentet ikke er ændret siden signering. En ugyldig/brudt signatur kan være et stærkt tegn på efterfølgende ændring.\n\n",
-                "manual_date_mismatch_header": "Dato-inkonsistens (Info vs. XMP)",
-                "manual_date_mismatch_class": "Indikationer Fundet",
-                "manual_date_mismatch_desc": "• Hvad det betyder: Oprettelses- og ændringsdatoer i PDF’ens Info-felt stemmer ikke overens med datoerne i XMP-metadata. Sådanne uoverensstemmelser kan pege på skjulte eller uautoriserede ændringer.\n\n",
                 "obj_gen_gt_zero": "Objekt med generation > 0",
-                "manual_obj_gen_header": "Objekter med generation > 0",
-                "manual_obj_gen_class": "Indikationer Fundet",
-                "manual_obj_gen_desc": "• Hvad det betyder: Hvert objekt i en PDF-fil har et versionsnummer (generation). I en original, uændret fil er dette nummer typisk 0 for alle objekter. Hvis der findes objekter med et højere generationsnummer (f.eks. '12 1 obj'), er det et tegn på, at objektet er blevet overskrevet i en senere, inkrementel gemning. Dette indikerer, at filen er blevet opdateret.\n\n",
                 "log_not_found_title": "Logfil ikke fundet", "log_not_found_message": "Logfilen er endnu ikke oprettet. Den oprettes første gang programmet logger en handling.",
                 "no_data_to_save_title": "Ingen data", "no_data_to_save_message": "Der er ingen data at gemme.",
                 "excel_saved_title": "Handling fuldført", "excel_saved_message": "Rapporten er gemt.\n\nVil du åbne mappen, hvor filen ligger?",
                 "excel_save_error_title": "Fejl ved lagring", "excel_save_error_message": "Filen kunne ikke gemmes. Den er muligvis i brug af et andet program.\n\nDetaljer: {e}",
                 "excel_unexpected_error_title": "Uventet Fejl", "excel_unexpected_error_message": "En uventet fejl opstod under lagring.\n\nDetaljer: {e}",
                 "open_folder_error_title": "Fejl ved åbning", "open_folder_error_message": "Kunne ikke automatisk åbne mappen.",
-                "manual_title": "PDFRecon - Manual", "manual_intro_header": "Introduktion",
-                "manual_intro_text": "PDFRecon er et værktøj designet til at assistere i efterforskningen af PDF-filer. Programmet analyserer filer for en række tekniske indikatorer, der kan afsløre ændring, redigering eller skjult indhold. Resultaterne præsenteres i en overskuelig tabel, der kan eksporteres til Excel for videre dokumentation.\n\n",
-                "manual_disclaimer_header": "Vigtig bemærkning om tidsstempler",
-                "manual_disclaimer_text": "Kolonnerne 'Fil oprettet' og 'Fil sidst ændret' viser tidsstempler fra computerens filsystem. Vær opmærksom på, at disse tidsstempler kan være upålidelige. En simpel handling som at kopiere en fil fra én placering til en anden vil typisk opdatere disse datoer til tidspunktet for kopieringen. For en mere pålidelig tidslinje, brug funktionen 'Vis Tidslinje', som er baseret på metadata inde i selve filen.\n\n",
-                "manual_class_header": "Klassificeringssystem", "manual_class_text": "Programmet klassificerer hver fil baseret på de fundne indikatorer. Dette gøres for hurtigt at kunne prioritere, hvilke filer der kræver nærmere undersøgelse.\n\n",
-                "manual_high_risk_header": "JA (Høj Risiko): ", "manual_high_risk_text": "Tildeles filer, hvor der er fundet stærke beviser for ændring. Disse filer bør altid undersøges grundigt. Indikatorer, der udløser dette flag, er typisk svære at forfalske og peger direkte på en ændring i filens indhold eller struktur.\n\n",
-                "manual_med_risk_header": "Indikationer Fundet (Mellem Risiko): ", "manual_med_risk_text": "Tildeles filer, hvor der er fundet en eller flere tekniske spor, der afviger fra en standard, 'ren' PDF. Disse spor er ikke i sig selv et endegyldigt bevis på ændring, men de viser, at filen har en historik eller struktur, der berettiger et nærmere kig.\n\n",
-                "manual_low_risk_header": "IKKE PÅVIST (Lav Risiko): ", "manual_low_risk_text": "Tildeles filer, hvor programmet ikke har fundet nogen af de kendte indikatorer. Dette betyder ikke, at filen med 100% sikkerhed er uændret, men at den ikke udviser de typiske tegn på ændring, som værktøjet leder efter.\n\n",
-                "manual_indicators_header": "Forklaring af Indikatorer", "manual_indicators_text": "Nedenfor er en detaljeret forklaring af hver indikator, som PDFRecon leder efter.\n\n",
-                "manual_has_rev_header": "Has Revisions", "manual_has_rev_class": "JA", "manual_has_rev_desc": "• Hvad det betyder: PDF-standarden tillader, at man gemmer ændringer oven i en eksisterende fil (inkrementel lagring). Dette efterlader den oprindelige version af dokumentet intakt inde i filen. PDFRecon har fundet og udtrukket en eller flere af disse tidligere versioner. Dette er et utvetydigt bevis på, at filen er blevet ændret efter sin oprindelige oprettelse.\n\n",
-                "manual_touchup_header": "TouchUp_TextEdit", "manual_touchup_class": "JA", "manual_touchup_desc": "• Hvad det betyder: Dette er et specifikt metadata-flag, som Adobe Acrobat efterlader, når en bruger manuelt har redigeret tekst direkte i PDF-dokumentet. Det er et meget stærkt bevis på direkte ændring af indholdet.\n\n",
-                "manual_fonts_header": "Multiple Font Subsets", "manual_fonts_class": "Indikationer Fundet", "manual_fonts_desc": "• Hvad det betyder: Når tekst tilføjes til en PDF, indlejres ofte kun de tegn fra en skrifttype, der rent faktisk bruges (et 'subset'). Hvis en fil redigeres med et andet program, der ikke har adgang til præcis samme skrifttype, kan der opstå et nyt subset af den samme grundlæggende skrifttype. At finde flere subsets (f.eks. 'ABCDE+Calibri' og 'FGHIJ+Calibri') er en stærk indikation på, at tekst er blevet tilføjet eller ændret på forskellige tidspunkter eller med forskellige værktøjer.\n\n",
-                "manual_tools_header": "Multiple Creators / Producers", "manual_tools_class": "Indikationer Fundet", "manual_tools_desc": "• Hvad det betyder: PDF-filer indeholder metadata om, hvilket program der har oprettet (/Creator) og genereret (/Producer) filen. Hvis der findes flere forskellige navne i disse felter (f.eks. både 'Microsoft Word' og 'Adobe Acrobat'), indikerer det, at filen er blevet behandlet af mere end ét program. Dette sker typisk, når en fil oprettes i ét program og derefter redigeres i et andet.\n\n",
-                "manual_history_header": "xmpMM:History / DerivedFrom / DocumentAncestors", "manual_history_class": "Indikationer Fundet", "manual_history_desc": "• Hvad det betyder: Dette er forskellige typer af XMP-metadata, som gemmer information om filens historik. De kan indeholde tidsstempler for, hvornår filen er gemt, ID'er fra tidligere versioner, og hvilket software der er brugt. Fund af disse felter beviser, at filen har en redigeringshistorik.\n\n",
-                "manual_id_header": "Multiple DocumentID / Different InstanceID", "manual_id_class": "Indikationer Fundet", "manual_id_desc": "• Hvad det betyder: Hver PDF har et unikt DocumentID, der ideelt set er det samme for alle versioner. InstanceID ændres derimod for hver gang, filen gemmes. Hvis der findes flere forskellige DocumentID'er, eller hvis der er et unormalt højt antal InstanceID'er, peger det på en kompleks redigeringshistorik, potentielt hvor dele fra forskellige dokumenter er blevet kombineret.\n\n",
-                "manual_xref_header": "Multiple startxref", "manual_xref_class": "Indikationer Fundet", "manual_xref_desc": "• Hvad det betyder: 'startxref' er et nøgleord, der fortæller en PDF-læser, hvor den skal begynde at læse filens struktur. En standard, uændret fil har kun ét. Hvis der er flere, er det et tegn på, at der er foretaget inkrementelle ændringer (se 'Has Revisions').\n\n",
-                "manual_layers_pages_header": "Flere Lag End Sider", "manual_layers_pages_class": "Indikationer Fundet", "manual_layers_pages_desc": "• Hvad det betyder: Dokumentets struktur indeholder flere lag (Optional Content Groups) end der er sider. Hvert lag er en container for indhold, som kan vises eller skjules. Selvom det er teknisk muligt, er det usædvanligt at have flere lag end sider. Det kan indikere et komplekst dokument, en fil der er blevet kraftigt redigeret, eller potentielt at information er skjult på lag, som ikke er knyttet til synligt indhold. Filer med denne indikation bør undersøges nærmere i en PDF-læser, der understøtter lag-funktionalitet.\n\n",
+                "manual_title": "PDFRecon - Manual",
                 "revision_of": "Revision af #{id}", "about_purpose_header": "Formål",
                 "about_purpose_text": "PDFRecon identificerer potentielt manipulerede PDF-filer ved at:\n• Udtrække og analysere XMP-metadata, streams og revisioner\n• Detektere tegn på ændringer (f.eks. /TouchUp_TextEdit, /Prev)\n• Udtrække komplette, tidligere versioner af dokumentet\n• Generere en overskuelig rapport i Excel-format\n\n",
                 "about_included_software_header": "Inkluderet Software", "about_included_software_text": "Dette værktøj benytter og inkluderer {tool} af Phil Harvey.\n{tool} er distribueret under Artistic/GPL-licens.\n\n",
@@ -229,35 +367,9 @@ class PDFReconApp:
                 "filter_label": "🔎 Filter:"
             },
             "en": {
+                "full_manual": MANUAL_EN,
                 "choose_folder": "📁 Choose folder and scan", "show_timeline": "Show Timeline", "status_initial": "Drag a folder here or use the button to start an analysis.",
-                "manual_prev_header": "/Prev chain (incremental saves)",
-                "manual_prev_class": "Indications Found",
-                "manual_prev_desc": "• What it means: The PDF format can save changes “on top of” the existing file. When /Prev pointers are present, earlier states remain embedded. This is not proof of manipulation by itself, but it shows an edit history and merits closer review.\n\n",
-                "manual_linearized_header": "Linearized + Updated",
-                "manual_linearized_class": "Indications Found",
-                "manual_linearized_desc": "• What it means: A “linearized” PDF is optimized for fast web viewing. If such a file was later modified, PDFRecon flags it. This may indicate that a supposedly final document was edited afterwards.\n\n",
-                "manual_redact_header": "Redactions (obscured/removed content)",
-                "manual_redact_class": "Indications Found",
-                "manual_redact_desc": "• What it means: The document contains technical fields for redaction (blackouts/removals). In some cases, hidden text may still be present. Redactions should be assessed critically.\n\n",
-                "manual_annots_header": "Annotations (comments/notes)",
-                "manual_annots_class": "Indications Found",
-                "manual_annots_desc": "• What it means: The document includes comments, notes, or highlights. They may have been added later and can contain information that is not visible in the main content.\n\n",
-                "manual_pieceinfo_header": "PieceInfo (software/version traces)",
-                "manual_pieceinfo_class": "Indications Found",
-                "manual_pieceinfo_desc": "• What it means: Some programs store extra technical traces (PieceInfo) about changes or versions. This can reveal that the file was processed in particular tools.\n\n",
-                "manual_acro_needapp_header": "AcroForm with NeedAppearances=true",
-                "manual_acro_needapp_class": "Indications Found",
-                "manual_acro_needapp_desc": "• What it means: Form fields may need their appearance regenerated when the document opens. Field text can change or be auto-filled, which may obscure the original content.\n\n",
-                "manual_digsig_header": "Digital Signature",
-                "manual_digsig_class": "Indications Found",
-                "manual_digsig_desc": "• What it means: The document contains a digital signature. A valid signature confirms the file has not changed since signing. An invalid/broken signature can be a strong sign of later alteration.\n\n",
-                "manual_date_mismatch_header": "Date inconsistency (Info vs. XMP)",
-                "manual_date_mismatch_class": "Indications Found",
-                "manual_date_mismatch_desc": "• What it means: The creation/modification dates in the PDF Info dictionary do not match the dates in XMP metadata. Such discrepancies can indicate hidden or unauthorized changes.\n\n",
                 "obj_gen_gt_zero": "Object with generation > 0",
-                "manual_obj_gen_header": "Objects with generation > 0",
-                "manual_obj_gen_class": "Indications Found",
-                "manual_obj_gen_desc": "• What it means: Each object in a PDF file has a version number (generation). In an original, unaltered file, this number is typically 0 for all objects. If objects are found with a higher generation number (e.g., '12 1 obj'), it is a sign that the object has been overwritten in a later, incremental save. This indicates that the file has been updated.\n\n",
                 "col_id": "#", "col_name": "Name", "col_changed": "Changed", "col_path": "Path", "col_md5": "MD5",
                 "col_created": "File Created", "col_modified": "File Modified", "col_exif": "EXIFTool", "col_indicators": "Signs of Alteration",
                 "export_report": "💾 Export Report",
@@ -269,6 +381,7 @@ class PDFReconApp:
                 "scan_complete_summary_with_errors": "✔ Done: {total} docs | {changed} YES | {revs} revs | {inds} ind. | {errors} errors | {clean} clean",
                 "no_exif_output_title": "No EXIFTool Output", "no_exif_output_message": "There is either no EXIFTool output for this file, or an error occurred during execution.",
                 "exif_popup_title": "EXIFTool Output", "exif_no_output": "No output", "exif_error": "Error. Missing Exiftool", "exif_view_output": "Click to view output ➡",
+                "indicators_popup_title": "Indicators Found", "indicators_view_output": "Click to view details ➡", "no_indicators_message": "No indicators found for this file.",
                 "license_error_title": "Error", "license_error_message": "The license file 'license.txt' could not be found.\n\nPlease ensure the file is named 'license.txt' and is included correctly when packaging the application.",
                 "license_popup_title": "License Information",
                 "log_not_found_title": "Log File Not Found", "log_not_found_message": "The log file has not been created yet. It is created the first time the program logs an action.",
@@ -277,23 +390,7 @@ class PDFReconApp:
                 "excel_save_error_title": "Save Error", "excel_save_error_message": "The file could not be saved. It might be in use by another program.\n\nDetails: {e}",
                 "excel_unexpected_error_title": "Unexpected Error", "excel_unexpected_error_message": "An unexpected error occurred during saving.\n\nDetails: {e}",
                 "open_folder_error_title": "Error Opening Folder", "open_folder_error_message": "Could not automatically open the folder.",
-                "manual_title": "PDFRecon - Manual", "manual_intro_header": "Introduction",
-                "manual_intro_text": "PDFRecon is a tool designed to assist in the investigation of PDF files. The program analyzes files for a range of technical indicators that can reveal alteration, editing, or hidden content. The results are presented in a clear table that can be exported to Excel for further documentation.\n\n",
-                "manual_disclaimer_header": "Important Note on Timestamps",
-                "manual_disclaimer_text": "The 'File Created' and 'File Modified' columns show timestamps from the computer's file system. Be aware that these timestamps can be unreliable. A simple action like copying a file from one location to another will typically update these dates to the time of the copy. For a more reliable timeline, use the 'Show Timeline' feature, which is based on metadata inside the file itself.\n\n",
-                "manual_class_header": "Classification System", "manual_class_text": "The program classifies each file based on the indicators found. This is done to quickly prioritize which files require closer examination.\n\n",
-                "manual_high_risk_header": "YES (High Risk): ", "manual_high_risk_text": "Assigned to files where strong evidence of alteration has been found. These files should always be thoroughly investigated. Indicators that trigger this flag are typically difficult to forge and point directly to a change in the file's content or structure.\n\n",
-                "manual_med_risk_header": "Indications Found (Medium Risk): ", "manual_med_risk_text": "Assigned to files where one or more technical traces have been found that deviate from a standard, 'clean' PDF. These traces are not definitive proof of alteration in themselves, but they show that the file has a history or structure that warrants a closer look.\n\n",
-                "manual_low_risk_header": "NOT DETECTED (Low Risk): ", "manual_low_risk_text": "Assigned to files where the program has not found any of the known indicators. This does not mean that the file is 100% unchanged, but that it does not exhibit the typical signs of alteration that the tool looks for.\n\n",
-                "manual_indicators_header": "Explanation of Indicators", "manual_indicators_text": "Below is a detailed explanation of each indicator that PDFRecon looks for.\n\n",
-                "manual_has_rev_header": "Has Revisions", "manual_has_rev_class": "YES", "manual_has_rev_desc": "• What it means: The PDF standard allows changes to be saved on top of an existing file (incremental saving). This leaves the original version of the document intact inside the file. PDFRecon has found and extracted one or more of these previous versions. This is unequivocal proof that the file has been changed after its original creation.\n\n",
-                "manual_touchup_header": "TouchUp_TextEdit", "manual_touchup_class": "YES", "manual_touchup_desc": "• What it means: This is a specific metadata flag left by Adobe Acrobat when a user has manually edited text directly in the PDF document. It is very strong evidence of direct content alteration.\n\n",
-                "manual_fonts_header": "Multiple Font Subsets", "manual_fonts_class": "Indications Found", "manual_fonts_desc": "• What it means: When text is added to a PDF, often only the characters actually used from a font are embedded (a 'subset'). If a file is edited with another program that does not have access to the exact same font, a new subset of the same base font may be created. Finding multiple subsets (e.g., 'ABCDE+Calibri' and 'FGHIJ+Calibri') is a strong indication that text has been added or changed at different times or with different tools.\n\n",
-                "manual_tools_header": "Multiple Creators / Producers", "manual_tools_class": "Indications Found", "manual_tools_desc": "• What it means: PDF files contain metadata about which program created (/Creator) and generated (/Producer) the file. If multiple different names are found in these fields (e.g., both 'Microsoft Word' and 'Adobe Acrobat'), it indicates that the file has been processed by more than one program. This typically happens when a file is created in one program and then edited in another.\n\n",
-                "manual_history_header": "xmpMM:History / DerivedFrom / DocumentAncestors", "manual_history_class": "Indications Found", "manual_history_desc": "• What it means: These are different types of XMP metadata that store information about the file's history. They can contain timestamps for when the file was saved, IDs from previous versions, and what software was used. The presence of these fields proves that the file has an editing history.\n\n",
-                "manual_id_header": "Multiple DocumentID / Different InstanceID", "manual_id_class": "Indications Found", "manual_id_desc": "• What it means: Each PDF has a unique DocumentID that should ideally be the same for all versions. The InstanceID, however, changes every time the file is saved. If multiple different DocumentIDs are found, or if there is an abnormally high number of InstanceIDs, it points to a complex editing history, potentially where parts from different documents have been combined.\n\n",
-                "manual_xref_header": "Multiple startxref", "manual_xref_class": "Indications Found", "manual_xref_desc": "• What it means: 'startxref' is a keyword that tells a PDF reader where to start reading the file's structure. A standard, unchanged file has only one. If there are more, it is a sign that incremental changes have been made (see 'Has Revisions').\n\n",
-                "manual_layers_pages_header": "More Layers Than Pages", "manual_layers_pages_class": "Indications Found", "manual_layers_pages_desc": "• What it means: The document's structure contains more layers (Optional Content Groups) than it has pages. Each layer is a container for content that can be shown or hidden. While technically possible, having more layers than pages is unusual. It might indicate a complex document, a file that has been heavily edited, or potentially that information is hidden in layers not associated with visible content. Files with this indicator should be examined more closely in a PDF reader that supports layer functionality.\n\n",
+                "manual_title": "PDFRecon - Manual",
                 "revision_of": "Revision of #{id}", "about_purpose_header": "Purpose",
                 "about_purpose_text": "PDFRecon identifies potentially manipulated PDF files by:\n• Extracting and analyzing XMP metadata, streams, and revisions\n• Detecting signs of alteration (e.g., /TouchUp_TextEdit, /Prev)\n• Extracting complete, previous versions of the document\n• Generating a clear report in Excel format\n\n",
                 "about_included_software_header": "Included Software", "about_included_software_text": "This tool utilizes and includes {tool} by Phil Harvey.\n{tool} is distributed under the Artistic/GPL license.\n\n",
@@ -317,10 +414,10 @@ class PDFReconApp:
         }
 
     def _load_or_create_config(self):
-        """Indlæser konfiguration fra config.ini eller opretter filen med standardværdier."""
+        """Loads configuration from config.ini or creates the file with default values."""
         parser = configparser.ConfigParser()
         if not self.config_path.exists():
-            logging.info("config.ini ikke fundet. Opretter med standardværdier.")
+            logging.info("config.ini not found. Creating with default values.")
             parser['Settings'] = {
                 'MaxFileSizeMB': '500',
                 'ExifToolTimeout': '30',
@@ -331,7 +428,7 @@ class PDFReconApp:
                     configfile.write("# PDFRecon Configuration File\n")
                     parser.write(configfile)
             except IOError as e:
-                logging.error(f"Kunne ikke skrive til config.ini: {e}")
+                logging.error(f"Could not write to config.ini: {e}")
                 return
         
         try:
@@ -340,48 +437,56 @@ class PDFReconApp:
             PDFReconConfig.MAX_FILE_SIZE = settings.getint('MaxFileSizeMB', 500) * 1024 * 1024
             PDFReconConfig.EXIFTOOL_TIMEOUT = settings.getint('ExifToolTimeout', 30)
             PDFReconConfig.MAX_WORKER_THREADS = settings.getint('MaxWorkerThreads', PDFReconConfig.MAX_WORKER_THREADS)
-            logging.info(f"Konfiguration indlæst fra {self.config_path}")
+            logging.info(f"Configuration loaded from {self.config_path}")
         except Exception as e:
-            logging.error(f"Kunne ikke læse config.ini, bruger standardværdier. Fejl: {e}")
+            logging.error(f"Could not read config.ini, using default values. Error: {e}")
 
     def _setup_logging(self):
-        """ Sætter en robust logger op, der skriver til en fil. """
+        """ Sets up a robust logger that writes to a file. """
         self.log_file_path = self._resolve_path("pdfrecon.log", base_is_parent=True)
         
         logger = logging.getLogger()
         logger.setLevel(logging.INFO)
         
+        # Clear existing handlers to avoid duplicate logs
         if logger.hasHandlers():
             logger.handlers.clear()
             
         try:
+            # Create a file handler to write logs to a file
             fh = logging.FileHandler(self.log_file_path, mode='a', encoding='utf-8')
             formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
             fh.setFormatter(formatter)
             logger.addHandler(fh)
         except Exception as e:
-            messagebox.showerror("Log Fejl", f"Kunne ikke oprette logfilen.\n\nDetaljer: {e}")
+            messagebox.showerror("Log Error", f"Could not create the log file.\n\nDetails: {e}")
 
 
     def _setup_styles(self):
+        """Initializes and configures the styles for ttk widgets."""
         self.style = ttk.Style()
         self.style.theme_use("clam")
+        # Style for selected items in the treeview
         self.style.map('Treeview', background=[('selected', '#0078D7')])
+        # Tags for coloring rows based on their status
         self.tree_tags = {
             "JA": "red_row",
             "YES": "red_row",
-            # NYT: "Sandsynligt"/"Possible" vises gult
+            # NEW: "Sandsynligt"/"Possible" is shown in yellow
             "Sandsynligt": "yellow_row",
             "Possible": "yellow_row",
         }
+        # Custom style for the progress bar
         self.style.configure("blue.Horizontal.TProgressbar",
                              troughcolor='#EAEAEA',
                              background='#0078D7')
 
 
     def _setup_menu(self):
+        """Creates the main menu bar for the application."""
         self.menubar = tk.Menu(self.root)
         
+        # --- Help Menu ---
         self.help_menu = tk.Menu(self.menubar, tearoff=0)
         self.lang_menu = tk.Menu(self.help_menu, tearoff=0) 
 
@@ -399,12 +504,12 @@ class PDFReconApp:
         self.root.config(menu=self.menubar)
 
     def _update_summary_status(self):
-        """Opdaterer statuslinjen med en oversigt over resultaterne baseret på den fulde scanning."""
+        """Updates the status bar with a summary of the results from the full scan."""
         if not self.all_scan_data:
             self.status_var.set(self._("status_initial"))
             return
 
-        # Byg en midlertidig liste af flag for alle scannede filer
+        # Build a temporary list of flags for all scanned files
         all_flags = []
         for data in self.all_scan_data:
             if data.get("status") == "error":
@@ -414,9 +519,11 @@ class PDFReconApp:
                 flag = self.get_flag(data.get("indicator_keys", []), False)
                 all_flags.append(flag)
 
+        # Define the set of error statuses for counting
         error_keys = ["file_too_large", "file_corrupt", "file_encrypted", "validation_error", "processing_error", "unknown_error"]
         error_statuses = {self._(key) for key in error_keys}
         
+        # Count occurrences of each status type
         changed_count = all_flags.count("JA") + all_flags.count("YES")
         indications_found_count = all_flags.count("Indikationer Fundet") + all_flags.count("Indications Found")
         error_count = sum(1 for flag in all_flags if flag in error_statuses)
@@ -424,6 +531,7 @@ class PDFReconApp:
         original_files_count = len([d for d in self.all_scan_data if not d.get('is_revision')])
         not_flagged_count = original_files_count - changed_count - indications_found_count - error_count
 
+        # Format the summary text based on whether errors were found
         if error_count > 0:
             summary_text = self._("scan_complete_summary_with_errors").format(
                 total=original_files_count, changed=changed_count, revs=self.revision_counter,
@@ -438,12 +546,15 @@ class PDFReconApp:
 
 
     def switch_language(self):
-        """Opdaterer al tekst i GUI'en til det valgte sprog."""
+        """Updates all text in the GUI to the selected language."""
+        # --- Preserve Selection ---
+        # Store the path of the currently selected item to re-select it after the update.
         path_of_selected = None
         if self.tree.selection():
             selected_item_id = self.tree.selection()[0]
             path_of_selected = self.tree.item(selected_item_id, "values")[3]
 
+        # --- Update Menu and Button Text ---
         self.menubar.entryconfig(1, label=self._("menu_help"))
         self.help_menu.entryconfig(0, label=self._("menu_manual"))
         self.help_menu.entryconfig(1, label=self._("menu_about"))
@@ -454,22 +565,28 @@ class PDFReconApp:
         self.export_menubutton.config(text=self._("export_report"))
         self.filter_label.config(text=self._("filter_label"))
         
+        # --- Update Treeview Column Headers ---
         for i, key in enumerate(self.columns_keys):
             self.tree.heading(self.columns[i], text=self._(key))
 
-        self._apply_filter() # Genanvend filter for at opdatere tabel med nyt sprog
+        # Re-apply the filter to update the table contents with the new language.
+        self._apply_filter() 
 
+        # --- Restore Selection and Details ---
         if path_of_selected:
+            # Find the item ID that corresponds to the saved path
             new_item_to_select = next((item_id for item_id in self.tree.get_children("") if self.tree.item(item_id, "values")[3] == path_of_selected), None)
             if new_item_to_select:
                 self.tree.selection_set(new_item_to_select)
                 self.tree.focus(new_item_to_select)
-                self.on_select_item(None)
+                self.on_select_item(None) # Update the details view for the re-selected item
         else:
+            # If nothing was selected, clear the details box
             self.detail_text.config(state="normal")
             self.detail_text.delete("1.0", tk.END)
             self.detail_text.config(state="disabled")
 
+        # --- Update Status Bar ---
         is_scan_finished = self.scan_button['state'] == 'normal'
         if is_scan_finished and self.all_scan_data:
             self._update_summary_status()
@@ -478,9 +595,12 @@ class PDFReconApp:
 
 
     def _setup_main_frame(self):
+        """Sets up the main user interface components within the root window."""
+        # --- Main Container Frame ---
         frame = ttk.Frame(self.root, padding=10)
         frame.pack(fill="both", expand=True)
 
+        # --- Top Controls Frame (Scan Button, Filter) ---
         top_controls_frame = ttk.Frame(frame)
         top_controls_frame.pack(pady=5, fill="x")
 
@@ -494,6 +614,7 @@ class PDFReconApp:
         filter_entry.pack(side="left", fill="x", expand=True)
         self.filter_var.trace_add("write", self._apply_filter)
 
+        # --- Scanning Indicator and Status Bar ---
         self.scanning_indicator_label = ttk.Label(frame, text="", foreground="blue", font=("Segoe UI", 9))
         self.scanning_indicator_label.pack(pady=5)
         
@@ -501,6 +622,7 @@ class PDFReconApp:
         status_label = ttk.Label(frame, textvariable=self.status_var, foreground="darkgreen")
         status_label.pack(pady=(0, 10))
 
+        # --- Treeview (Main Results Table) ---
         tree_frame = ttk.Frame(frame)
         tree_frame.pack(fill="both", expand=True)
 
@@ -508,11 +630,13 @@ class PDFReconApp:
         self.columns_keys = ["col_id", "col_name", "col_changed", "col_path", "col_md5", "col_created", "col_modified", "col_exif", "col_indicators"]
         self.tree = ttk.Treeview(tree_frame, columns=self.columns, show="headings", selectmode="browse")
         
+        # Configure row colors
         self.tree.tag_configure("red_row", background='#FFDDDD')
         self.tree.tag_configure("yellow_row", background='#FFFFCC')
         self.tree.tag_configure("blue_row", background='#CCE5FF')
-        self.tree.tag_configure("gray_row", background='#E0E0E0') # Lysegrå farve
+        self.tree.tag_configure("gray_row", background='#E0E0E0') # Light gray color
         
+        # Set up treeview columns and headings
         for i, key in enumerate(self.columns_keys):
             self.tree.heading(self.columns[i], text=self._(key), command=lambda c=self.columns[i]: self._sort_column(c, False))
             self.tree.column(self.columns[i], anchor="w", width=120)
@@ -520,17 +644,19 @@ class PDFReconApp:
         self.tree.column("ID", width=40, anchor="center")
         self.tree.column("Name", width=150)
 
+        # Add a scrollbar to the treeview
         tree_scrollbar = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=tree_scrollbar.set)
         
         tree_scrollbar.pack(side="right", fill="y")
         self.tree.pack(side="left", fill="both", expand=True)
+        # Bind events
         self.tree.bind("<<TreeviewSelect>>", self.on_select_item)
         self.tree.bind("<Button-1>", self.on_tree_click)
         self.tree.bind("<Motion>", self._on_tree_motion)
         self.tree.bind("<Button-3>", self.show_context_menu)
 
-        # --- Scrollable details box ---
+        # --- Scrollable Details Box ---
         detail_frame = ttk.Frame(frame)
         detail_frame.pack(fill="both", expand=False, pady=(10, 5))
 
@@ -542,12 +668,14 @@ class PDFReconApp:
         self.detail_text.pack(side="left", fill="both", expand=True)
         detail_scrollbar.pack(side="right", fill="y")
 
+        # Configure tags for text formatting in the details box
         self.detail_text.tag_configure("bold", font=("Segoe UI", 9, "bold"))
         self.detail_text.tag_configure("link", foreground="blue", underline=True)
         self.detail_text.tag_bind("link", "<Enter>", lambda e: self.detail_text.config(cursor="hand2"))
         self.detail_text.tag_bind("link", "<Leave>", lambda e: self.detail_text.config(cursor=""))
         self.detail_text.tag_bind("link", "<Button-1>", self._open_path_from_detail)
         
+        # --- Bottom Frame (Export Button and Progress Bar) ---
         bottom_frame = ttk.Frame(frame)
         bottom_frame.pack(fill="x", pady=(5,0))
 
@@ -566,12 +694,13 @@ class PDFReconApp:
 
 
     def _setup_drag_and_drop(self):
-        """Aktiverer drag and drop for hovedvinduet."""
+        """Enables drag and drop for the main window."""
         self.root.drop_target_register(DND_FILES)
         self.root.dnd_bind('<<Drop>>', self.handle_drop)
 
     def handle_drop(self, event):
-        """Håndterer filer, der bliver sluppet på vinduet."""
+        """Handles files that are dropped onto the window."""
+        # The path can sometimes be enclosed in braces {}
         folder_path = event.data.strip('{}')
         if os.path.isdir(folder_path):
             self.start_scan_thread(Path(folder_path))
@@ -579,17 +708,20 @@ class PDFReconApp:
             messagebox.showwarning(self._("drop_error_title"), self._("drop_error_message"))
 
     def _on_tree_motion(self, event):
-        """Ændrer cursor til en hånd, når den holdes over en klikbar celle."""
+        """Changes the cursor to a hand when hovering over a clickable cell."""
         col_id = self.tree.identify_column(event.x)
         row_id = self.tree.identify_row(event.y)
         if not row_id:
             self.tree.config(cursor="")
             return
 
+        path_str = self.tree.item(row_id, "values")[3]
+        
+        # Check for EXIFTool column (index 8)
         if col_id == '#8':
-            path_str = self.tree.item(row_id, "values")[3]
             if path_str in self.exif_outputs and self.exif_outputs[path_str]:
                 exif_output = self.exif_outputs[path_str]
+                # Check if the output is an error message
                 is_error = (exif_output == self._("exif_err_notfound") or
                             exif_output.startswith(self._("exif_err_prefix")) or
                             exif_output.startswith(self._("exif_err_run").split("{")[0]))
@@ -597,10 +729,18 @@ class PDFReconApp:
                     self.tree.config(cursor="hand2")
                     return
         
+        # Check for Indicators column (index 9)
+        if col_id == '#9':
+            data_item = next((d for d in self.all_scan_data if str(d.get('path')) == path_str), None)
+            if data_item and data_item.get("indicator_keys"):
+                self.tree.config(cursor="hand2")
+                return
+
+        # Default cursor if not over a clickable cell
         self.tree.config(cursor="")
 
     def on_tree_click(self, event):
-        """Håndterer klik i tabellen for at åbne popups."""
+        """Handles clicks in the table to open popups."""
         region = self.tree.identify("region", event.x, event.y)
         if region != "cell": return
         
@@ -611,14 +751,21 @@ class PDFReconApp:
 
         path_str = self.tree.item(row_id, "values")[3]
 
-        if col_index == 7:
+        if col_index == 7: # EXIFTool column
             if path_str in self.exif_outputs and self.exif_outputs[path_str]:
                 self.show_exif_popup(self.exif_outputs[path_str])
             else:
                 messagebox.showinfo(self._("no_exif_output_title"), self._("no_exif_output_message"), parent=self.root)
         
+        elif col_index == 8: # Indicators column
+            data_item = next((d for d in self.all_scan_data if str(d.get('path')) == path_str), None)
+            if data_item and data_item.get("indicator_keys"):
+                self.show_indicators_popup(data_item["indicator_keys"])
+            else:
+                messagebox.showinfo(self._("indicators_popup_title"), self._("no_indicators_message"), parent=self.root)
+
     def show_context_menu(self, event):
-        """Viser en højrekliks-menu for den valgte række."""
+        """Displays a right-click context menu for the selected row."""
         item_id = self.tree.identify_row(event.y)
         if not item_id:
             return
@@ -628,14 +775,16 @@ class PDFReconApp:
         
         context_menu = tk.Menu(self.root, tearoff=0)
 
-        # --- NYT: Tilføj "Vis PDF" for alle rækker ---
+        # --- NEW: Add "View PDF" for all rows ---
         context_menu.add_command(label=self._("view_pdf"), command=lambda: self.show_pdf_viewer_popup(item_id))
         context_menu.add_separator()
-        # --- slut på ny kode ---
+        # --- End of new code ---
         
-        context_menu.add_command(label="Vis EXIFTool-output", command=lambda: self.show_exif_popup_from_item(item_id))
-        context_menu.add_command(label="Vis Tidslinje", command=self.show_timeline_popup)
+        # Add common menu items
+        context_menu.add_command(label="View EXIFTool Output", command=lambda: self.show_exif_popup_from_item(item_id))
+        context_menu.add_command(label="View Timeline", command=self.show_timeline_popup)
         
+        # Check if the selected item is a revision
         path_str = values[3] if values else None
         is_revision = False
         if path_str:
@@ -643,52 +792,59 @@ class PDFReconApp:
             if scan_data_item and scan_data_item.get('is_revision'):
                 is_revision = True
 
+        # Add revision-specific menu items
         if is_revision:
             context_menu.add_separator()
             context_menu.add_command(label=self._("visual_diff"), command=lambda: self.show_visual_diff_popup(item_id))
 
         context_menu.add_separator()
-        context_menu.add_command(label="Åbn filens placering", command=lambda: self.open_file_location(item_id))
+        context_menu.add_command(label="Open File Location", command=lambda: self.open_file_location(item_id))
         
+        # Display the context menu at the cursor's position
         context_menu.tk_popup(event.x_root, event.y_root)
 
     def open_file_location(self, item_id):
+        """Opens the folder containing the selected file in the system's file explorer."""
         values = self.tree.item(item_id, "values")
         if values:
             webbrowser.open(os.path.dirname(values[3]))
 
     def show_exif_popup_from_item(self, item_id):
+        """Shows the EXIFTool popup for a given treeview item."""
         values = self.tree.item(item_id, "values")
         if values:
             self.show_exif_popup(self.exif_outputs.get(values[3]))
 
     def _make_text_copyable(self, text_widget):
-        """Gør en Text widget skrivebeskyttet, men tillader tekstvalg og kopiering."""
+        """Makes a Text widget read-only but allows text selection and copying."""
         context_menu = tk.Menu(text_widget, tearoff=0)
         
         def copy_selection(event=None):
+            """Copies the selected text to the clipboard."""
             try:
                 selected_text = text_widget.get(tk.SEL_FIRST, tk.SEL_LAST)
                 self.root.clipboard_clear()
                 self.root.clipboard_append(selected_text)
             except tk.TclError:
+                # This can happen if no text is selected
                 pass
-            return "break"
+            return "break" # Prevents default event handling
 
         context_menu.add_command(label=self._("copy"), command=copy_selection)
 
         def show_context_menu(event):
+            """Shows the context menu if text is selected."""
             if text_widget.tag_ranges(tk.SEL):
                 context_menu.tk_popup(event.x_root, event.y_root)
 
-        text_widget.config(state="normal")
-        text_widget.bind("<Key>", lambda e: "break")
-        text_widget.bind("<Button-3>", show_context_menu)
-        text_widget.bind("<Control-c>", copy_selection)
-        text_widget.bind("<Command-c>", copy_selection)
+        text_widget.config(state="normal") # Make it temporarily writable to bind
+        text_widget.bind("<Key>", lambda e: "break") # Disable typing
+        text_widget.bind("<Button-3>", show_context_menu) # Right-click
+        text_widget.bind("<Control-c>", copy_selection) # Ctrl+C
+        text_widget.bind("<Command-c>", copy_selection) # Command+C for macOS
 
     def show_pdf_viewer_popup(self, item_id):
-        """Viser en simpel PDF-fremviser for den valgte fil."""
+        """Displays a simple PDF viewer for the selected file."""
         self.root.config(cursor="watch")
         self.root.update_idletasks()
 
@@ -700,13 +856,16 @@ class PDFReconApp:
             return
 
         try:
+            # --- Popup Window Setup ---
             popup = Toplevel(self.root)
             popup.title(f"{self._('pdf_viewer_title')} - {file_name}")
             
+            # --- PDF Loading ---
             popup.current_page = 0
             popup.doc = fitz.open(path_str)
             popup.total_pages = len(popup.doc)
 
+            # --- Widget Layout ---
             main_frame = ttk.Frame(popup, padding=10)
             main_frame.pack(fill="both", expand=True)
             main_frame.rowconfigure(0, weight=1)
@@ -727,23 +886,27 @@ class PDFReconApp:
             next_button.pack(side="left", padx=10)
             
             def update_page(page_num):
+                """Renders and displays a specific page of the PDF."""
                 if not (0 <= page_num < popup.total_pages): return
                 
                 popup.current_page = page_num
                 self.root.config(cursor="watch")
                 self.root.update()
 
+                # Render page to a pixmap, then to a PIL Image
                 page = popup.doc.load_page(page_num)
                 pix = page.get_pixmap(dpi=150)
                 img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
                 
+                # Scale image to fit the window
                 max_img_w, max_img_h = main_frame.winfo_width() * 0.95, main_frame.winfo_height() * 0.9
                 img_w, img_h = img.size
                 ratio = min(max_img_w / img_w, max_img_h / img_h) if img_w > 0 and img_h > 0 else 1
                 scaled_size = (int(img_w * ratio), int(img_h * ratio))
 
+                # Convert to Tkinter PhotoImage and display
                 img_tk = ImageTk.PhotoImage(img.resize(scaled_size, Image.Resampling.LANCZOS))
-                popup.img_tk = img_tk
+                popup.img_tk = img_tk # Keep a reference to prevent garbage collection
                 
                 image_label.config(image=img_tk)
                 page_label.config(text=self._("diff_page_label").format(current=page_num + 1, total=popup.total_pages))
@@ -755,13 +918,14 @@ class PDFReconApp:
             next_button.config(command=lambda: update_page(popup.current_page + 1))
             
             def on_close():
+                """Ensures the PDF document is closed properly."""
                 if hasattr(popup, 'doc') and popup.doc:
                     popup.doc.close()
                 popup.destroy()
             popup.protocol("WM_DELETE_WINDOW", on_close)
 
             popup.geometry("800x600")
-            update_page(0)
+            update_page(0) # Show the first page
             
             popup.transient(self.root)
             popup.grab_set()
@@ -775,9 +939,11 @@ class PDFReconApp:
             self.root.config(cursor="")
 
     def show_visual_diff_popup(self, item_id):
+        """Shows a side-by-side visual comparison of a revision and its original."""
         self.root.config(cursor="watch")
         self.root.update_idletasks()
 
+        # Get paths for the revision and its corresponding original file
         rev_path_str = self.tree.item(item_id, "values")[3]
         original_path_str = next((str(d['original_path']) for d in self.all_scan_data if str(d['path']) == rev_path_str), None)
 
@@ -787,6 +953,7 @@ class PDFReconApp:
             return
 
         try:
+            # --- Popup Window Setup ---
             popup = Toplevel(self.root)
             popup.title(self._("diff_popup_title"))
             
@@ -796,6 +963,7 @@ class PDFReconApp:
             with fitz.open(popup.path_orig) as doc:
                 popup.total_pages = doc.page_count
 
+            # --- Widget Layout ---
             main_frame = ttk.Frame(popup, padding=10)
             main_frame.pack(fill="both", expand=True)
 
@@ -825,6 +993,7 @@ class PDFReconApp:
             next_button.pack(side="left", padx=10)
             
             def update_page(page_num):
+                """Renders the original, revision, and difference for a specific page."""
                 if not (0 <= page_num < popup.total_pages):
                     return
                 
@@ -832,6 +1001,7 @@ class PDFReconApp:
                 self.root.config(cursor="watch")
                 self.root.update()
 
+                # Open both PDFs and load the same page
                 with fitz.open(popup.path_orig) as doc_orig, fitz.open(popup.path_rev) as doc_rev:
                     page_orig = doc_orig.load_page(page_num)
                     page_rev = doc_rev.load_page(page_num)
@@ -842,23 +1012,27 @@ class PDFReconApp:
                 img_orig = Image.frombytes("RGB", [pix_orig.width, pix_orig.height], pix_orig.samples)
                 img_rev = Image.frombytes("RGB", [pix_rev.width, pix_rev.height], pix_rev.samples)
 
+                # --- Image Difference Calculation ---
                 diff = ImageChops.difference(img_orig, img_rev)
-                mask = diff.convert('L').point(lambda x: 255 if x > 20 else 0)
+                mask = diff.convert('L').point(lambda x: 255 if x > 20 else 0) # Threshold for noise
                 final_diff = Image.composite(Image.new('RGB', img_orig.size, 'red'), ImageOps.grayscale(img_orig).convert('RGB'), mask)
                 
+                # --- Image Scaling ---
                 screen_w, screen_h = popup.winfo_screenwidth(), popup.winfo_screenheight()
-                max_img_w, max_img_h = (screen_w * 0.95) / 3, screen_h * 0.8
+                max_img_w, max_img_h = (screen_w * 0.95) / 3, screen_h * 0.8 # Scale to fit 3 images across the screen
                 orig_w, orig_h = img_orig.size
                 ratio = min(max_img_w / orig_w, max_img_h / orig_h) if orig_w > 0 and orig_h > 0 else 1
                 scaled_size = (int(orig_w * ratio), int(orig_h * ratio))
 
+                # --- Display Images ---
                 images_tk = [ImageTk.PhotoImage(img.resize(scaled_size, Image.Resampling.LANCZOS)) for img in [img_orig, img_rev, final_diff]]
-                popup.images_tk = images_tk
+                popup.images_tk = images_tk # Keep references
                 
                 label_orig.config(image=images_tk[0])
                 label_rev.config(image=images_tk[1])
                 label_diff.config(image=images_tk[2])
 
+                # --- Update Navigation Controls ---
                 page_label.config(text=self._("diff_page_label").format(current=page_num + 1, total=popup.total_pages))
                 prev_button.config(state="normal" if page_num > 0 else "disabled")
                 next_button.config(state="normal" if page_num < popup.total_pages - 1 else "disabled")
@@ -867,7 +1041,7 @@ class PDFReconApp:
             prev_button.config(command=lambda: update_page(popup.current_page - 1))
             next_button.config(command=lambda: update_page(popup.current_page + 1))
 
-            update_page(0)
+            update_page(0) # Show the first page
             
             popup.transient(self.root)
             popup.grab_set()
@@ -878,15 +1052,21 @@ class PDFReconApp:
             self.root.config(cursor="")
 
     def show_exif_popup(self, content):
+        """Displays a popup window with the EXIFTool output."""
         if not content:
             messagebox.showinfo(self._("no_exif_output_title"), self._("no_exif_output_message"), parent=self.root)
             return
+        # Destroy any existing popup to prevent duplicates
         if hasattr(self, 'exif_popup') and self.exif_popup and self.exif_popup.winfo_exists():
             self.exif_popup.destroy()
+        
+        # --- Popup Window Setup ---
         self.exif_popup = Toplevel(self.root)
         self.exif_popup.title(self._("exif_popup_title"))
         self.exif_popup.geometry("600x400")
         self.exif_popup.transient(self.root)
+
+        # --- Text Widget with Scrollbar ---
         text_frame = ttk.Frame(self.exif_popup, padding=5)
         text_frame.pack(fill="both", expand=True)
         scrollbar = ttk.Scrollbar(text_frame)
@@ -894,36 +1074,84 @@ class PDFReconApp:
         text_widget = tk.Text(text_frame, wrap="word", yscrollcommand=scrollbar.set)
         text_widget.pack(side="left", fill="both", expand=True)
         scrollbar.config(command=text_widget.yview)
+        
+        # Insert content and make it copyable
         text_widget.insert("1.0", content)
         self._make_text_copyable(text_widget)
 
+    def show_indicators_popup(self, indicator_keys):
+        """Shows a pop-up window with a list of found indicators."""
+        if not indicator_keys:
+            messagebox.showinfo(self._("indicators_popup_title"), self._("no_indicators_message"), parent=self.root)
+            return
+
+        # Destroy any existing popup
+        if hasattr(self, 'indicator_popup') and self.indicator_popup and self.indicator_popup.winfo_exists():
+            self.indicator_popup.destroy()
+        
+        # --- Popup Window Setup ---
+        self.indicator_popup = Toplevel(self.root)
+        self.indicator_popup.title(self._("indicators_popup_title"))
+        self.indicator_popup.geometry("450x300")
+        self.indicator_popup.transient(self.root)
+
+        # --- Text Widget with Scrollbar ---
+        text_frame = ttk.Frame(self.indicator_popup, padding=10)
+        text_frame.pack(fill="both", expand=True)
+        
+        scrollbar = ttk.Scrollbar(text_frame)
+        scrollbar.pack(side="right", fill="y")
+        
+        text_widget = tk.Text(text_frame, wrap="word", yscrollcommand=scrollbar.set, font=("Segoe UI", 9))
+        text_widget.pack(side="left", fill="both", expand=True)
+        scrollbar.config(command=text_widget.yview)
+        
+        # Format the content with translated keys
+        content = "• " + "\n• ".join(self._(key) for key in indicator_keys)
+        text_widget.insert("1.0", content)
+        
+        # Make the text copyable but not editable
+        self._make_text_copyable(text_widget)
+
+
     def _resolve_path(self, filename, base_is_parent=False):
+        """
+        Resolves the correct path for a resource file, whether running as a script
+        or as a frozen executable (e.g., with PyInstaller).
+        """
         if getattr(sys, 'frozen', False):
-            # If the app is frozen with PyInstaller, the base path is the folder containing the exe
+            # If the app is frozen, the base path is the folder containing the exe.
             base_path = Path(sys.executable).parent
-            # The data files (like exiftool) are in a temp folder _MEIPASS, unless we want a file next to the exe
             if not base_is_parent:
+                # Data files (like exiftool) are in a temp folder _MEIPASS,
+                # unless we want a file next to the exe (base_is_parent=True).
                 return Path(getattr(sys, '_MEIPASS', base_path)) / filename
         else:
-            # If running as a normal script, the base path is the script's folder
+            # If running as a normal script, the base path is the script's folder.
             base_path = Path(__file__).resolve().parent
         return base_path / filename
 
     def show_license(self):
+        """Displays the license information from 'license.txt' in a popup."""
         license_path = self._resolve_path("license.txt")
         try:
             with open(license_path, 'r', encoding='utf-8') as f: license_text = f.read()
         except FileNotFoundError:
             messagebox.showerror(self._("license_error_title"), self._("license_error_message"))
             return
+        
+        # --- Popup Window Setup ---
         license_popup = Toplevel(self.root)
         license_popup.title(self._("license_popup_title"))
         license_popup.geometry("600x500")
         license_popup.transient(self.root)
+
+        # --- Text Widget with Scrollbar and Close Button ---
         text_frame = ttk.Frame(license_popup, padding=10)
         text_frame.pack(fill="both", expand=True)
         text_frame.rowconfigure(0, weight=1)
         text_frame.columnconfigure(0, weight=1)
+        
         scroll_frame = ttk.Frame(text_frame)
         scroll_frame.grid(row=0, column=0, sticky="nsew")
         scrollbar = ttk.Scrollbar(scroll_frame)
@@ -931,36 +1159,48 @@ class PDFReconApp:
         text_widget = tk.Text(scroll_frame, wrap="word", yscrollcommand=scrollbar.set, font=("Courier New", 9), borderwidth=0, highlightthickness=0)
         text_widget.pack(side="left", fill="both", expand=True)
         scrollbar.config(command=text_widget.yview)
+        
         text_widget.insert("1.0", license_text)
-        text_widget.config(state="disabled")
+        text_widget.config(state="disabled") # Make read-only
+        
         close_button = ttk.Button(text_frame, text=self._("close_button_text"), command=license_popup.destroy)
         close_button.grid(row=1, column=0, pady=(10,0))
 
     def show_log_file(self):
+        """Opens the application's log file in the default system viewer."""
         if self.log_file_path.exists():
             webbrowser.open(self.log_file_path.as_uri())
         else:
             messagebox.showinfo(self._("log_not_found_title"), self._("log_not_found_message"), parent=self.root)
 
     def _sort_column(self, col, reverse):
+        """Sorts the treeview column when its header is clicked."""
         is_id_column = col == self.columns[0]
+        # Define a key for sorting: convert to int for ID column, otherwise use string value
         def get_key(item):
             val = self.tree.set(item, col)
             return int(val) if is_id_column and val else val
 
+        # Get data from tree, sort it, and re-insert it
         data_list = [(get_key(k), k) for k in self.tree.get_children("")]
         data_list.sort(reverse=reverse)
         for index, (val, k) in enumerate(data_list):
             self.tree.move(k, "", index)
+        
+        # Toggle the sort direction for the next click
         self.tree.heading(col, command=lambda: self._sort_column(col, not reverse))
 
     def choose_folder(self):
+        """Opens a dialog for the user to select a folder to scan."""
         folder_path = filedialog.askdirectory(title=self._("choose_folder_title"))
         if folder_path:
             self.start_scan_thread(Path(folder_path))
 
     def start_scan_thread(self, folder_path):
-        logging.info(f"Starter scanning af mappe: {folder_path}")
+        """Initializes and starts the background scanning process."""
+        logging.info(f"Starting scan of folder: {folder_path}")
+        
+        # --- Reset Application State ---
         self.tree.delete(*self.tree.get_children())
         self.report_data.clear()
         self.all_scan_data.clear()
@@ -972,21 +1212,23 @@ class PDFReconApp:
         self.scan_start_time = time.time()
         self.filter_var.set("")
         
+        # --- Update GUI for Scanning State ---
         self.scan_button.config(state="disabled")
         self.export_menubutton.config(state="disabled")
-
-
         self.status_var.set(self._("preparing_analysis"))
         self.progressbar.config(value=0)
 
+        # --- Start Worker Thread ---
+        # The scan runs in a separate thread to keep the GUI responsive.
         scan_thread = threading.Thread(target=self._scan_worker_parallel, args=(folder_path, self.scan_queue))
         scan_thread.daemon = True
         scan_thread.start()
 
+        # Start polling the queue for updates from the worker thread.
         self._process_queue()
 
     def _find_pdf_files_generator(self, folder):
-        """En generator, der 'yield'er PDF-filer, så snart de findes."""
+        """A generator that 'yields' PDF files as soon as they are found."""
         for base, _, files in os.walk(folder):
             for fn in files:
                 if fn.lower().endswith(".pdf"):
@@ -994,34 +1236,37 @@ class PDFReconApp:
 
     def validate_pdf_file(self, filepath):
         """
-        Validerer en PDF-fil baseret på størrelse, header og kryptering.
-        Returnerer True hvis gyldig, ellers raiser en passende exception.
+        Validates a PDF file based on size, header, and encryption.
+        Returns True if valid, otherwise raises an appropriate exception.
         """
         try:
-            # Tjek filstørrelse
+            # Check file size
             if filepath.stat().st_size > PDFReconConfig.MAX_FILE_SIZE:
                 raise PDFTooLargeError(f"File exceeds {PDFReconConfig.MAX_FILE_SIZE // (1024*1024)}MB size limit.")
 
-            # Tjek PDF header
+            # Check PDF header
             with open(filepath, 'rb') as f:
                 if f.read(5) != b'%PDF-':
                     raise PDFCorruptionError("Invalid PDF header. Not a PDF file.")
             
-            # Tjek for kryptering
+            # Check for encryption
             with fitz.open(filepath) as doc:
                 if doc.is_encrypted:
+                    # Try authenticating with an empty password
                     if not doc.authenticate(""):
                          raise PDFEncryptedError("File is encrypted and cannot be processed.")
             
             return True
         except PDFProcessingError:
+            # Re-raise our custom exceptions
             raise
         except Exception as e:
+            # Wrap other exceptions in our custom error type
             raise PDFCorruptionError(f"Could not validate file: {e}")
 
     def _process_large_file_streaming(self, filepath):
-        """(Placeholder) Processerer en stor PDF-fil ved hjælp af streaming for at spare hukommelse."""
-        logging.info(f"Streaming-processering er endnu ikke implementeret. Behandler {filepath.name} normalt.")
+        """(Placeholder) Processes a large PDF file using streaming to save memory."""
+        logging.info(f"Streaming processing is not yet implemented. Processing {filepath.name} normally.")
         pass
     def extract_additional_xmp_ids(self, txt: str) -> dict:
         """
@@ -1036,6 +1281,7 @@ class PDFReconApp:
         import re
 
         def _norm(val):
+            """Normalizes a UUID/GUID value for consistent comparison."""
             if val is None:
                 return None
             if isinstance(val, (bytes, bytearray)):
@@ -1126,7 +1372,7 @@ class PDFReconApp:
             for m in re.finditer(r"<rdf:li[^>]*>([^<]+)</rdf:li>", ps.group(1), re.I):
                 v = _norm(m.group(1)); out["ps_doc_ancestors"].add(v) if v else None
 
-        # Deduplicate and purge empty
+        # Deduplicate and purge empty values
         for k in out:
             out[k] = {v for v in out[k] if v}
 
@@ -1134,12 +1380,14 @@ class PDFReconApp:
 
     def _process_single_file(self, fp):
         """
-        Processerer en enkelt PDF-fil. Denne metode er designet til at køre i en separat tråd.
-        Returnerer en liste af ordbøger (en for originalen, og en for hver revision).
+        Processes a single PDF file. This method is designed to run in a separate thread.
+        Returns a list of dictionaries (one for the original, and one for each revision).
         """
         try:
+            # First, validate the file (size, header, encryption)
             self.validate_pdf_file(fp)
 
+            # --- Main Analysis ---
             raw = fp.read_bytes()
             doc = fitz.open(stream=raw, filetype="pdf")
             txt = self.extract_text(raw)
@@ -1153,10 +1401,12 @@ class PDFReconApp:
             revisions = self.extract_revisions(raw, fp)
             doc.close()
 
+            # Add "Has Revisions" indicator if any were found
             final_indicator_keys = indicator_keys[:]
             if revisions:
                 final_indicator_keys.append("Has Revisions")
 
+            # --- Collect Results ---
             results = []
             original_row_data = {
                 "path": fp, "indicator_keys": final_indicator_keys, "md5": md5_hash, 
@@ -1164,16 +1414,19 @@ class PDFReconApp:
             }
             results.append(original_row_data)
 
+            # --- Process Revisions ---
             for rev_path, basefile, rev_raw in revisions:
                 rev_md5 = hashlib.md5(rev_raw).hexdigest()
                 rev_exif = self.exiftool_output(rev_path, detailed=True)
                 rev_txt = self.extract_text(rev_raw)
                 revision_timeline = self.generate_comprehensive_timeline(rev_path, rev_txt, rev_exif)
 
+                # Skip revisions that ExifTool identifies as corrupt
                 if "Warning" in rev_exif and "Invalid xref table" in rev_exif:
                     logging.info(f"Skipping revision {rev_path.name} due to 'Invalid xref table' warning.")
                     continue
 
+                # Check if the revision is visually identical to the original (first 5 pages)
                 is_identical = False
                 try:
                     with fitz.open(fp) as doc_orig, fitz.open(rev_path) as doc_rev:
@@ -1198,6 +1451,8 @@ class PDFReconApp:
                 results.append(revision_row_data)
             return results
 
+        # --- Error Handling ---
+        # Catch specific, known errors and return a structured error message.
         except PDFTooLargeError as e:
             logging.warning(f"Skipping large file {fp.name}: {e}")
             return [{"path": fp, "status": "error", "error_type": "file_too_large", "error_message": str(e)}]
@@ -1213,7 +1468,8 @@ class PDFReconApp:
 
     def _scan_worker_parallel(self, folder, q):
         """
-        Finder PDF-filer og processerer dem parallelt vha. en ThreadPoolExecutor.
+        Finds PDF files and processes them in parallel using a ThreadPoolExecutor.
+        Results are sent back to the main thread via a queue.
         """
         try:
             q.put(("scan_status", self._("preparing_analysis")))
@@ -1223,9 +1479,11 @@ class PDFReconApp:
                 q.put(("finished", None))
                 return
 
+            # Set progress bar to determinate mode
             q.put(("progress_mode_determinate", len(pdf_files)))
             files_processed = 0
 
+            # Use a thread pool to process files concurrently
             with ThreadPoolExecutor(max_workers=PDFReconConfig.MAX_WORKER_THREADS) as executor:
                 future_to_path = {executor.submit(self._process_single_file, fp): fp for fp in pdf_files}
                 for future in as_completed(future_to_path):
@@ -1236,23 +1494,30 @@ class PDFReconApp:
                         for result_data in results:
                             q.put(("file_row", result_data))
                     except Exception as e:
-                        logging.error(f"Uventet fejl fra thread pool for fil {path.name}: {e}")
+                        logging.error(f"Unexpected error from thread pool for file {path.name}: {e}")
                         q.put(("file_row", {"path": path, "status": "error", "error_type": "unknown_error", "error_message": str(e)}))
                     
+                    # Calculate and send progress update (FPS, ETA)
                     elapsed_time = time.time() - self.scan_start_time
                     fps = files_processed / elapsed_time if elapsed_time > 0 else 0
                     eta_seconds = (len(pdf_files) - files_processed) / fps if fps > 0 else 0
                     q.put(("detailed_progress", {"file": path.name, "fps": fps, "eta": time.strftime('%M:%S', time.gmtime(eta_seconds))}))
 
         except Exception as e:
-            logging.error(f"Fejl i scan worker: {e}")
-            q.put(("error", f"En kritisk fejl opstod: {e}"))
+            logging.error(f"Error in scan worker: {e}")
+            q.put(("error", f"A critical error occurred: {e}"))
         finally:
+            # Signal that the scan is finished
             q.put(("finished", None))
 
 
     def _process_queue(self):
+        """
+        Processes messages from the worker thread's queue to update the GUI.
+        This function runs periodically via `root.after()`.
+        """
         try:
+            # Process all available messages in the queue
             while True:
                 msg_type, data = self.scan_queue.get_nowait()
                 
@@ -1264,7 +1529,9 @@ class PDFReconApp:
                 elif msg_type == "scan_status": 
                     self.scanning_indicator_label.config(text=data)
                 elif msg_type == "file_row":
+                    # Store all scan data, including revisions and errors
                     self.all_scan_data.append(data)
+                    # Store EXIF and timeline data in separate dicts for quick lookup
                     if not data.get("is_revision"):
                         self.exif_outputs[str(data["path"])] = data.get("exif")
                         self.timeline_data[str(data["path"])] = data.get("timeline")
@@ -1275,16 +1542,20 @@ class PDFReconApp:
 
                 elif msg_type == "error": 
                     logging.warning(data)
-                    messagebox.showerror("Kritisk Fejl", data)
+                    messagebox.showerror("Critical Error", data)
                 elif msg_type == "finished":
                     self._finalize_scan()
-                    return
+                    return # Stop polling the queue
         except queue.Empty:
+            # If the queue is empty, do nothing
             pass
+        # Schedule the next check
         self.root.after(100, self._process_queue)
 
     def _finalize_scan(self):
-        # Byg path-to-ID-mappen én gang fra det komplette datasæt
+        """Performs final actions after the scan is complete."""
+        # --- Build path-to-ID map ---
+        # This is done once from the complete dataset for efficiency.
         self.path_to_id.clear()
         temp_counter = 0
         for data in self.all_scan_data:
@@ -1292,28 +1563,35 @@ class PDFReconApp:
                 temp_counter += 1
                 self.path_to_id[str(data["path"])] = temp_counter
 
-        # Anvend filteret (som i starten er tomt) for at vise alle resultater
+        # Apply the filter (which is initially empty) to show all results.
         self._apply_filter()
         
+        # --- Update GUI to 'finished' state ---
         self.scan_button.config(state="normal")
         self.export_menubutton.config(state="normal")
         self.scanning_indicator_label.config(text="")
+        # Ensure the progress bar is full
         if self.progressbar['value'] < self.progressbar['maximum']:
              self.progressbar['value'] = self.progressbar['maximum']
         
+        # Update the summary status bar
         self._update_summary_status()
-        logging.info(f"Analyse fuldført. {self.status_var.get()}")
+        logging.info(f"Analysis complete. {self.status_var.get()}")
 
     def _apply_filter(self, *args):
+        """Filters the displayed results based on the search term."""
         search_term = self.filter_var.get().lower()
         
         items_to_show = []
         if not search_term:
+            # If no search term, show all data
             items_to_show = self.all_scan_data
         else:
+            # Otherwise, filter the data
             for data in self.all_scan_data:
                 path_str = str(data.get('path', ''))
                 
+                # Build a list of searchable fields for each item
                 searchable_items = [
                     path_str,
                     data.get('md5', ''),
@@ -1331,14 +1609,17 @@ class PDFReconApp:
                 if exif_output:
                     searchable_items.append(exif_output)
                 
+                # Combine all searchable text and check for the search term
                 full_searchable_text = " ".join(searchable_items).lower()
 
                 if search_term in full_searchable_text:
                     items_to_show.append(data)
         
+        # Repopulate the treeview with the filtered results
         self._populate_tree_from_data(items_to_show)
 
     def _populate_tree_from_data(self, data_list):
+        """Clears and repopulates the treeview with a given list of data items."""
         self.tree.delete(*self.tree.get_children())
         self.report_data.clear()
         
@@ -1347,6 +1628,7 @@ class PDFReconApp:
             display_counter += 1
             
             if data.get("status") == "error":
+                # Handle error rows
                 path = data["path"]
                 error_type_key = data.get("error_type", "unknown_error")
                 error_display_name = self._(error_type_key)
@@ -1357,23 +1639,29 @@ class PDFReconApp:
                 self.report_data.append(row_values)
                 self.tree.insert("", "end", values=row_values, tags=("red_row",))
             else:
+                # Handle normal data rows
                 path = data["path"]
                 if data["is_revision"]:
                     created_time, modified_time = "", ""
                     parent_id = self.path_to_id.get(str(data["original_path"]))
                     indicators_str = ""
+                    # Set the "Altered" flag for revisions
                     flag = self._("status_identical") if data.get("is_identical") else self.get_flag([], True, parent_id)
                 else:
+                    # For original files
                     stat = path.stat()
                     created_time = datetime.fromtimestamp(stat.st_ctime).strftime("%Y-%m-%d %H:%M:%S")
                     modified_time = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
                     flag = self.get_flag(data["indicator_keys"], False)
-                    YES = "See details" if self.language.get() == "en" else "Se detaljer"
-                    NO = self._("status_no")
-                    indicators_str = YES if data["indicator_keys"] else NO
+                    
+                    if data["indicator_keys"]:
+                        indicators_str = self._("indicators_view_output")
+                    else:
+                        indicators_str = self._("status_no")
 
+                # Set the text for the EXIFTool column
                 exif_text = self._("exif_no_output")
-                if data["exif"]:
+                if data.get("exif"):
                     is_error = (data["exif"] == self._("exif_err_notfound") or 
                                 data["exif"].startswith(self._("exif_err_prefix")) or 
                                 data["exif"].startswith(self._("exif_err_run").split("{")[0]))
@@ -1381,6 +1669,7 @@ class PDFReconApp:
 
                 row_values = [display_counter, path.name, flag, str(path), data["md5"], created_time, modified_time, exif_text, indicators_str]
                 
+                # Determine the row color tag
                 tag = ""
                 if data["is_revision"]:
                     tag = "gray_row" if data.get("is_identical") else "blue_row"
@@ -1391,16 +1680,19 @@ class PDFReconApp:
                 self.tree.insert("", "end", values=row_values, tags=(tag,))
 
     def on_select_item(self, event):
+        """Updates the detail view when an item in the tree is selected."""
         selected_items = self.tree.selection()
         if not selected_items:
+            # Clear the detail view if nothing is selected
             self.detail_text.config(state="normal")
             self.detail_text.delete("1.0", tk.END)
             self.detail_text.config(state="disabled")
             return
         
         values = self.tree.item(selected_items[0], "values")
-        path_str = values[3]  # Sti er på index 3
-
+        path_str = values[3]  # Path is at index 3
+        
+        # --- Populate Detail View ---
         self.detail_text.config(state="normal")
         self.detail_text.delete("1.0", tk.END)
 
@@ -1409,19 +1701,20 @@ class PDFReconApp:
             self.detail_text.insert(tk.END, f"{col_name}: ", ("bold",))
             
             if col_name == self._("col_path"):
+                # Make the path a clickable link
                 self.detail_text.insert(tk.END, val + "\n", ("link",))
             elif col_name == self._("col_indicators"):
-                # Find de oprindelige scanningsdata for den valgte sti
+                # Find the original scan data for the selected path
                 original_data = next((d for d in self.all_scan_data if str(d.get('path')) == path_str), None)
                 
-                # Tjek om der er indikatorer at vise
+                # Check if there are indicators to display
                 if original_data and original_data.get("indicator_keys"):
-                    # Vis listen af indikatorer, hver på sin egen linje med en prik foran
+                    # Display the list of indicators, each on a new line
                     full_indicators_str = "\n  • " + "\n  • ".join(self._(key) for key in original_data["indicator_keys"])
                     self.detail_text.insert(tk.END, full_indicators_str + "\n")
                 else:
-                    # Hvis ingen indikatorer (eller det er en revision), vis blot værdien fra kolonnen (f.eks. NEJ)
-                    self.detail_text.insert(tk.END, val + "\n")
+                    # If no indicators (or it's a revision), just show the value from the column (e.g., NO)
+                    self.detail_text.insert(tk.END, self._("status_no") + "\n")
             else:
                 self.detail_text.insert(tk.END, val + "\n")
                 
@@ -1429,72 +1722,97 @@ class PDFReconApp:
 
 
     def _open_path_from_detail(self, event):
+        """Opens the folder when a path link is clicked in the detail view."""
         index = self.detail_text.index(f"@{event.x},{event.y}")
+        # Find which link tag was clicked
         tag_indices = self.detail_text.tag_ranges("link")
         for start, end in zip(tag_indices[0::2], tag_indices[1::2]):
             if self.detail_text.compare(start, "<=", index) and self.detail_text.compare(index, "<", end):
                 path_str = self.detail_text.get(start, end).strip()
-                try: webbrowser.open(os.path.dirname(path_str))
-                except Exception as e: messagebox.showerror(self._("open_folder_error_title"), f"Kunne ikke åbne mappen: {e}")
+                try:
+                    webbrowser.open(os.path.dirname(path_str))
+                except Exception as e:
+                    messagebox.showerror(self._("open_folder_error_title"), f"Could not open the folder: {e}")
                 break
 
     def extract_revisions(self, raw, original_path):
+        """
+        Extracts previous versions (revisions) of a PDF from its raw byte content
+        by looking for '%%EOF' markers.
+        """
         revisions = []
         offsets = []
         pos = len(raw)
+        # Find all '%%EOF' markers from the end of the file backwards
         while (pos := raw.rfind(b"%%EOF", 0, pos)) != -1: offsets.append(pos)
+        
+        # Filter out invalid or unlikely offsets
         valid_offsets = [o for o in sorted(offsets) if 1000 <= o <= len(raw) - 500]
         if valid_offsets:
+            # Create a subdirectory for the extracted revisions
             altered_dir = original_path.parent / "Altered_files"
             altered_dir.mkdir(exist_ok=True)
             for i, offset in enumerate(valid_offsets, start=1):
-                rev_bytes = raw[:offset + 5]
+                rev_bytes = raw[:offset + 5] # The revision is the content from the start to the EOF marker
                 rev_filename = f"{original_path.stem}_rev{i}_@{offset}.pdf"
                 rev_path = altered_dir / rev_filename
                 try:
                     rev_path.write_bytes(rev_bytes)
                     revisions.append((rev_path, original_path.name, rev_bytes))
-                except Exception as e: logging.error(f"Fejl ved udtræk af revision: {e}")
+                except Exception as e: logging.error(f"Error extracting revision: {e}")
         return revisions
 
     def exiftool_output(self, path, detailed=False):
-        """Kører ExifTool på en sikker måde med timeout og forbedret fejlhåndtering."""
+        """Runs ExifTool safely with a timeout and improved error handling."""
         exe_path = self._resolve_path("exiftool.exe", base_is_parent=True)
         if not exe_path.is_file(): return self._("exif_err_notfound")
         
         try:
             file_content = path.read_bytes()
+            # Suppress console window on Windows
             startupinfo = None
             if sys.platform == "win32":
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             
+            # Build the command-line arguments for ExifTool
             command = [str(exe_path)]
             if detailed: command.extend(["-a", "-s", "-G1", "-struct"])
             else: command.extend(["-a"])
-            command.append("-")
+            command.append("-") # Read from stdin
 
-            process = subprocess.run(command, input=file_content, capture_output=True, check=False, startupinfo=startupinfo, timeout=PDFReconConfig.EXIFTOOL_TIMEOUT)
+            # Run the process
+            process = subprocess.run(
+                command,
+                input=file_content,
+                capture_output=True,
+                check=False,
+                startupinfo=startupinfo,
+                timeout=PDFReconConfig.EXIFTOOL_TIMEOUT
+            )
             
+            # Handle non-zero exit codes or stderr output
             if process.returncode != 0 or process.stderr:
                 error_message = process.stderr.decode('latin-1', 'ignore').strip()
                 if not process.stdout.strip(): return f"{self._('exif_err_prefix')}\n{error_message}"
                 logging.warning(f"ExifTool stderr for {path.name}: {error_message}")
 
+            # Decode the output, trying UTF-8 first, then latin-1 as a fallback
             try: raw_output = process.stdout.decode('utf-8').strip()
             except UnicodeDecodeError: raw_output = process.stdout.decode('latin-1', 'ignore').strip()
 
+            # Remove empty lines from the output
             return "\n".join([line for line in raw_output.splitlines() if line.strip()])
 
         except subprocess.TimeoutExpired:
             logging.error(f"ExifTool timed out for file {path.name}")
             return self._("exif_err_prefix") + f"\nTimeout after {PDFReconConfig.EXIFTOOL_TIMEOUT} seconds."
         except Exception as e:
-            logging.error(f"Fejl ved kørsel af exiftool for fil {path}: {e}")
+            logging.error(f"Error running exiftool for file {path}: {e}")
             return self._("exif_err_run").format(e=e)
 
     def _get_filesystem_times(self, filepath):
-        """Hjælpefunktion til at hente tidsstempler fra filsystemet."""
+        """Helper function to get created/modified timestamps from the file system."""
         events = []
         try:
             stat = filepath.stat()
@@ -1507,7 +1825,7 @@ class PDFReconApp:
         return events
     def _detect_tool_change_from_exif(self, exiftool_output: str):
         """
-        Returnerer dict med:
+        Returns a dict with:
           {
             'changed': bool,
             'create_tool': str, 'modify_tool': str,
@@ -1515,7 +1833,7 @@ class PDFReconApp:
             'modify_dt': datetime|None,
             'reason': 'producer'|'software'|'engine'|'mixed'
           }
-        Sætter changed=True hvis værktøj eller XMP-engine har ændret sig mellem første create og seneste modify.
+        Sets changed=True if the tool or XMP engine has changed between the first create and the last modify.
         """
         lines = exiftool_output.splitlines()
         kv_re = re.compile(r'^\[(?P<group>[^\]]+)\]\s*(?P<tag>[\w\-/ ]+?)\s*:\s*(?P<value>.+)$')
@@ -1523,11 +1841,11 @@ class PDFReconApp:
             r'^\[(?P<group>[^\]]+)\]\s*(?P<tag>[\w\-/ ]+?)\s*:\s*(?P<value>.*?)(?P<date>\d{4}:\d{2}:\d{2}\s\d{2}:\d{2}:\d{2}(?:[+\-]\d{2}:\d{2}|Z)?).*$'
         )
 
-        # Opsaml felter
+        # Collect relevant fields
         producer_pdf = producer_xmppdf = ""
         softwareagent = application = software = creatortool = ""
-        create_engine = modify_engine = ""  # XMPToolkit ved create/modify (heuristik)
-        xmptoolkit = ""                    # generel værdi
+        create_engine = modify_engine = ""  # XMPToolkit at create/modify (heuristic)
+        xmptoolkit = ""                    # general value
 
         software_tokens = re.compile(
             r"(adobe|acrobat|indesign|illustrator|photoshop|framemaker|pdf|ghostscript|"
@@ -1539,7 +1857,7 @@ class PDFReconApp:
         def looks_like_software(s: str) -> bool:
             return bool(s and software_tokens.search(s))
 
-        # Først: samle K/V
+        # First pass: collect key/value pairs
         for ln in lines:
             m = kv_re.match(ln)
             if not m:
@@ -1570,13 +1888,13 @@ class PDFReconApp:
             elif tag == "xmptoolkit" and not xmptoolkit:
                 xmptoolkit = val
 
-        # Udvælg tool-prioritet
+        # Select tool based on a priority order
         def choose_tool_for_create():
             return producer_pdf or producer_xmppdf or application or software or creatortool or ""
         def choose_tool_for_modify():
             return softwareagent or producer_pdf or producer_xmppdf or application or software or creatortool or ""
 
-        # Find første Create* og seneste Modify*/MetadataDate tidspunkt
+        # Find the first Create* and latest Modify*/MetadataDate timestamp
         create_dt = None
         modify_dt = None
         for ln in lines:
@@ -1599,15 +1917,15 @@ class PDFReconApp:
         create_tool = choose_tool_for_create()
         modify_tool = choose_tool_for_modify()
 
-        # Heuristik: bind XMPToolkit som engine til både create/modify hvis kendt.
-        # Hvis der er Modify, antag at samme toolkit var aktiv ved sidste ændring.
+        # Heuristic: bind XMPToolkit as the engine for both create/modify if known.
+        # If there's a ModifyDate, assume the same toolkit was active at the last change.
         if xmptoolkit:
             if create_dt:
                 create_engine = xmptoolkit
             if modify_dt:
                 modify_engine = xmptoolkit
 
-        # Evaluer ændring
+        # Evaluate the change
         changed_tool = bool(create_tool and modify_tool and create_tool.strip() != modify_tool.strip())
         changed_engine = bool(create_engine and modify_engine and create_engine.strip() != modify_engine.strip())
 
@@ -1631,22 +1949,22 @@ class PDFReconApp:
 
     def _parse_exiftool_timeline(self, exiftool_output):
         """
-        Parser ExifTool-output til tidslinje med tydelig type (Created/Modified/Metadata),
-        korrekt 'Tool' (SoftwareAgent/Producer/Application/Software; CreatorTool kun hvis software),
-        og separat 'XMP Engine' fra XMPToolkit.
+        Parses ExifTool output for timeline events with clear types (Created/Modified/Metadata),
+        the correct 'Tool' (SoftwareAgent/Producer/Application/Software; CreatorTool only if software),
+        and a separate 'XMP Engine' from XMPToolkit.
         """
         events = []
         lines = exiftool_output.splitlines()
 
-        # --- Opsaml relevante felter ---
+        # --- Collect relevant fields ---
         kv_re = re.compile(r'^\[(?P<group>[^\]]+)\]\s*(?P<tag>[\w\-/ ]+?)\s*:\s*(?P<value>.+)$')
         producer_pdf = ""       # [PDF] Producer
         producer_xmppdf = ""    # [XMP-pdf] Producer
-        softwareagent = ""      # XMP History SoftwareAgent eller [XMP-*] SoftwareAgent
+        softwareagent = ""      # XMP History SoftwareAgent or [XMP-*] SoftwareAgent
         application = ""        # Application
         software = ""           # Software
-        creatortool = ""        # CreatorTool (kun hvis det ligner software)
-        xmptoolkit = ""         # XMP Engine (Adobe XMP Core ...)
+        creatortool = ""        # CreatorTool (only if it looks like software)
+        xmptoolkit = ""         # XMP Engine (e.g., Adobe XMP Core ...)
 
         software_tokens = re.compile(
             r"(adobe|acrobat|indesign|illustrator|photoshop|framemaker|pdf|ghostscript|"
@@ -1662,7 +1980,7 @@ class PDFReconApp:
             m = kv_re.match(ln)
             if not m:
                 continue
-            group = m.group("group").strip().lower()   # fx "pdf", "xmp-pdf", "xmp-xmp", "xmp-x"
+            group = m.group("group").strip().lower()   # e.g., "pdf", "xmp-pdf", "xmp-xmp"
             tag   = m.group("tag").strip().lower().replace(" ", "")
             val   = m.group("value").strip()
 
@@ -1678,23 +1996,18 @@ class PDFReconApp:
 
             elif tag == "softwareagent" and not softwareagent:
                 softwareagent = val
-
             elif tag == "application" and not application:
                 application = val
-
             elif tag == "software" and not software:
                 software = val
-
             elif tag == "creatortool" and not creatortool:
                 if looks_like_software(val):
                     creatortool = val
-
             elif tag == "xmptoolkit" and not xmptoolkit:
                 xmptoolkit = val
+            # 'creator' is intentionally ignored as it's often a person's name
 
-            # 'creator' ignoreres bevidst
-
-        # Forvalg til visning
+        # Pre-select tools for display
         tool_for_create = producer_pdf or producer_xmppdf or application or software or creatortool or ""
         tool_for_modify = softwareagent or producer_pdf or producer_xmppdf or application or software or creatortool or ""
 
@@ -1727,11 +2040,12 @@ class PDFReconApp:
                         except (ValueError, IndexError):
                             pass
 
-        # --- Generiske dato-linjer ---
+        # --- Generic Date Lines ---
         date_re = re.compile(
             r'^\[(?P<group>[^\]]+)\]\s*(?P<tag>[\w\-/ ]+?)\s*:\s*(?P<value>.*?)(?P<date>\d{4}:\d{2}:\d{2}\s\d{2}:\d{2}:\d{2}(?:[+\-]\d{2}:\d{2}|Z)?).*$'
         )
         def _ts_label(tag: str) -> str:
+            """Translates date tag names to more readable labels."""
             t = tag.replace(" ", "").lower()
             if self.language.get() == "da":
                 return {"createdate": "Oprettet",
@@ -1755,13 +2069,14 @@ class PDFReconApp:
             except ValueError:
                 continue
 
-            group = m.group("group").strip()      # fx "PDF", "XMP-xmp"
-            tag   = m.group("tag").strip()        # fx "CreateDate", "ModifyDate"
+            group = m.group("group").strip()      # e.g., "PDF", "XMP-xmp"
+            tag   = m.group("tag").strip()        # e.g., "CreateDate", "ModifyDate"
             tag_lc = tag.replace(" ", "").lower()
 
             label = _ts_label(tag)
             source = group if group else "ExifTool"
 
+            # Assign the appropriate tool based on the date type
             if tag_lc in {"createdate", "creationdate"}:
                 tool = tool_for_create
             elif tag_lc in {"modifydate", "metadatadate"}:
@@ -1772,13 +2087,12 @@ class PDFReconApp:
             tool_part = f" | Tool: {tool}" if tool else ""
             events.append((dt_obj, f"ExifTool ({source}) - {label}: {date_str}{tool_part}"))
 
-        # --- Vis XMP Engine særskilt (uden dato – tilføj ved første kendte tid) ---
+        # --- Display XMP Engine separately (no date - add at first known time) ---
         if xmptoolkit:
-            # find en passende "anker-dato": første Create eller Modify hvis muligt
+            # find a suitable "anchor date": first Create or Modify if possible
             anchor_dt = None
-            for dt, _ in sorted(events, key=lambda x: x[0]):
-                anchor_dt = dt
-                break
+            if events:
+                anchor_dt = sorted(events, key=lambda x: x[0])[0][0]
             if not anchor_dt:
                 anchor_dt = datetime.now()
             label_engine = "XMP Engine" if self.language.get() == "en" else "XMP-motor"
@@ -1789,12 +2103,12 @@ class PDFReconApp:
 
     def _detect_tool_change_from_exif(self, exiftool_output: str):
         """
-        Returnerer (changed: bool, create_tool: str, modify_tool: str, modify_dt: datetime|None)
-        changed=True hvis tool ved create != tool ved seneste modify.
+        Returns (changed: bool, create_tool: str, modify_tool: str, modify_dt: datetime|None)
+        changed=True if tool at creation != tool at last modification.
         """
         lines = exiftool_output.splitlines()
 
-        # 1) Slug mulige software-/værktøjsfelter
+        # 1) Collect possible software/tool fields
         line_kv_re = re.compile(r'^\[(?P<group>[^\]]+)\]\s*(?P<tag>[\w\-/ ]+?)\s*:\s*(?P<value>.+)$')
         tool_fields = {}
         for ln in lines:
@@ -1825,6 +2139,7 @@ class PDFReconApp:
             return bool(s and software_tokens.search(s))
 
         def select_tool(tag_lc: str, group_lc: str) -> str:
+            """Selects the most likely tool name from the collected fields."""
             if tool_fields.get("softwareagent"):  # XMP History / SoftwareAgent
                 return tool_fields["softwareagent"]
             group_key = f"{group_lc.replace('-', '')}_producer"
@@ -1839,7 +2154,7 @@ class PDFReconApp:
             ct = tool_fields.get("creatortool", "")
             return ct if looks_like_software(ct) else ""
 
-        # 2) Find create- og *seneste* modify-stempler + grupper (PDF/XMP-xmp)
+        # 2) Find create and *latest* modify timestamps + groups (PDF/XMP-xmp)
         date_re = re.compile(
             r'^\[(?P<group>[^\]]+)\]\s*(?P<tag>[\w\-/ ]+?)\s*:\s*(?P<value>.*?)(?P<date>\d{4}:\d{2}:\d{2}\s\d{2}:\d{2}:\d{2}(?:[+\-]\d{2}:\d{2}|Z)?).*$'
         )
@@ -1873,12 +2188,13 @@ class PDFReconApp:
         if latest_modify_dt:
             modify_tool = select_tool("modifydate", latest_modify_group)
 
+        # Determine if the tool changed
         changed = bool(create_tool and modify_tool and create_tool.strip() != modify_tool.strip())
         return changed, create_tool, modify_tool, latest_modify_dt
 
         
     def _format_timedelta(self, delta):
-            """Formaterer et timedelta-objekt til en læsbar streng."""
+            """Formats a timedelta object into a readable string (e.g., (+1d 2h 3m 4.56s))."""
             if not delta or delta.total_seconds() < 0.001:
                 return ""
 
@@ -1896,9 +2212,10 @@ class PDFReconApp:
             return f"(+{ ' '.join(parts) })"
             
     def _parse_raw_content_timeline(self, file_content_string):
-        """Hjælpefunktion til at parse tidsstempler direkte fra filens indhold."""
+        """Helper function to parse timestamps directly from the file's raw content."""
         events = []
         
+        # Look for PDF-style dates: /CreationDate (D:20230101120000...)
         pdf_date_pattern = re.compile(r"\/([A-Z][a-zA-Z0-9_]+)\s*\(\s*D:(\d{14})")
         for match in pdf_date_pattern.finditer(file_content_string):
             label, date_str = match.groups()
@@ -1909,11 +2226,13 @@ class PDFReconApp:
             except ValueError:
                 continue
 
+        # Look for XMP-style dates: <xmp:CreateDate>2023-01-01T12:00:00Z</xmp:CreateDate>
         xmp_date_pattern = re.compile(r"<([a-zA-Z0-9:]+)[^>]*?>\s*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.*?)\s*<\/([a-zA-Z0-9:]+)>")
         for match in xmp_date_pattern.finditer(file_content_string):
             label, date_str, closing_label = match.groups()
-            if label != closing_label: continue
+            if label != closing_label: continue # Ensure tags match
             try:
+                # Clean the date string of timezones and milliseconds
                 clean_date_str = date_str.split('Z')[0].split('+')[0].split('.')[0].strip()
                 dt_obj = datetime.fromisoformat(clean_date_str)
                 display_line = f"Raw File: <{label}>: {date_str}"
@@ -1923,28 +2242,30 @@ class PDFReconApp:
         return events
 
     def generate_comprehensive_timeline(self, filepath, raw_file_content, exiftool_output):
-        """Samler alle kilder til en tidslinje og indsætter hændelse ved værktøjsskifte."""
+        """Combines all sources into a timeline and inserts an event for tool changes."""
         all_events = []
 
-        # 1) Filsystem
+        # 1) Get File System timestamps
         all_events.extend(self._get_filesystem_times(filepath))
 
-        # 2) ExifTool (med labels, Tool og XMP Engine)
+        # 2) Get timestamps from ExifTool (with labels, Tool, and XMP Engine)
         all_events.extend(self._parse_exiftool_timeline(exiftool_output))
 
-        # 3) Rå PDF/XMP
+        # 3) Get timestamps from raw PDF/XMP content
         all_events.extend(self._parse_raw_content_timeline(raw_file_content))
 
-        # 4) Tool change (uanset om det skyldes engine eller producer/software)
+        # 4) Add a special event if a tool change was detected
         try:
             info = self._detect_tool_change_from_exif(exiftool_output)
             if info.get("changed"):
+                # Use the modification date of the change if available, otherwise find the latest known date
                 when = info.get("modify_dt")
                 if not when and all_events:
                     when = max(all_events, key=lambda x: x[0])[0]
                 if not when:
                     when = datetime.now()
 
+                # Format the description of the tool change
                 if self.language.get() == "da":
                     label = "Værktøj skiftet"
                     parts = []
@@ -1966,11 +2287,12 @@ class PDFReconApp:
         except Exception:
             pass
 
-        # 5) Sorteret retur
+        # 5) Return all events, sorted chronologically
         return sorted(all_events, key=lambda x: x[0])
 
         
     def show_timeline_popup(self):
+        """Displays a popup window with the detailed timeline for a selected file."""
         selected_item = self.tree.selection()
         if not selected_item: return
         path_str = self.tree.item(selected_item[0], "values")[3]
@@ -1980,11 +2302,13 @@ class PDFReconApp:
             messagebox.showinfo(self._("no_exif_output_title"), self._("timeline_no_data"), parent=self.root)
             return
 
+        # --- Popup Window Setup ---
         popup = Toplevel(self.root)
         popup.title(f"Timeline for {os.path.basename(path_str)}")
         popup.geometry("950x700")
         popup.transient(self.root)
 
+        # --- Text Widget with Scrollbars ---
         text_frame = ttk.Frame(popup, padding=10)
         text_frame.pack(fill="both", expand=True)
 
@@ -2000,44 +2324,52 @@ class PDFReconApp:
         
         scrollbar.config(command=text_widget.yview)
         
+        # --- Configure Text Tags for Formatting ---
         text_widget.tag_configure("date_header", font=("Courier New", 11, "bold", "underline"), spacing1=10, spacing3=5)
         text_widget.tag_configure("time", font=("Courier New", 10, "bold"))
         text_widget.tag_configure("delta", foreground="#0078D7")
         
-        text_widget.tag_configure("source_fs", foreground="#008000")
-        text_widget.tag_configure("source_exif", foreground="#555555")
-        text_widget.tag_configure("source_raw", foreground="#800080")
-        text_widget.tag_configure("source_xmp", foreground="#C00000")
+        text_widget.tag_configure("source_fs", foreground="#008000") # Green for filesystem
+        text_widget.tag_configure("source_exif", foreground="#555555") # Gray for exiftool
+        text_widget.tag_configure("source_raw", foreground="#800080") # Purple for raw content
+        text_widget.tag_configure("source_xmp", foreground="#C00000") # Red for XMP history
 
+        # --- Populate the Timeline View ---
         last_date = None
         last_dt_obj = None
 
         for dt_obj, description in events:
+            # Insert a date header when the day changes
             if dt_obj.date() != last_date:
                 if last_date is not None: text_widget.insert("end", "\n")
                 text_widget.insert("end", f"--- {dt_obj.strftime('%Y-%m-%d')} ---\n", "date_header")
                 last_date = dt_obj.date()
 
+            # Calculate the time delta from the previous event
             delta_str = ""
             if last_dt_obj:
                 delta = dt_obj - last_dt_obj
                 delta_str = self._format_timedelta(delta)
 
+            # Assign a color tag based on the event source
             source_tag = "source_exif"
             if description.startswith("File System"): source_tag = "source_fs"
             elif description.startswith("Raw File"): source_tag = "source_raw"
             elif description.startswith("XMP History"): source_tag = "source_xmp"
                 
+            # Insert the formatted line
             text_widget.insert("end", f"{dt_obj.strftime('%H:%M:%S')} ", "time")
             text_widget.insert("end", f"| {description:<80} ", source_tag)
             text_widget.insert("end", f"{delta_str}\n", "delta")
             
             last_dt_obj = dt_obj
         
+        # Make the content copyable
         self._make_text_copyable(text_widget)
         
     @staticmethod
     def decompress_stream(b):
+        """Attempts to decompress a PDF stream using common filters."""
         for fn in (zlib.decompress, lambda d: __import__("base64").a85decode(re.sub(rb"\s", b"", d), adobe=True), lambda d: __import__("binascii").unhexlify(re.sub(rb"\s|>", b"", d))):
             try: return fn(b).decode("latin1", "ignore")
             except Exception: pass
@@ -2045,18 +2377,18 @@ class PDFReconApp:
 
     def extract_text(self, raw: bytes):
         """
-        Ekstrahér kun det nødvendige til indikatorjagt:
+        Extracts only what's needed for indicator hunting:
         - ~2 MB header/trailer
-        - små streams (spring store billedstreams over)
-        - XMP xpacket (hvis til stede)
+        - Small streams (skipping large image streams)
+        - XMP xpacket (if present)
         """
         txt_segments = []
 
-        # Cap: header/trailer/objekter
+        # Cap: header/trailer/objects
         head_cap = raw[:2_000_000].decode("latin1", "ignore")
         txt_segments.append(head_cap)
 
-        # Kun små streams (fx <= 256 KB) -> undgå at inflate store billeder
+        # Only process small streams (e.g., <= 256 KB) to avoid inflating large images
         for m in re.finditer(rb"stream\r?\n(.*?)\r?\nendstream", raw, re.S):
             body = m.group(1)
             if len(body) <= 256_000:
@@ -2068,7 +2400,7 @@ class PDFReconApp:
                     except Exception:
                         pass
 
-        # XMP xpacket (fuld)
+        # XMP xpacket (full content)
         m = re.search(rb"<\?xpacket begin=.*?\?>(.*?)<\?xpacket end=[^>]*\?>", raw, re.S)
         if m:
             try:
@@ -2081,17 +2413,19 @@ class PDFReconApp:
 
     def detect_indicators(self, txt: str, doc):
         """
-        Søg efter indikatorer på ændringer/manipulation.
-        Returnerer liste af indikator-strenge.
+        Searches for indicators of alteration/manipulation.
+        Returns a list of indicator strings.
         """
         indicators = []
 
-        # Beholdte checks
+        # --- High-Confidence Indicators ---
         if re.search(r"touchup_textedit", txt, re.I):
             indicators.append("TouchUp_TextEdit")
         startxref_count = txt.lower().count("startxref")
         if startxref_count > 1:
             indicators.append("Multiple startxref")
+
+        # --- Metadata Indicators ---
         creators = set(re.findall(r"/Creator\s*\((.*?)\)", txt, re.I))
         if len(creators) > 1:
             indicators.append(f"Multiple Creators (x{len(creators)})")
@@ -2101,50 +2435,42 @@ class PDFReconApp:
         if re.search(r'<xmpMM:History>', txt, re.I | re.S):
             indicators.append("xmpMM:History")
 
-        # Fonts / OCG / Signatur mv.
+        # --- Structural and Content Indicators (using PyMuPDF) ---
         try:
             if self.analyze_fonts(doc):
                 indicators.append("Multiple Font Subsets")
-        except Exception:
-            pass
+        except Exception: pass
         try:
             if (hasattr(doc, 'is_xfa') and doc.is_xfa) or "/XFA" in txt:
                 indicators.append("Has XFA Form")
-        except Exception:
-            pass
+        except Exception: pass
         try:
             ocgs = doc.get_ocgs()
             if ocgs and len(ocgs) > len(doc):
                 indicators.append("More Layers Than Pages")
-        except Exception:
-            pass
+        except Exception: pass
         if re.search(r"/Type\s*/Sig\b", txt):
             indicators.append("Has Digital Signature")
 
-        # /Prev-kæde
+        # --- Incremental Update Indicators ---
         prevs = re.findall(r"/Prev\s+\d+", txt)
         if prevs:
             indicators.append(f"Incremental updates (x{len(prevs) + 1})")
-
-        # Linearization
         if re.search(r"/Linearized\s+\d+", txt):
             indicators.append("Linearized")
             if startxref_count > 1 or prevs:
                 indicators.append("Linearized + updated")
 
-        # Redactions / annots / pieceinfo / acroform
-        if re.search(r"/Redact\b", txt, re.I):
-            indicators.append("Has Redactions")
-        if re.search(r"/Annots\b", txt, re.I):
-            indicators.append("Has Annotations")
-        if re.search(r"/PieceInfo\b", txt, re.I):
-            indicators.append("Has PieceInfo")
+        # --- Feature Indicators ---
+        if re.search(r"/Redact\b", txt, re.I): indicators.append("Has Redactions")
+        if re.search(r"/Annots\b", txt, re.I): indicators.append("Has Annotations")
+        if re.search(r"/PieceInfo\b", txt, re.I): indicators.append("Has PieceInfo")
         if re.search(r"/AcroForm\b", txt, re.I):
             indicators.append("Has AcroForm")
             if re.search(r"/NeedAppearances\s+true\b", txt, re.I):
                 indicators.append("AcroForm NeedAppearances=true")
 
-        # Tjek for objekter med generation > 0
+        # Check for objects with generation > 0
         gen_gt_zero_found = False
         for match in re.finditer(r"\b(\d+)\s+(\d+)\s+obj\b", txt):
             generation = int(match.group(2))
@@ -2154,33 +2480,29 @@ class PDFReconApp:
         if gen_gt_zero_found:
             indicators.append("obj_gen_gt_zero")
 
-        # ---------- ID-sammenligning (familier adskilt) ----------
+        # --- ID Comparison (families separated) ---
         def _norm_uuid(x):
-            if x is None:
-                return None
-            if isinstance(x, (bytes, bytearray)):
-                return x.hex().upper()
+            if x is None: return None
+            if isinstance(x, (bytes, bytearray)): return x.hex().upper()
             s = str(x).strip()
             s = re.sub(r"^urn:uuid:", "", s, flags=re.I)
             s = s.strip("<>")
             return s.upper() if s else None
 
-        # ——— XMP-familien ———
+        # ——— XMP ID family ———
         xmp_orig = xmp_doc = xmp_inst = None
-        m = re.search(r"xmpMM:OriginalDocumentID(?:>|=\")([^<\"]+)", txt, re.I)
+        m = re.search(r"xmpMM:OriginalDocumentID(?:>|=\")([^<\"]+)", txt, re.I);
         if m: xmp_orig = _norm_uuid(m.group(1))
-        m = re.search(r"xmpMM:DocumentID(?:>|=\")([^<\"]+)", txt, re.I)
+        m = re.search(r"xmpMM:DocumentID(?:>|=\")([^<\"]+)", txt, re.I);
         if m: xmp_doc  = _norm_uuid(m.group(1))
-        m = re.search(r"xmpMM:InstanceID(?:>|=\")([^<\"]+)", txt, re.I)
+        m = re.search(r"xmpMM:InstanceID(?:>|=\")([^<\"]+)", txt, re.I);
         if m: xmp_inst = _norm_uuid(m.group(1))
 
-        # STRAM LOGIK: flag KUN hvis current ≠ original (og begge findes)
-        if xmp_orig and xmp_doc and xmp_doc != xmp_orig:
-            indicators.append("XMP_ID_CHANGE")
-        if xmp_orig and xmp_inst and xmp_inst != xmp_orig:
-            indicators.append("XMP_ID_CHANGE")
+        # STRICT LOGIC: flag ONLY if current ≠ original (and both exist)
+        if xmp_orig and xmp_doc and xmp_doc != xmp_orig: indicators.append("XMP_ID_CHANGE")
+        if xmp_orig and xmp_inst and xmp_inst != xmp_orig: indicators.append("XMP_ID_CHANGE")
 
-        # ——— Trailer-familien (regex + PyMuPDF fallback) ———
+        # ——— Trailer ID family (regex + PyMuPDF fallback) ———
         trailer_orig = trailer_curr = None
         m = re.search(r"/ID\s*\[\s*<\s*([0-9A-Fa-f]+)\s*>\s*<\s*([0-9A-Fa-f]+)\s*>\s*\]", txt)
         if m:
@@ -2191,35 +2513,30 @@ class PDFReconApp:
                 trailer = doc.xref_get_trailer() or {}
                 t_id = trailer.get("ID")
                 if isinstance(t_id, (list, tuple)) and len(t_id) == 2:
-                    if trailer_orig is None:
-                        trailer_orig = _norm_uuid(t_id[0])
-                    if trailer_curr is None:
-                        trailer_curr = _norm_uuid(t_id[1])
-            except Exception:
-                pass
-
+                    if trailer_orig is None: trailer_orig = _norm_uuid(t_id[0])
+                    if trailer_curr is None: trailer_curr = _norm_uuid(t_id[1])
+            except Exception: pass
         if trailer_orig and trailer_curr and trailer_curr != trailer_orig:
             indicators.append("TRAILER_ID_CHANGE")
         
-        # Info vs XMP dato-mismatch
+        # --- Date Mismatch (Info vs. XMP) ---
         info_dates = dict(re.findall(r"/(ModDate|CreationDate)\s*\(\s*D:(\d{8,14})", txt))
         xmp_pairs = re.findall(r"<xmp:(ModifyDate|CreateDate)>([^<]+)</xmp:\1>", txt)
         xmp_dates = {k: v for k, v in xmp_pairs}
 
         def _short(d: str) -> str:
+            """Helper to normalize date strings for comparison."""
             d = re.sub(r"[-:TZ]", "", d)
             return d[:14]
 
         if "CreationDate" in info_dates and "CreateDate" in xmp_dates:
             a = _short(info_dates["CreationDate"]); b = _short(xmp_dates["CreateDate"])
-            if a and b and a != b:
-                indicators.append("CreateDate mismatch (Info vs XMP)")
+            if a and b and a != b: indicators.append("CreateDate mismatch (Info vs XMP)")
         if "ModDate" in info_dates and "ModifyDate" in xmp_dates:
             a = _short(info_dates["ModDate"]); b = _short(xmp_dates["ModifyDate"])
-            if a and b and a != b:
-                indicators.append("ModifyDate mismatch (Info vs XMP)")
+            if a and b and a != b: indicators.append("ModifyDate mismatch (Info vs XMP)")
 
-        # --- To linjer med FULDE ID-værdier (til detaljevinduet) ---
+        # --- Add full ID values to the indicators list for the detail view ---
         if any([xmp_orig, xmp_doc, xmp_inst]):
             indicators.append(f"XMP IDs:\n  Orig={xmp_orig}\n  Doc={xmp_doc}\n  Inst={xmp_inst}")
         if any([trailer_orig, trailer_curr]):
@@ -2231,78 +2548,53 @@ class PDFReconApp:
                 if extra_ids["stref_doc_ids"] or extra_ids["stref_inst_ids"]:
                     lines.append("stRef anywhere:")
                     if extra_ids["stref_doc_ids"]:
-                        for v in sorted(extra_ids["stref_doc_ids"]):
-                            lines.append(f"  stRef:documentID = {v}")
+                        for v in sorted(extra_ids["stref_doc_ids"]): lines.append(f"  stRef:documentID = {v}")
                     if extra_ids["stref_inst_ids"]:
-                        for v in sorted(extra_ids["stref_inst_ids"]):
-                            lines.append(f"  stRef:instanceID = {v}")
-
+                        for v in sorted(extra_ids["stref_inst_ids"]): lines.append(f"  stRef:instanceID = {v}")
                 if extra_ids["derived_doc_ids"] or extra_ids["derived_inst_ids"]:
                     lines.append("DerivedFrom:")
-                    for v in sorted(extra_ids["derived_doc_ids"]):
-                        lines.append(f"  stRef:documentID = {v}")
-                    for v in sorted(extra_ids["derived_inst_ids"]):
-                        lines.append(f"  stRef:instanceID = {v}")
-
+                    for v in sorted(extra_ids["derived_doc_ids"]): lines.append(f"  stRef:documentID = {v}")
+                    for v in sorted(extra_ids["derived_inst_ids"]): lines.append(f"  stRef:instanceID = {v}")
                 if extra_ids["ingredient_doc_ids"] or extra_ids["ingredient_inst_ids"]:
                     lines.append("Ingredients:")
-                    for v in sorted(extra_ids["ingredient_doc_ids"]):
-                        lines.append(f"  stRef:documentID = {v}")
-                    for v in sorted(extra_ids["ingredient_inst_ids"]):
-                        lines.append(f"  stRef:instanceID = {v}")
-
+                    for v in sorted(extra_ids["ingredient_doc_ids"]): lines.append(f"  stRef:documentID = {v}")
+                    for v in sorted(extra_ids["ingredient_inst_ids"]): lines.append(f"  stRef:instanceID = {v}")
                 if extra_ids["ps_doc_ancestors"]:
                     lines.append("Photoshop:DocumentAncestors:")
-                    for v in sorted(extra_ids["ps_doc_ancestors"]):
-                        lines.append(f"  {v}")
-                    # --- Additional XMP ID sources (Ancestors / DerivedFrom / Ingredients / History) ---
+                    for v in sorted(extra_ids["ps_doc_ancestors"]): lines.append(f"  {v}")
+
+                # --- Additional XMP ID sources (Ancestors / DerivedFrom / Ingredients / History) ---
                 try:
                     extra = self.extract_additional_xmp_ids(txt)
                     lines = []
 
                     if extra["derived_orig_ids"] or extra["derived_doc_ids"] or extra["derived_inst_ids"]:
                         lines.append("DerivedFrom:")
-                        for v in sorted(extra["derived_orig_ids"]):
-                            lines.append(f"  OriginalDocumentID = {v}")
-                        for v in sorted(extra["derived_doc_ids"]):
-                            lines.append(f"  stRef:documentID   = {v}")
-                        for v in sorted(extra["derived_inst_ids"]):
-                            lines.append(f"  stRef:instanceID   = {v}")
-
+                        for v in sorted(extra["derived_orig_ids"]): lines.append(f"  OriginalDocumentID = {v}")
+                        for v in sorted(extra["derived_doc_ids"]): lines.append(f"  stRef:documentID   = {v}")
+                        for v in sorted(extra["derived_inst_ids"]): lines.append(f"  stRef:instanceID   = {v}")
                     if extra["ingredient_doc_ids"] or extra["ingredient_inst_ids"]:
                         lines.append("Ingredients:")
-                        for v in sorted(extra["ingredient_doc_ids"]):
-                            lines.append(f"  stRef:documentID   = {v}")
-                        for v in sorted(extra["ingredient_inst_ids"]):
-                            lines.append(f"  stRef:instanceID   = {v}")
-
+                        for v in sorted(extra["ingredient_doc_ids"]): lines.append(f"  stRef:documentID   = {v}")
+                        for v in sorted(extra["ingredient_inst_ids"]): lines.append(f"  stRef:instanceID   = {v}")
                     if extra["history_doc_ids"] or extra["history_inst_ids"]:
                         lines.append("History (stRef/InstanceID):")
-                        for v in sorted(extra["history_doc_ids"]):
-                            lines.append(f"  documentID         = {v}")
-                        for v in sorted(extra["history_inst_ids"]):
-                            lines.append(f"  instanceID         = {v}")
-
+                        for v in sorted(extra["history_doc_ids"]): lines.append(f"  documentID         = {v}")
+                        for v in sorted(extra["history_inst_ids"]): lines.append(f"  instanceID         = {v}")
                     if extra["ps_doc_ancestors"]:
                         lines.append("Photoshop:DocumentAncestors:")
-                        for v in sorted(extra["ps_doc_ancestors"]):
-                            lines.append(f"  {v}")
-
+                        for v in sorted(extra["ps_doc_ancestors"]): lines.append(f"  {v}")
                     if lines:
                         indicators.append("Additional XMP IDs:\n" + "\n".join(lines))
-                except Exception:
-                    pass
+                except Exception: pass
         
-
                 if lines:
                     indicators.append("Additional XMP IDs:\n" + "\n".join(lines))
-
-            except Exception:
-                pass
+            except Exception: pass
         return indicators
     
     def get_flag(self, indicator_keys, is_revision, parent_id=None):
-        """Bestemmer filens statusflag baseret på fundne indikatornøgler."""
+        """Determines the file's status flag based on the found indicator keys."""
         if is_revision:
             return self._("revision_of").format(id=parent_id)
         
@@ -2310,15 +2602,15 @@ class PDFReconApp:
         YES = "YES" if self.language.get() == "en" else "JA"
         NO = self._("status_no")
 
-        # Kritiske indikatorer, der resulterer i RØD (JA/YES)
+        # Critical indicators that result in RED (JA/YES)
         high_risk_indicators = {
             "Has Revisions",
             "TouchUp_TextEdit",
             "Signature: Invalid",
-            # Bemærk: XMP_ID_CHANGE og TRAILER_ID_CHANGE er flyttet til "possible"
+            # Note: XMP_ID_CHANGE and TRAILER_ID_CHANGE have been moved to "possible"
         }
 
-        # Mellem-risiko: GUL (Sandsynligt/Possible)
+        # Medium-risk indicators: YELLOW (Sandsynligt/Possible)
         possible_indicators = {
             "XMP_ID_CHANGE",
             "TRAILER_ID_CHANGE",
@@ -2330,19 +2622,21 @@ class PDFReconApp:
         if any(indicator in possible_indicators for indicator in keys_set):
             return "Possible" if self.language.get() == "en" else "Sandsynligt"
 
-        # Alle andre tilfælde (inkl. ingen indikatorer)
+        # All other cases (including no indicators)
         return NO
 
 
     
     
     def show_about(self):
+        """Displays the 'About' popup window."""
         about_popup = Toplevel(self.root)
         about_popup.title(self._("menu_about"))
-        about_popup.geometry("520x480") # Justeret højden lidt
+        about_popup.geometry("520x480") # Adjusted height slightly
         about_popup.resizable(True, True)
         about_popup.transient(self.root)
 
+        # --- Layout ---
         outer_frame = ttk.Frame(about_popup, padding=10)
         outer_frame.pack(fill="both", expand=True)
         outer_frame.rowconfigure(0, weight=1)
@@ -2357,11 +2651,12 @@ class PDFReconApp:
         about_text_widget.pack(side="left", fill="both", expand=True)
         scrollbar.config(command=about_text_widget.yview)
 
+        # --- Text Formatting Tags ---
         about_text_widget.tag_configure("bold", font=("Segoe UI", 9, "bold"))
         about_text_widget.tag_configure("link", foreground="blue", underline=True)
         about_text_widget.tag_configure("header", font=("Segoe UI", 9, "bold", "underline"))
 
-        # --- NYT: Gør links klikbare ---
+        # --- NEW: Make links clickable ---
         def _open_link(event):
             index = about_text_widget.index(f"@{event.x},{event.y}")
             tag_indices = about_text_widget.tag_ranges("link")
@@ -2376,15 +2671,16 @@ class PDFReconApp:
         about_text_widget.tag_bind("link", "<Enter>", lambda e: about_text_widget.config(cursor="hand2"))
         about_text_widget.tag_bind("link", "<Leave>", lambda e: about_text_widget.config(cursor=""))
         about_text_widget.tag_bind("link", "<Button-1>", _open_link)
-        # --- SLUT PÅ NY KODE ---
+        # --- END OF NEW CODE ---
 
+        # --- Insert Content ---
         about_text_widget.insert("end", f"{self._('about_version')} ({datetime.now().strftime('%d-%m-%Y')})\n", "bold")
         about_text_widget.insert("end", self._("about_developer_info"))
 
-        # --- NYT: Tilføjelse af projektets hjemmeside ---
+        # --- NEW: Addition of project website ---
         about_text_widget.insert("end", self._("about_project_website"), "bold")
         about_text_widget.insert("end", "github.com/Rasmus-Riis/PDFRecon\n", "link")
-        # --- SLUT PÅ NY KODE ---
+        # --- END OF NEW CODE ---
 
         about_text_widget.insert("end", "\n------------------------------------\n\n")
         
@@ -2400,19 +2696,21 @@ class PDFReconApp:
         about_text_widget.insert("end", self._("about_source").format(tool="ExifTool"), "bold")
         about_text_widget.insert("end", "github.com/exiftool/exiftool\n", "link")
         
-        about_text_widget.config(state="disabled")
+        about_text_widget.config(state="disabled") # Make read-only
         
+        # --- Close Button ---
         close_button = ttk.Button(outer_frame, text=self._("close_button_text"), command=about_popup.destroy)
         close_button.grid(row=1, column=0, pady=(10, 0))
 
     def show_manual(self):
-        """Viser et pop-up vindue med programmets manual."""
+        """Displays a pop-up window with the program manual."""
         manual_popup = Toplevel(self.root)
         manual_popup.title(self._("manual_title"))
         manual_popup.geometry("800x600")
         manual_popup.resizable(True, True)
         manual_popup.transient(self.root)
 
+        # --- Layout ---
         outer_frame = ttk.Frame(manual_popup, padding=10)
         outer_frame.pack(fill="both", expand=True)
         outer_frame.rowconfigure(0, weight=1)
@@ -2423,73 +2721,52 @@ class PDFReconApp:
         scrollbar = ttk.Scrollbar(text_frame)
         scrollbar.pack(side="right", fill="y")
         
-        manual_text = tk.Text(text_frame, wrap="word", yscrollcommand=scrollbar.set, borderwidth=0, highlightthickness=0, background=manual_popup.cget("background"), font=("Segoe UI", 10))
-        manual_text.pack(side="left", fill="both", expand=True, padx=5)
-        scrollbar.config(command=manual_text.yview)
+        manual_text_widget = tk.Text(text_frame, wrap="word", yscrollcommand=scrollbar.set, borderwidth=0, highlightthickness=0, background=manual_popup.cget("background"), font=("Segoe UI", 10))
+        manual_text_widget.pack(side="left", fill="both", expand=True, padx=5)
+        scrollbar.config(command=manual_text_widget.yview)
 
-        manual_text.tag_configure("h1", font=("Segoe UI", 16, "bold", "underline"), spacing3=10)
-        manual_text.tag_configure("h2", font=("Segoe UI", 12, "bold"), spacing1=10, spacing3=5)
-        manual_text.tag_configure("bold", font=("Segoe UI", 10, "bold"))
-        manual_text.tag_configure("italic", font=("Segoe UI", 10, "italic"))
-        manual_text.tag_configure("code", font=("Courier New", 9), background="#f0f0f0")
-        manual_text.tag_configure("red", foreground="#C00000")
-        manual_text.tag_configure("yellow", foreground="#C07000")
-        manual_text.tag_configure("green", foreground="#008000")
+        # --- Text Formatting Tags ---
+        manual_text_widget.tag_configure("h1", font=("Segoe UI", 16, "bold", "underline"), spacing3=10)
+        manual_text_widget.tag_configure("h2", font=("Segoe UI", 12, "bold"), spacing1=10, spacing3=5)
+        manual_text_widget.tag_configure("b", font=("Segoe UI", 10, "bold"))
+        manual_text_widget.tag_configure("i", font=("Segoe UI", 10, "italic"))
+        manual_text_widget.tag_configure("red", foreground="#C00000")
+        manual_text_widget.tag_configure("yellow", foreground="#C07000")
+        manual_text_widget.tag_configure("green", foreground="#008000")
 
-        manual_text.insert(tk.END, self._("manual_title") + "\n", "h1")
+        full_manual_text = self._("full_manual")
         
-        manual_text.insert(tk.END, self._("manual_intro_header") + "\n", "h2")
-        manual_text.insert(tk.END, self._("manual_intro_text"))
+        # --- Simple Parser for Markdown-like Tags ---
+        for line in full_manual_text.strip().split('\n'):
+            line = line.strip()
+            if line.startswith("# "):
+                manual_text_widget.insert(tk.END, line[2:] + "\n", "h1")
+            elif line.startswith("## "):
+                manual_text_widget.insert(tk.END, line[3:] + "\n", "h2")
+            else:
+                # Process inline tags like <b> and <red>
+                parts = re.split(r'(<.*?>)', line)
+                active_tags = set()
+                for part in parts:
+                    if part.startswith("</"):
+                        tag_name = part[2:-1]
+                        if tag_name in active_tags:
+                            active_tags.remove(tag_name)
+                    elif part.startswith("<"):
+                        tag_name = part[1:-1]
+                        active_tags.add(tag_name)
+                    elif part:
+                        manual_text_widget.insert(tk.END, part, tuple(active_tags))
+                manual_text_widget.insert(tk.END, "\n")
 
-        manual_text.insert(tk.END, self._("manual_disclaimer_header") + "\n", "h2")
-        manual_text.insert(tk.END, self._("manual_disclaimer_text"))
+        manual_text_widget.config(state="disabled") # Make read-only
 
-        manual_text.insert(tk.END, self._("manual_class_header") + "\n", "h2")
-        manual_text.insert(tk.END, self._("manual_class_text"))
-        
-        manual_text.insert(tk.END, self._("manual_high_risk_header"), ("bold", "red"))
-        manual_text.insert(tk.END, self._("manual_high_risk_text"))
-
-        manual_text.insert(tk.END, self._("manual_med_risk_header"), ("bold", "yellow"))
-        manual_text.insert(tk.END, self._("manual_med_risk_text"))
-
-        manual_text.insert(tk.END, self._("manual_low_risk_header"), ("bold", "green"))
-        manual_text.insert(tk.END, self._("manual_low_risk_text"))
-
-        manual_text.insert(tk.END, self._("manual_indicators_header") + "\n", "h2")
-        manual_text.insert(tk.END, self._("manual_indicators_text"))
-
-        # --- Manual Sections for Indicators ---
-        def add_manual_entry(header_key, class_key, desc_key, class_tag):
-            manual_text.insert(tk.END, self._(header_key) + "\n", ("bold",))
-            manual_text.insert(tk.END, "• " + self._("col_changed") + ": ", "italic")
-            manual_text.insert(tk.END, self._(class_key) + "\n", class_tag)
-            manual_text.insert(tk.END, self._(desc_key))
-
-        add_manual_entry("manual_has_rev_header", "manual_has_rev_class", "manual_has_rev_desc", "red")
-        add_manual_entry("manual_touchup_header", "manual_touchup_class", "manual_touchup_desc", "red")
-        add_manual_entry("manual_fonts_header", "manual_fonts_class", "manual_fonts_desc", "yellow")
-        add_manual_entry("manual_tools_header", "manual_tools_class", "manual_tools_desc", "yellow")
-        add_manual_entry("manual_history_header", "manual_history_class", "manual_history_desc", "yellow")
-        add_manual_entry("manual_id_header", "manual_id_class", "manual_id_desc", "yellow")
-        add_manual_entry("manual_xref_header", "manual_xref_class", "manual_xref_desc", "yellow")
-        add_manual_entry("manual_layers_pages_header", "manual_layers_pages_class", "manual_layers_pages_desc", "yellow")
-        add_manual_entry("manual_prev_header", "manual_prev_class", "manual_prev_desc", "yellow")
-        add_manual_entry("manual_linearized_header", "manual_linearized_class", "manual_linearized_desc", "yellow")
-        add_manual_entry("manual_redact_header", "manual_redact_class", "manual_redact_desc", "yellow")
-        add_manual_entry("manual_annots_header", "manual_annots_class", "manual_annots_desc", "yellow")
-        add_manual_entry("manual_pieceinfo_header", "manual_pieceinfo_class", "manual_pieceinfo_desc", "yellow")
-        add_manual_entry("manual_acro_needapp_header", "manual_acro_needapp_class", "manual_acro_needapp_desc", "yellow")
-        add_manual_entry("manual_digsig_header", "manual_digsig_class", "manual_digsig_desc", "yellow")
-        add_manual_entry("manual_date_mismatch_header", "manual_date_mismatch_class", "manual_date_mismatch_desc", "yellow")
-        add_manual_entry("manual_obj_gen_header", "manual_obj_gen_class", "manual_obj_gen_desc", "yellow")
-        manual_text.config(state="disabled")
-
+        # --- Close Button ---
         close_button = ttk.Button(outer_frame, text=self._("close_button_text"), command=manual_popup.destroy)
         close_button.grid(row=1, column=0, pady=(10, 0))
 
     def _prompt_and_export(self, file_format):
-        """Spørger brugeren om filsti og kalder den relevante eksportfunktion."""
+        """Prompts the user for a file path and calls the relevant export function."""
         if not self.report_data:
             messagebox.showwarning(self._("no_data_to_save_title"), self._("no_data_to_save_message"))
             return
@@ -2508,20 +2785,22 @@ class PDFReconApp:
             }
             export_methods[file_format](file_path)
             
+            # Ask to open the containing folder
             if messagebox.askyesno(self._("excel_saved_title"), self._("excel_saved_message")):
                 webbrowser.open(os.path.dirname(file_path))
 
         except Exception as e:
-            logging.error(f"Fejl ved eksport til {file_format.upper()}: {e}")
+            logging.error(f"Error exporting to {file_format.upper()}: {e}")
             messagebox.showerror(self._("excel_save_error_title"), self._("excel_save_error_message").format(e=e))
 
     def _export_to_excel(self, file_path):
-        """Eksporterer de viste data til en Excel-fil."""
-        logging.info(f"Eksporterer rapport til Excel-fil: {file_path}")
+        """Exports the displayed data to an Excel file."""
+        logging.info(f"Exporting report to Excel file: {file_path}")
         wb = Workbook()
         ws = wb.active
         ws.title = "PDFRecon Results"
         
+        # --- Create Headers ---
         headers = [self._(key) for key in self.columns_keys]
         headers[8] = f"{self._('col_indicators')} {self._('excel_indicators_overview')}"
 
@@ -2532,27 +2811,22 @@ class PDFReconApp:
             cell.alignment = Alignment(wrap_text=True, horizontal="center", vertical="center")
         
         def _indicators_for_path(path_str: str) -> str:
+            """Helper function to get a formatted string of indicators for a given path."""
             rec = next((d for d in self.all_scan_data if str(d.get('path')) == path_str), None)
-            if not rec:
-                return ""
+            if not rec: return ""
             keys = rec.get('indicator_keys') or []
-            if not keys:
-                return ""
-            parts = []
-            for k in keys:
-                try:
-                    parts.append(self._(k))
-                except Exception:
-                    parts.append(str(k))
+            if not keys: return ""
+            parts = [self._(k) for k in keys]
             return "• " + "\n• ".join(parts)
 
+        # --- Write Data Rows ---
         for row_idx, row_data in enumerate(self.report_data, start=2):
             path = row_data[3]
             exif_text = self.exif_outputs.get(path, "")
             row_data_xlsx = row_data[:]
-            row_data_xlsx[7] = exif_text
+            row_data_xlsx[7] = exif_text # Replace placeholder with full EXIF text
             
-            # Replace indicators column (index 8) with full list instead of "Se detaljer"
+            # Replace placeholder with full indicators list
             indicators_full = _indicators_for_path(path)
             if indicators_full:
                 row_data_xlsx[8] = indicators_full
@@ -2561,51 +2835,49 @@ class PDFReconApp:
                 cell = ws.cell(row=row_idx, column=col_idx, value=str(value))
                 cell.alignment = Alignment(wrap_text=True, vertical="top")
         
+        # --- Final Touches ---
         ws.freeze_panes = "A2"
         for col in ws.columns:
+            # Auto-adjust column width (with a max limit)
             max_len = max(len(str(cell.value)) if cell.value else 0 for cell in col)
             ws.column_dimensions[col[0].column_letter].width = min(max_len + 2, 50)
         
         wb.save(file_path)
-        logging.info(f"Excel-rapport gemt succesfuldt til {file_path}")
+        logging.info(f"Excel report saved successfully to {file_path}")
 
     def _export_to_csv(self, file_path):
+        """Exports the displayed data to a CSV file."""
         headers = [self._(key) for key in self.columns_keys]
         
         def _indicators_for_path(path_str: str) -> str:
+            """Helper function to get a semicolon-separated string of indicators."""
             rec = next((d for d in self.all_scan_data if str(d.get('path')) == path_str), None)
-            if not rec:
-                return ""
+            if not rec: return ""
             keys = rec.get('indicator_keys') or []
-            if not keys:
-                return ""
-            parts = []
-            for k in keys:
-                try:
-                    parts.append(self._(k))
-                except Exception:
-                    parts.append(str(k))
+            if not keys: return ""
+            parts = [self._(k) for k in keys]
             return "; ".join(parts)
 
-        # NYT: Forbered data med fuldt EXIF-output + fulde indikatorer
+        # NEW: Prepare data with full EXIF output + full indicators
         data_for_export = []
         for row_data in self.report_data:
             new_row = row_data[:]
             path = new_row[3]
             exif_output = self.exif_outputs.get(path, "")
-            new_row[7] = exif_output  # Erstat "Klik for at se." med det faktiske output
+            new_row[7] = exif_output  # Replace "Click to view." with actual output
             indicators_full = _indicators_for_path(path)
             if indicators_full:
                 new_row[8] = indicators_full
             data_for_export.append(new_row)
 
-        with open(file_path, 'w', newline='', encoding='utf-8-sig') as f: # Brug utf-8-sig for Excel-kompatibilitet
+        # Use utf-8-sig for better Excel compatibility with special characters
+        with open(file_path, 'w', newline='', encoding='utf-8-sig') as f:
             writer = csv.writer(f)
             writer.writerow(headers)
             writer.writerows(data_for_export)
 
     def _export_to_json(self, file_path):
-        # Creates a more detailed JSON export
+        """Exports a more detailed report of all scanned data to a JSON file."""
         full_export = []
         for item in self.all_scan_data:
             path_str = str(item['path'])
@@ -2617,10 +2889,11 @@ class PDFReconApp:
             full_export.append(item_copy)
         
         with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(full_export, f, indent=4, default=str) # Use default=str for datetimes
+            # Use default=str to handle non-serializable types like datetime
+            json.dump(full_export, f, indent=4, default=str)
 
     def _export_to_html(self, file_path):
-        # Creates a simple, color-coded HTML report
+        """Exports a simple, color-coded HTML report."""
         html = """
         <!DOCTYPE html>
         <html lang="en">
@@ -2652,11 +2925,11 @@ class PDFReconApp:
         rows = ""
         tag_map = {"red_row": "red-row", "yellow_row": "yellow-row", "blue_row": "blue-row", "gray_row": "gray-row"}
         
+        # --- Generate Table Rows ---
         for i, values in enumerate(self.report_data):
             tag_class = ""
             try:
-                # Find the treeview item corresponding to this report row to get its tag
-                # This is a bit inefficient but necessary to get the color
+                # Find the treeview item corresponding to this report row to get its color tag
                 matching_id = next((item_id for item_id in self.tree.get_children() if self.tree.item(item_id, "values")[3] == values[3]), None)
                 if matching_id:
                     tags = self.tree.item(matching_id, "tags")
@@ -2677,10 +2950,12 @@ class PDFReconApp:
 
 
 if __name__ == "__main__":
-    # Ensure multiprocessing works correctly when frozen
+    # Ensure multiprocessing works correctly when the app is frozen (e.g., by PyInstaller).
     if sys.platform.startswith('win'):
         multiprocessing.freeze_support()
         
+    # Initialize the main Tkinter window with DnD support
     root = TkinterDnD.Tk()
     app = PDFReconApp(root)
+    # Start the application's main event loop
     root.mainloop()
