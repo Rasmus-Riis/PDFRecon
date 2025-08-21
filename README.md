@@ -1,5 +1,3 @@
-Of course. Here is the complete, updated text formatted in a raw Markdown block. You can copy everything from the block below and paste it directly into your `README.md` file on GitHub.
-
 ````markdown
 # PDFRecon - Advanced PDF Forensic Analysis Tool
 
