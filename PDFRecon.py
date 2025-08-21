@@ -83,7 +83,7 @@ def md5_file(fp: Path, buf_size: int = 1024 * 1024) -> str:
 class PDFReconApp:
     def __init__(self, root):
         # --- Application Configuration ---
-        self.app_version = "14.9.3" # Translated comments and commented the rest of the script
+        self.app_version = "14.9.4" # Translated comments and commented the rest of the script
         self.config_path = self._resolve_path("config.ini", base_is_parent=True)
         self._load_or_create_config()
         
@@ -525,7 +525,11 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         
         # Count occurrences of each status type
         changed_count = all_flags.count("JA") + all_flags.count("YES")
-        indications_found_count = all_flags.count("Indikationer Fundet") + all_flags.count("Indications Found")
+        # EFTER (Korrekt optælling)
+        indications_found_count = (all_flags.count("Sandsynligt") + 
+                           all_flags.count("Possible") + 
+                           all_flags.count("Indikationer Fundet") + 
+                           all_flags.count("Indications Found"))
         error_count = sum(1 for flag in all_flags if flag in error_statuses)
         
         original_files_count = len([d for d in self.all_scan_data if not d.get('is_revision')])
@@ -2593,6 +2597,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
             except Exception: pass
         return indicators
     
+
     def get_flag(self, indicator_keys, is_revision, parent_id=None):
         """Determines the file's status flag based on the found indicator keys."""
         if is_revision:
@@ -2602,19 +2607,8 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         YES = "YES" if self.language.get() == "en" else "JA"
         NO = self._("status_no")
 
-        # Critical indicators that result in RED (JA/YES)
-        high_risk_indicators = {
-            "Has Revisions",
-            "TouchUp_TextEdit",
-            "Signature: Invalid",
-            # Note: XMP_ID_CHANGE and TRAILER_ID_CHANGE have been moved to "possible"
-        }
-
-        # Medium-risk indicators: YELLOW (Sandsynligt/Possible)
-        possible_indicators = {
-            "XMP_ID_CHANGE",
-            "TRAILER_ID_CHANGE",
-        }
+        high_risk_indicators = { "Has Revisions", "TouchUp_TextEdit", "Signature: Invalid" }
+        possible_indicators = { "XMP_ID_CHANGE", "TRAILER_ID_CHANGE" }
 
         if any(indicator in high_risk_indicators for indicator in keys_set):
             return YES
@@ -2622,10 +2616,11 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         if any(indicator in possible_indicators for indicator in keys_set):
             return "Possible" if self.language.get() == "en" else "Sandsynligt"
 
-        # All other cases (including no indicators)
+        # NYT: Hvis der er nogen indikationer overhovedet, markér som "Indikationer Fundet"
+        if keys_set:
+            return "Indications Found" if self.language.get() == "en" else "Indikationer Fundet"
+
         return NO
-
-
     
     
     def show_about(self):
