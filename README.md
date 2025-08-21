@@ -1,4 +1,3 @@
-````markdown
 # PDFRecon - Advanced PDF Forensic Analysis Tool
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
@@ -57,42 +56,3 @@ PDFRecon requires Python 3.6+ and a few external libraries.
 ```bash
 git clone [https://github.com/Rasmus-Riis/PDFRecon.git](https://github.com/Rasmus-Riis/PDFRecon.git)
 cd PDFRecon
-````
-
-### 2\. Install Required Python Libraries
-
-The project requires PyMuPDF, openpyxl, tkinterdnd2, and Pillow. You can install them all using the `requirements.txt` file:
-
-```bash
-pip install -r requirements.txt
-```
-
-### 3\. Download ExifTool (Important\!)
-
-PDFRecon depends on the standalone Windows executable of ExifTool.
-
-1.  Download the **Windows Executable** from the [official ExifTool website](https://exiftool.org/).
-2.  The downloaded file will be named `exiftool(-k).exe`. **Rename it to `exiftool.exe`**.
-3.  Place the renamed `exiftool.exe` in the same directory as the `PDFRecon.py` script.
-
------
-
-## 💻 How to Use
-
-1.  **Run the script** from your terminal:
-    ```bash
-    python PDFRecon.py
-    ```
-2.  **Start a Scan** by either dragging a folder onto the window or by using the **"Choose folder"** button.
-3.  **Analyze Results** using the color codes to quickly identify files of interest. **Right-click** on any file for more actions like viewing the timeline or opening the file location.
-4.  **Compare Revisions** by right-clicking on a blue or gray row (a revision) and selecting **"Visually Compare Revision"**. Use the "Next/Previous Page" buttons to navigate through the document.
-5.  **Export Your Report** using the **"Export Report"** button and selecting your desired format.
-
------
-
-## 📜 License
-
-This project is distributed under the **MIT License**. See the `LICENSE` file for more information.
-
-```
-```
