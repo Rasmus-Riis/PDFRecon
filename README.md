@@ -53,6 +53,5 @@ PDFRecon combines deep forensic analysis with a user-friendly interface to deliv
 PDFRecon requires Python 3.6+ and a few external libraries.
 
 ### 1. Clone the Repository
-```bash
-git clone [https://github.com/Rasmus-Riis/PDFRecon.git](https://github.com/Rasmus-Riis/PDFRecon.git)
+git clone https://github.com/Rasmus-Riis/PDFRecon.git
 cd PDFRecon
