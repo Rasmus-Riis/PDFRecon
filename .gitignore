@@ -3,3 +3,5 @@ pdfrecon.log
 /build
 /dist
 PDFRecon.spec
+/exiftool_files
+exiftool.exe
