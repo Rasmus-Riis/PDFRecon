@@ -1,81 +1,100 @@
+Of course. Here is the complete, updated text formatted in a raw Markdown block. You can copy everything from the block below and paste it directly into your `README.md` file on GitHub.
+
+````markdown
 # PDFRecon - Advanced PDF Forensic Analysis Tool
 
-PDFRecon is a powerful and intuitive GUI tool designed for the forensic analysis of PDF documents. It enables investigators to rapidly scan a large number of files for signs of manipulation, editing, and hidden history.
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+![Python Version](https://img.shields.io/badge/python-3.6+-blue.svg)
 
-Developed for forensic investigators, analysts, and anyone who needs to verify the integrity and history of a PDF document.
+**Uncover the hidden history of your PDF documents.** PDFRecon is a powerful and intuitive GUI tool built for forensic investigators, analysts, and anyone needing to verify a document's integrity. It rapidly scans large sets of PDF files, detecting signs of manipulation, extracting hidden revision histories, and presenting the findings in a clear, actionable format.
+
+![PDFRecon Main Interface](https://raw.githubusercontent.com/Rasmus-Riis/PDFRecon/main/assets/PDFRecon_Screenshot.png)
 
 ---
 
 ## 🔑 Key Features
 
-PDFRecon combines deep forensic analysis with a user-friendly interface to deliver clear, actionable results.
+PDFRecon combines deep forensic analysis with a user-friendly interface to deliver results you can act on immediately.
 
 ### Deep Forensic Analysis
-* **Revision History Extraction**: Automatically finds and extracts complete, historical versions of a document that are hidden within a single file, providing a unique insight into the document's evolution.
-* **Visual Revision Comparison** 🆕: Instantly compare a document's previous version with the latest in a side-by-side view with page navigation. A third panel highlights all visual changes in **red**, making any alteration—large or small—immediately obvious.
-* **Intelligent Revision Filtering** 🔎: To reduce noise and focus the investigation, the application automatically filters the results:
-  * **Corrupt Revisions**: Revisions with serious structural errors (`Invalid xref table`) are hidden from the main view but are still saved in the `Altered_files` folder for manual inspection.
-  * **Visually Identical Revisions**: Revisions saved without any visible changes (checked on up to the first 5 pages) are kept in the list but marked as **"Visually Identical"** and colored **gray** for easy identification.
-* **Editing Trace Analysis**: Detects specific metadata artifacts from editing software (e.g., `TouchUp_TextEdit` from Adobe Acrobat), font anomalies, and conflicting software information in the file's metadata.
-* **Detailed Timeline Generation**: Creates a readable, chronological timeline of all timestamped events found within a file’s metadata, providing a clear picture of the file's lifecycle.
-* **Powered by ExifTool**: Leverages the power of **ExifTool** to extract comprehensive and in-depth metadata that other tools often miss.
+
+* **Revision History Extraction**: Automatically finds and extracts complete, historical versions of a document hidden within a single file. This provides a unique and powerful insight into a document's evolution over time.
+
+* **Visual Revision Comparison** 🆕: Instantly compare any historical version with the latest one.
+    * **Side-by-Side Viewing**: See both documents page by page.
+    * **Red-Highlighted Differences**: A third panel highlights all visual changes in **red**, making any alteration—large or small—immediately obvious.
+
+* **Intelligent Revision Filtering** 🔎: To reduce noise and focus your investigation, the application automatically filters and flags extracted revisions:
+    * **Corrupt Revisions**: Revisions with serious structural errors (like an `Invalid xref table`) are hidden from the main view but are still saved in the `Altered_files` folder for manual inspection.
+    * **Visually Identical Revisions**: Revisions saved without any visible changes (checked on up to the first 5 pages) are marked as **"Visually Identical"** and colored gray for easy deprioritization.
+
+* **Editing Trace Analysis**: Detects specific metadata artifacts from editing software (e.g., `TouchUp_TextEdit` from Adobe Acrobat), analyzes font anomalies, and identifies conflicting creator/producer information in the file's metadata.
+
+* **Detailed Timeline Generation**: Creates a readable, chronological timeline of all timestamped events found within a file’s metadata and structure, providing a clear picture of the file's lifecycle from creation to the latest modification.
+
+* **Powered by ExifTool**: Leverages the full power of **ExifTool** to extract comprehensive metadata that other tools often miss.
 
 ### Intuitive UI & Reporting
-* **Simple Drag & Drop**: Drag a folder directly onto the application window to start an analysis.
-* **Color-Coded Results**: A simple color system helps you prioritize your investigation:
-  * 🔴 **Red**: High risk. Strong evidence of manipulation found.
-  * 🟡 **Yellow**: Medium risk. Indications of editing or an unusual file history were found.
-  * 🔵 **Blue**: An extracted, earlier version of another file.
-  * ⚪ **Gray**: A revision that is visually identical to the latest version.
-  * **White**: No specific indicators of manipulation were detected.
-* **Multi-Language Interface**: Switch between English and Danish on the fly.
-* **Multiple Export Formats**: Export the complete analysis to a formatted `.xlsx`, 'HTML', 'JSON' or 'CSV' file ready for documentation and reporting.
+
+* **Simple Drag & Drop Interface**: Just drag a folder onto the application window to start a complete analysis.
+
+* **Color-Coded Results**: A simple color system helps you instantly prioritize your investigation:
+    * 🔴 **Red**: **High Risk.** Strong evidence of manipulation was found.
+    * 🟡 **Yellow**: **Medium Risk.** Indications of editing or an unusual file history were found.
+    * 🔵 **Blue**: An extracted, earlier version of another file.
+    * ⚪️ **Gray**: A revision that is visually identical to the latest version.
+    * **White**: No specific indicators of manipulation were detected.
+
+* **Multi-Language Support**: Switch the entire interface between **English** and **Danish** on the fly.
+
+* **Multiple Export Formats**: Export the complete analysis to a formatted report, ready for documentation. Supported formats include `Excel (.xlsx)`, `CSV`, `JSON`, and `HTML`.
 
 ---
 
-## Installation
+## 🚀 Installation & Setup
 
 PDFRecon requires Python 3.6+ and a few external libraries.
 
-### 1. Clone the repository
+### 1. Clone the Repository
 ```bash
-git clone https://github.com/Rasmus-Riis/PDFRecon.git
+git clone [https://github.com/Rasmus-Riis/PDFRecon.git](https://github.com/Rasmus-Riis/PDFRecon.git)
 cd PDFRecon
-```
+````
 
-### 2. Install required Python libraries
-The project requires **PyMuPDF**, **openpyxl**, **tkinterdnd2**, and **Pillow**.  
-You can install them using the `requirements.txt` file:
+### 2\. Install Required Python Libraries
+
+The project requires PyMuPDF, openpyxl, tkinterdnd2, and Pillow. You can install them all using the `requirements.txt` file:
+
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Download ExifTool (Important!)
-PDFRecon depends on the Windows executable of ExifTool.
+### 3\. Download ExifTool (Important\!)
 
-1. Download exiftool from the [official ExifTool website](https://exiftool.org/).
-2. The downloaded file is typically named `exiftool(-k).exe`. Rename it to **exiftool.exe**.
-3. Place the renamed `exiftool.exe` and the `exiftool_files` folder in the same directory in the same directory as the `PDFRecon.py` script.
+PDFRecon depends on the standalone Windows executable of ExifTool.
 
----
+1.  Download the **Windows Executable** from the [official ExifTool website](https://exiftool.org/).
+2.  The downloaded file will be named `exiftool(-k).exe`. **Rename it to `exiftool.exe`**.
+3.  Place the renamed `exiftool.exe` in the same directory as the `PDFRecon.py` script.
 
-## Usage
+-----
 
-**Run the script:**
-```bash
-python PDFRecon.py
+## 💻 How to Use
+
+1.  **Run the script** from your terminal:
+    ```bash
+    python PDFRecon.py
+    ```
+2.  **Start a Scan** by either dragging a folder onto the window or by using the **"Choose folder"** button.
+3.  **Analyze Results** using the color codes to quickly identify files of interest. **Right-click** on any file for more actions like viewing the timeline or opening the file location.
+4.  **Compare Revisions** by right-clicking on a blue or gray row (a revision) and selecting **"Visually Compare Revision"**. Use the "Next/Previous Page" buttons to navigate through the document.
+5.  **Export Your Report** using the **"Export Report"** button and selecting your desired format.
+
+-----
+
+## 📜 License
+
+This project is distributed under the **MIT License**. See the `LICENSE` file for more information.
+
 ```
-
-**Start a Scan** by either dragging a folder onto the window or by using the **"Choose folder"** button.
-
-**Analyze Results:** Use the color codes to quickly identify files of interest. Right-click on any file for more actions.
-
-**Compare Revisions:** Right-click on a blue or gray row (a revision) and select **"Visually Compare Revision"** to see the changes.  
-Use the **"Next/Previous Page"** buttons to navigate.
-
----
-
-## License
-
-This project is distributed under the **MIT License**.  
-See the [LICENSE](LICENSE) file for more information.
+```
