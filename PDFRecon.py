@@ -83,7 +83,7 @@ def md5_file(fp: Path, buf_size: int = 1024 * 1024) -> str:
 class PDFReconApp:
     def __init__(self, root):
         # --- Application Configuration ---
-        self.app_version = "14.9.4" # Translated comments and commented the rest of the script
+        self.app_version = "14.9.5" # Added language persistence to config.ini
         self.config_path = self._resolve_path("config.ini", base_is_parent=True)
         self._load_or_create_config()
         
@@ -122,7 +122,7 @@ class PDFReconApp:
         self.indicator_popup = None
 
         # --- Language and Filter Setup ---
-        self.language = tk.StringVar(value="da")
+        self.language = tk.StringVar(value=self.default_language)
         self.filter_var = tk.StringVar()
         
         # --- GUI Setup ---
@@ -416,12 +416,15 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
     def _load_or_create_config(self):
         """Loads configuration from config.ini or creates the file with default values."""
         parser = configparser.ConfigParser()
+        # Set a default language in case the config file is missing or corrupt.
+        self.default_language = "en"
         if not self.config_path.exists():
             logging.info("config.ini not found. Creating with default values.")
             parser['Settings'] = {
                 'MaxFileSizeMB': '500',
                 'ExifToolTimeout': '30',
-                'MaxWorkerThreads': str(PDFReconConfig.MAX_WORKER_THREADS)
+                'MaxWorkerThreads': str(PDFReconConfig.MAX_WORKER_THREADS),
+                'Language': self.default_language
             }
             try:
                 with open(self.config_path, 'w') as configfile:
@@ -437,6 +440,8 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
             PDFReconConfig.MAX_FILE_SIZE = settings.getint('MaxFileSizeMB', 500) * 1024 * 1024
             PDFReconConfig.EXIFTOOL_TIMEOUT = settings.getint('ExifToolTimeout', 30)
             PDFReconConfig.MAX_WORKER_THREADS = settings.getint('MaxWorkerThreads', PDFReconConfig.MAX_WORKER_THREADS)
+            # Load the language, fallback to the default 'en'
+            self.default_language = settings.get('Language', 'en')
             logging.info(f"Configuration loaded from {self.config_path}")
         except Exception as e:
             logging.error(f"Could not read config.ini, using default values. Error: {e}")
@@ -596,6 +601,22 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
             self._update_summary_status()
         elif not self.all_scan_data:
             self.status_var.set(self._("status_initial"))
+
+        # --- Save the selected language to the config file ---
+        try:
+            parser = configparser.ConfigParser()
+            # Read existing config to preserve other settings
+            parser.read(self.config_path)
+            if 'Settings' not in parser:
+                parser['Settings'] = {}
+            parser['Settings']['Language'] = self.language.get()
+            with open(self.config_path, 'w') as configfile:
+                # Re-add the header comment
+                configfile.write("# PDFRecon Configuration File\n")
+                parser.write(configfile)
+            logging.info(f"Language setting saved to {self.config_path}")
+        except Exception as e:
+            logging.error(f"Could not save language setting to config.ini: {e}")
 
 
     def _setup_main_frame(self):
