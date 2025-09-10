@@ -83,7 +83,7 @@ def md5_file(fp: Path, buf_size: int = 1024 * 1024) -> str:
 class PDFReconApp:
     def __init__(self, root):
         # --- Application Configuration ---
-        self.app_version = "14.9.5" # Added language persistence to config.ini
+        self.app_version = "14.9.6" # Added language persistence to config.ini
         self.config_path = self._resolve_path("config.ini", base_is_parent=True)
         self._load_or_create_config()
         
@@ -1644,65 +1644,122 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         self._populate_tree_from_data(items_to_show)
 
     def _populate_tree_from_data(self, data_list):
-        """Clears and repopulates the treeview with a given list of data items."""
-        self.tree.delete(*self.tree.get_children())
-        self.report_data.clear()
-        
-        display_counter = 0
-        for data in data_list:
-            display_counter += 1
-            
-            if data.get("status") == "error":
-                # Handle error rows
-                path = data["path"]
-                error_type_key = data.get("error_type", "unknown_error")
-                error_display_name = self._(error_type_key)
+        """Repopulate the treeview from a (filtered) list of rows.
+
+        Performance: two-pass build (O(n)) with minimal attribute lookups.
+        Correctness: 'Revision of #N' uses the ORIGINAL's displayed ID within
+        the *current view*. If the original is filtered out, we fall back to
+        self.path_to_id (original-only index) so the text is still meaningful.
+        """
+        tree = self.tree
+        _ = self._
+        get_flag = self.get_flag
+        tree_tags = self.tree_tags
+        report_data = self.report_data
+
+        # Clear visible table + export buffer
+        tree.delete(*tree.get_children())
+        report_data.clear()
+
+        # -------- Pass 1: compute displayed IDs for ORIGINALS in the current view --------
+        # Key: str(Path to original) -> displayed ID (as shown in the first column)
+        parent_display_id = {}
+        counter = 0
+        for d in data_list:
+            counter += 1
+            if d.get("status") == "error":
+                continue
+            if not d.get("is_revision"):
+                parent_display_id[str(d["path"])] = counter
+
+        # -------- Pass 2: build rows and insert (fast path, minimal work per row) --------
+        insert = tree.insert
+        append = report_data.append
+        counter = 0
+
+        for d in data_list:
+            counter += 1
+
+            # --- Error rows ------------------------------------------------------
+            if d.get("status") == "error":
+                path = d["path"]
+                error_type_key = d.get("error_type", "unknown_error")
+                error_display_name = _(error_type_key)
+
                 row_values = [
-                    display_counter, path.name, error_display_name, str(path),
-                    "N/A", "", "", self._("exif_error"), data.get("error_message", "Unknown error")
+                    counter,                 # ID (GUI)
+                    path.name,               # Name
+                    error_display_name,      # Altered
+                    str(path),               # Path
+                    "N/A",                   # MD5
+                    "",                      # File Created
+                    "",                      # File Modified
+                    _("exif_error"),         # EXIFTool
+                    d.get("error_message", "Unknown error")  # Signs of Alteration
                 ]
-                self.report_data.append(row_values)
-                self.tree.insert("", "end", values=row_values, tags=("red_row",))
+                append(row_values)
+                insert("", "end", values=row_values, tags=("red_row",))
+                continue
+
+            # --- Normal rows (originals + revisions) ----------------------------
+            path = d["path"]
+            is_rev = d.get("is_revision", False)
+
+            # EXIF column text (cheap checks only)
+            exif_val = d.get("exif")
+            if exif_val:
+                is_exif_err = (
+                    exif_val == _("exif_err_notfound")
+                    or exif_val.startswith(_("exif_err_prefix"))
+                    or exif_val.startswith(_("exif_err_run").split("{")[0])
+                )
+                exif_text = _("exif_error") if is_exif_err else _("exif_view_output")
             else:
-                # Handle normal data rows
-                path = data["path"]
-                if data["is_revision"]:
-                    created_time, modified_time = "", ""
-                    parent_id = self.path_to_id.get(str(data["original_path"]))
-                    indicators_str = ""
-                    # Set the "Altered" flag for revisions
-                    flag = self._("status_identical") if data.get("is_identical") else self.get_flag([], True, parent_id)
-                else:
-                    # For original files
-                    stat = path.stat()
-                    created_time = datetime.fromtimestamp(stat.st_ctime).strftime("%Y-%m-%d %H:%M:%S")
-                    modified_time = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
-                    flag = self.get_flag(data["indicator_keys"], False)
-                    
-                    if data["indicator_keys"]:
-                        indicators_str = self._("indicators_view_output")
-                    else:
-                        indicators_str = self._("status_no")
+                exif_text = _("exif_no_output")
 
-                # Set the text for the EXIFTool column
-                exif_text = self._("exif_no_output")
-                if data.get("exif"):
-                    is_error = (data["exif"] == self._("exif_err_notfound") or 
-                                data["exif"].startswith(self._("exif_err_prefix")) or 
-                                data["exif"].startswith(self._("exif_err_run").split("{")[0]))
-                    exif_text = self._("exif_error") if is_error else self._("exif_view_output")
+            if is_rev:
+                # Parent ID from current view if available; otherwise fall back
+                # to your original-only map so we never show "None".
+                parent_id = parent_display_id.get(str(d.get("original_path")))
+                if parent_id is None:
+                    parent_id = self.path_to_id.get(str(d.get("original_path")))
 
-                row_values = [display_counter, path.name, flag, str(path), data["md5"], created_time, modified_time, exif_text, indicators_str]
-                
-                # Determine the row color tag
-                tag = ""
-                if data["is_revision"]:
-                    tag = "gray_row" if data.get("is_identical") else "blue_row"
-                else:
-                    tag = self.tree_tags.get(flag, "")
-                
-                self.report_data.append(row_values)
-                self.tree.insert("", "end", values=row_values, tags=(tag,))
+                flag = _("status_identical") if d.get("is_identical") else get_flag([], True, parent_id)
+                created_time = ""
+                modified_time = ""
+                indicators_str = ""
+                tag = "gray_row" if d.get("is_identical") else "blue_row"
+
+            else:
+                # ORIGINAL row: only stat() here (as before), but catch failures fast
+                try:
+                    st = path.stat()
+                    created_time = datetime.fromtimestamp(st.st_ctime).strftime("%Y-%m-%d %H:%M:%S")
+                    modified_time = datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    created_time = ""
+                    modified_time = ""
+
+                flag = get_flag(d.get("indicator_keys", []), False)
+                indicators_str = _("indicators_view_output") if d.get("indicator_keys") else _("status_no")
+                tag = tree_tags.get(flag, "")
+
+            row_values = [
+                counter,                 # ID (GUI)
+                path.name,               # Name
+                flag,                    # Altered
+                str(path),               # Path
+                d.get("md5", ""),        # MD5
+                created_time,            # File Created
+                modified_time,           # File Modified
+                exif_text,               # EXIFTool
+                indicators_str           # Signs of Alteration
+            ]
+
+            append(row_values)
+            insert("", "end", values=row_values, tags=(tag,))
+
+
 
     def on_select_item(self, event):
         """Updates the detail view when an item in the tree is selected."""
