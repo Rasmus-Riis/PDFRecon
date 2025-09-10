@@ -23,6 +23,30 @@ import json
 import time
 import re as _re
 
+# --- OCG (layers) detection helpers ---
+_LAYER_OCGS_BLOCK_RE = _re.compile(rb"/OCGs\s*\[(.*?)\]", _re.S)
+_OBJ_REF_RE          = _re.compile(rb"(\d+)\s+(\d+)\s+R")
+_LAYER_OC_REF_RE     = _re.compile(rb"/OC\s+(\d+)\s+(\d+)\s+R")
+
+def count_layers(pdf_bytes: bytes) -> int:
+    """
+    Konservativ optælling af OCGs (lag) i PDF-bytes.
+    1) Finder /OCGs [ ... ] og samler alle indirekte refs "n m R".
+    2) Finder også /OC n m R i indhold/ressourcer.
+    3) Deduplikerer (n, gen).
+    """
+    refs = set()
+
+    m = _LAYER_OCGS_BLOCK_RE.search(pdf_bytes)
+    if m:
+        for n, g in _OBJ_REF_RE.findall(m.group(1)):
+            refs.add((int(n), int(g)))
+
+    for n, g in _LAYER_OC_REF_RE.findall(pdf_bytes):
+        refs.add((int(n), int(g)))
+
+    return len(refs)
+
 
 # --- NEW: Added imports and error handling for Pillow ---
 try:
@@ -50,7 +74,7 @@ class PDFReconConfig:
     MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
     MAX_REVISIONS = 100
     EXIFTOOL_TIMEOUT = 30
-    MAX_WORKER_THREADS = min(4, os.cpu_count() or 1)
+    MAX_WORKER_THREADS = min(16, (os.cpu_count() or 4) * 2)
 
 class PDFProcessingError(Exception):
     """Base exception for PDF processing errors."""
@@ -68,22 +92,42 @@ class PDFEncryptedError(PDFProcessingError):
     """Exception for encrypted files that cannot be read."""
     pass
 # --- End Phase 1/3 ---
-def md5_file(fp: Path, buf_size: int = 1024 * 1024) -> str:
+def md5_file(fp: Path, buf_size: int = 4 * 1024 * 1024) -> str:
     """
-    Calculate MD5 without loading the entire file into RAM.
+    Fast MD5 with reusable buffer (fewer allocations).
     """
     import hashlib
     h = hashlib.md5()
-    with fp.open("rb") as f:
-        for chunk in iter(lambda: f.read(buf_size), b""):
-            h.update(chunk)
+    with fp.open("rb", buffering=0) as f:
+        buf = bytearray(buf_size)
+        mv = memoryview(buf)
+        while True:
+            n = f.readinto(mv)
+            if not n:
+                break
+            h.update(mv[:n])
     return h.hexdigest()
+from datetime import timezone
+
+def fmt_times_pair(ts: float):
+    """Return ('YYYY-mm-dd HH:MM:SS±ZZZZ', 'YYYY-mm-ddTHH:MM:SSZ')."""
+    local = datetime.fromtimestamp(ts).astimezone()
+    utc = datetime.fromtimestamp(ts, tz=timezone.utc)
+    return local.strftime("%Y-%m-%d %H:%M:%S%z"), utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+def safe_stat_times(path: Path):
+    try:
+        st = path.stat()
+        return st.st_ctime, st.st_mtime
+    except Exception:
+        return None, None
+
 
 
 class PDFReconApp:
     def __init__(self, root):
         # --- Application Configuration ---
-        self.app_version = "14.9.6" # Added language persistence to config.ini
+        self.app_version = "15.0.0"
         self.config_path = self._resolve_path("config.ini", base_is_parent=True)
         self._load_or_create_config()
         
@@ -470,21 +514,28 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
     def _setup_styles(self):
         """Initializes and configures the styles for ttk widgets."""
         self.style = ttk.Style()
-        self.style.theme_use("clam")
-        # Style for selected items in the treeview
+        # Brug dit tema som før (justér hvis du havde et andet)
+        try:
+            self.style.theme_use("clam")
+        except Exception:
+            pass
+
+        # Fremhævning ved markering (behold som du havde)
         self.style.map('Treeview', background=[('selected', '#0078D7')])
-        # Tags for coloring rows based on their status
+
+        # Definér (eller behold) de faktiske farver til tags
+        # Hvis du allerede har disse styles et andet sted, lad dem stå uændret.
+        self.style.configure("red_row", background="#FFD6D6")     # rødlig baggrund
+        self.style.configure("yellow_row", background="#FFF4CC")  # gul baggrund
+
+        # KUN disse statusser mappes nu
         self.tree_tags = {
             "JA": "red_row",
             "YES": "red_row",
-            # NEW: "Sandsynligt"/"Possible" is shown in yellow
             "Sandsynligt": "yellow_row",
             "Possible": "yellow_row",
         }
-        # Custom style for the progress bar
-        self.style.configure("blue.Horizontal.TProgressbar",
-                             troughcolor='#EAEAEA',
-                             background='#0078D7')
+
 
 
     def _setup_menu(self):
@@ -839,6 +890,62 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         values = self.tree.item(item_id, "values")
         if values:
             self.show_exif_popup(self.exif_outputs.get(values[3]))
+    def show_exif_popup(self, content):
+        """Display a large, scrollable popup window with EXIFTool output."""
+        from tkinter import messagebox, Toplevel
+        import tkinter as tk
+        from tkinter import ttk
+
+        if not content:
+            messagebox.showinfo(self._("no_exif_output_title"),
+                                self._("no_exif_output_message"),
+                                parent=self.root)
+            return
+
+        # Luk eksisterende popup for at undgå dubletter
+        if getattr(self, "exif_popup", None) and self.exif_popup.winfo_exists():
+            self.exif_popup.destroy()
+
+        # Stor, centreret popup (~85% af skærmen)
+        self.exif_popup = Toplevel(self.root)
+        self.exif_popup.title(self._("exif_popup_title"))
+        self.exif_popup.resizable(True, True)
+
+        sw = self.root.winfo_screenwidth()
+        sh = self.root.winfo_screenheight()
+        w = int(sw * 0.85)
+        h = int(sh * 0.85)
+        x = (sw - w) // 2
+        y = (sh - h) // 2
+        self.exif_popup.geometry(f"{w}x{h}+{x}+{y}")
+        self.exif_popup.transient(self.root)
+
+        # Scrollbars + monospatieret tekst
+        frame = ttk.Frame(self.exif_popup, padding=8)
+        frame.pack(fill="both", expand=True)
+
+        vscroll = ttk.Scrollbar(frame, orient="vertical")
+        vscroll.pack(side="right", fill="y")
+
+        hscroll = ttk.Scrollbar(frame, orient="horizontal")
+        hscroll.pack(side="bottom", fill="x")
+
+        text = tk.Text(
+            frame,
+            wrap="none",
+            yscrollcommand=vscroll.set,
+            xscrollcommand=hscroll.set,
+            font=("Consolas", 10)
+        )
+        text.pack(side="left", fill="both", expand=True)
+        vscroll.config(command=text.yview)
+        hscroll.config(command=text.xview)
+
+        text.insert("1.0", content)
+        self._make_text_copyable(text)
+        text.mark_set("insert", "1.0")
+        text.see("1.0")
+
 
     def _make_text_copyable(self, text_widget):
         """Makes a Text widget read-only but allows text selection and copying."""
@@ -856,6 +963,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
             return "break" # Prevents default event handling
 
         context_menu.add_command(label=self._("copy"), command=copy_selection)
+        
 
         def show_context_menu(event):
             """Shows the context menu if text is selected."""
@@ -867,6 +975,36 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         text_widget.bind("<Button-3>", show_context_menu) # Right-click
         text_widget.bind("<Control-c>", copy_selection) # Ctrl+C
         text_widget.bind("<Command-c>", copy_selection) # Command+C for macOS
+        
+    def _add_layer_indicators(self, raw: bytes, path: Path, indicator_keys: list):
+        """
+        Tilføjer:
+          - "Has Layers" hvis der findes OCGs, nu med antal.
+          - "More Layers Than Pages" hvis lag > sideantal (kræver PyMuPDF).
+        """
+        try:
+            layers_cnt = count_layers(raw)
+        except Exception:
+            layers_cnt = 0
+
+        if layers_cnt <= 0:
+            return
+
+        # MODIFIED: Display the count directly in the indicator.
+        indicator_keys.append(f"Has Layers ({layers_cnt})")
+
+        # Sammenlign med sideantal (best-effort)
+        page_count = 0
+        try:
+            import fitz  # PyMuPDF
+            with fitz.open(path) as _doc:
+                page_count = _doc.page_count
+        except Exception:
+            pass
+
+        if page_count and layers_cnt > page_count:
+            indicator_keys.append("More Layers Than Pages")
+
 
     def show_pdf_viewer_popup(self, item_id):
         """Displays a simple PDF viewer for the selected file."""
@@ -1076,33 +1214,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
             messagebox.showerror(self._("diff_error_title"), self._("diff_error_msg").format(e=e), parent=self.root)
             self.root.config(cursor="")
 
-    def show_exif_popup(self, content):
-        """Displays a popup window with the EXIFTool output."""
-        if not content:
-            messagebox.showinfo(self._("no_exif_output_title"), self._("no_exif_output_message"), parent=self.root)
-            return
-        # Destroy any existing popup to prevent duplicates
-        if hasattr(self, 'exif_popup') and self.exif_popup and self.exif_popup.winfo_exists():
-            self.exif_popup.destroy()
         
-        # --- Popup Window Setup ---
-        self.exif_popup = Toplevel(self.root)
-        self.exif_popup.title(self._("exif_popup_title"))
-        self.exif_popup.geometry("600x400")
-        self.exif_popup.transient(self.root)
-
-        # --- Text Widget with Scrollbar ---
-        text_frame = ttk.Frame(self.exif_popup, padding=5)
-        text_frame.pack(fill="both", expand=True)
-        scrollbar = ttk.Scrollbar(text_frame)
-        scrollbar.pack(side="right", fill="y")
-        text_widget = tk.Text(text_frame, wrap="word", yscrollcommand=scrollbar.set)
-        text_widget.pack(side="left", fill="both", expand=True)
-        scrollbar.config(command=text_widget.yview)
-        
-        # Insert content and make it copyable
-        text_widget.insert("1.0", content)
-        self._make_text_copyable(text_widget)
 
     def show_indicators_popup(self, indicator_keys):
         """Shows a pop-up window with a list of found indicators."""
@@ -1424,7 +1536,9 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
                 indicator_keys.append("Tool Change")
             original_timeline = self.generate_comprehensive_timeline(fp, txt, exif)
             revisions = self.extract_revisions(raw, fp)
+
             doc.close()
+            self._add_layer_indicators(raw, fp, indicator_keys)
 
             # Add "Has Revisions" indicator if any were found
             final_indicator_keys = indicator_keys[:]
@@ -1905,6 +2019,8 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         except FileNotFoundError:
             pass
         return events
+        
+        
     def _detect_tool_change_from_exif(self, exiftool_output: str):
         """
         Returns a dict with:
@@ -2677,28 +2793,39 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
     
 
     def get_flag(self, indicator_keys, is_revision, parent_id=None):
-        """Determines the file's status flag based on the found indicator keys."""
+        """Determines the file's status flag based on the found indicator keys.
+
+        Regler:
+          - Revisioner: returnerer altid "Revision of <id>" (uændret).
+          - Højrisikoindikatorer: returnerer JA/YES.
+          - Alle andre fund: returnerer KUN "Sandsynligt"/"Possible".
+          - Ingen fund: returnerer "No".
+        """
         if is_revision:
             return self._("revision_of").format(id=parent_id)
-        
+
         keys_set = set(indicator_keys or [])
         YES = "YES" if self.language.get() == "en" else "JA"
         NO = self._("status_no")
 
-        high_risk_indicators = { "Has Revisions", "TouchUp_TextEdit", "Signature: Invalid" }
-        possible_indicators = { "XMP_ID_CHANGE", "TRAILER_ID_CHANGE" }
+        # Justér denne mængde til dine auto-JA indikatorer
+        high_risk_indicators = {
+            "Has Revisions",
+            "TouchUp_TextEdit",
+            "Signature: Invalid",
+            # tilføj evt. andre, der skal give automatisk JA
+        }
 
-        if any(indicator in high_risk_indicators for indicator in keys_set):
+        if any(ind in high_risk_indicators for ind in keys_set):
             return YES
 
-        if any(indicator in possible_indicators for indicator in keys_set):
+        # Hvis der er nogen indikationer overhovedet, men ikke auto-JA:
+        if keys_set:
             return "Possible" if self.language.get() == "en" else "Sandsynligt"
 
-        # NYT: Hvis der er nogen indikationer overhovedet, markér som "Indikationer Fundet"
-        if keys_set:
-            return "Indications Found" if self.language.get() == "en" else "Indikationer Fundet"
-
+        # Ingen indikationer:
         return NO
+
     
     
     def show_about(self):
