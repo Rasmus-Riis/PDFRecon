@@ -2608,7 +2608,61 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
 
         return "\n".join(txt_segments)
 
+    def analyze_fonts(self, doc):
+            """
+            Analyzes the fonts in a PDF to detect multiple subsets of the same base font.
 
+            This is a strong indicator of editing, as adding text with a different tool
+            often creates a new subset of an existing font.
+
+            Args:
+                doc: A fitz.Document object from PyMuPDF.
+
+            Returns:
+                True if any base font has more than one subset, False otherwise.
+            """
+            # Dictionary to track font subsets.
+            # Key: 'Calibri', Value: {'ABCDE+Calibri', 'FGHIJ+Calibri'}
+            font_subsets = {}
+
+            # Iterate through each page to get the fonts used
+            for page_num in range(len(doc)):
+                # get_page_fonts() returns a list of tuples with font details
+                # (xref, ext, type, basefont, name, font-file-ext, is_embedded)
+                fonts_on_page = doc.get_page_fonts(page_num)
+                
+                for font_info in fonts_on_page:
+                    # CORRECTED: Use font_info[3] (the basefont) instead of font_info[4]
+                    basefont_name = font_info[3]
+
+                    # The '+' symbol is the standard convention for a font subset
+                    if "+" in basefont_name:
+                        try:
+                            # Split the name to get the base font
+                            _subset_tag, actual_base_font = basefont_name.split("+", 1)
+                            
+                            # Normalize the base font name by removing style info like Bold/Italic
+                            # e.g., 'Calibri-Bold' -> 'Calibri'
+                            normalized_base = actual_base_font.split('-')[0]
+                            
+                            # If we haven't seen this base font before, initialize it
+                            if normalized_base not in font_subsets:
+                                font_subsets[normalized_base] = set()
+                            
+                            # Add the full, unique subset name to our set
+                            font_subsets[normalized_base].add(basefont_name)
+                        except ValueError:
+                            # Skip malformed font names
+                            continue
+
+            # Finally, check if any base font ended up with more than one subset
+            for base_font, subsets in font_subsets.items():
+                if len(subsets) > 1:
+                    logging.info(f"Detected multiple font subsets for '{base_font}': {subsets}")
+                    return True # Indicator found
+
+            # No font with multiple subsets was detected
+            return False
     def detect_indicators(self, txt: str, doc):
         """
         Searches for indicators of alteration/manipulation.
