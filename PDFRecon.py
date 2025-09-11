@@ -6,9 +6,7 @@ import re
 import subprocess
 import zlib
 from pathlib import Path
-from datetime import datetime
-from openpyxl import Workbook
-from openpyxl.styles import Font, Alignment, PatternFill
+from datetime import datetime, timezone
 import threading
 import queue
 import webbrowser
@@ -22,6 +20,35 @@ import csv
 import json
 import time
 import re as _re
+import base64
+import binascii
+
+# --- Optional library imports with error handling ---
+try:
+    from PIL import Image, ImageTk, ImageChops, ImageOps
+except ImportError:
+    messagebox.showerror("Missing Library", "The Pillow library is not installed.\n\nPlease run 'pip install Pillow' in your terminal to use this program.")
+    sys.exit(1)
+
+try:
+    import fitz  # PyMuPDF
+except ImportError:
+    messagebox.showerror("Missing Library", "PyMuPDF is not installed.\n\nPlease run 'pip install PyMuPDF' in your terminal to use this program.")
+    sys.exit(1)
+
+try:
+    from tkinterdnd2 import DND_FILES, TkinterDnD
+except ImportError:
+    messagebox.showerror("Missing Library", "tkinterdnd2 is not installed.\n\nPlease run 'pip install tkinterdnd2' in your terminal to use this program.")
+    sys.exit(1)
+
+try:
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill
+except ImportError:
+    messagebox.showerror("Missing Library", "The openpyxl library is not installed.\n\nPlease run 'pip install openpyxl' in your terminal to use this program.")
+    sys.exit(1)
+
 
 # --- OCG (layers) detection helpers ---
 _LAYER_OCGS_BLOCK_RE = _re.compile(rb"/OCGs\s*\[(.*?)\]", _re.S)
@@ -30,10 +57,10 @@ _LAYER_OC_REF_RE     = _re.compile(rb"/OC\s+(\d+)\s+(\d+)\s+R")
 
 def count_layers(pdf_bytes: bytes) -> int:
     """
-    Konservativ optælling af OCGs (lag) i PDF-bytes.
-    1) Finder /OCGs [ ... ] og samler alle indirekte refs "n m R".
-    2) Finder også /OC n m R i indhold/ressourcer.
-    3) Deduplikerer (n, gen).
+    Conservatively counts OCGs (layers) in PDF bytes.
+    1) Finds /OCGs [ ... ] and collects all indirect refs "n m R".
+    2) Also finds /OC n m R in content/resources.
+    3) Deduplicates (n, gen).
     """
     refs = set()
 
@@ -48,33 +75,14 @@ def count_layers(pdf_bytes: bytes) -> int:
     return len(refs)
 
 
-# --- NEW: Added imports and error handling for Pillow ---
-try:
-    from PIL import Image, ImageTk, ImageChops, ImageOps
-except ImportError:
-    messagebox.showerror("Missing Library", "The Pillow library is not installed.\n\nPlease run 'pip install Pillow' in your terminal to use this program.")
-    sys.exit(1)
-# --- End of new code ---
-
-try:
-    import fitz  # PyMuPDF
-except ImportError:
-    messagebox.showerror("Missing Library", "PyMuPDF is not installed.\n\nPlease run 'pip install PyMuPDF' in your terminal to use this program.")
-    sys.exit(1)
-try:
-    from tkinterdnd2 import DND_FILES, TkinterDnD
-except ImportError:
-    messagebox.showerror("Missing Library", "tkinterdnd2 is not installed.\n\nPlease run 'pip install tkinterdnd2' in your terminal to use this program.")
-    sys.exit(1)
-
-
 # --- PHASE 1/3: Configuration and Custom Exceptions ---
 class PDFReconConfig:
     """Configuration settings for PDFRecon. Values are loaded from config.ini."""
-    MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
+    MAX_FILE_SIZE = 1000 * 1024 * 1024  # 500MB
     MAX_REVISIONS = 100
     EXIFTOOL_TIMEOUT = 30
     MAX_WORKER_THREADS = min(16, (os.cpu_count() or 4) * 2)
+    VISUAL_DIFF_PAGE_LIMIT = 5
 
 class PDFProcessingError(Exception):
     """Base exception for PDF processing errors."""
@@ -96,7 +104,6 @@ def md5_file(fp: Path, buf_size: int = 4 * 1024 * 1024) -> str:
     """
     Fast MD5 with reusable buffer (fewer allocations).
     """
-    import hashlib
     h = hashlib.md5()
     with fp.open("rb", buffering=0) as f:
         buf = bytearray(buf_size)
@@ -107,13 +114,13 @@ def md5_file(fp: Path, buf_size: int = 4 * 1024 * 1024) -> str:
                 break
             h.update(mv[:n])
     return h.hexdigest()
-from datetime import timezone
+
 
 def fmt_times_pair(ts: float):
-    """Return ('YYYY-mm-dd HH:MM:SS±ZZZZ', 'YYYY-mm-ddTHH:MM:SSZ')."""
+    """Return ('DD-MM-YYYY HH:MM:SS±ZZZZ', 'YYYY-mm-ddTHH:MM:SSZ')."""
     local = datetime.fromtimestamp(ts).astimezone()
     utc = datetime.fromtimestamp(ts, tz=timezone.utc)
-    return local.strftime("%Y-%m-%d %H:%M:%S%z"), utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+    return local.strftime("%d-%m-%Y %H:%M:%S%z"), utc.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 def safe_stat_times(path: Path):
     try:
@@ -127,7 +134,7 @@ def safe_stat_times(path: Path):
 class PDFReconApp:
     def __init__(self, root):
         # --- Application Configuration ---
-        self.app_version = "15.1.0"
+        self.app_version = "15.0.0"
         self.config_path = self._resolve_path("config.ini", base_is_parent=True)
         self._load_or_create_config()
         
@@ -168,6 +175,15 @@ class PDFReconApp:
         # --- Language and Filter Setup ---
         self.language = tk.StringVar(value=self.default_language)
         self.filter_var = tk.StringVar()
+        
+        # --- Compile regex for software detection once ---
+        self.software_tokens = re.compile(
+            r"(adobe|acrobat|billy|businesscentral|cairo|canva|chrome|chromium|clibpdf|dinero|dynamics|economic|edge|eboks|excel|firefox|"
+            r"formpipe|foxit|fpdf|framemaker|ghostscript|illustrator|indesign|ilovepdf|itext|"
+            r"kmd|lasernet|latex|libreoffice|microsoft|navision|netcompany|nitro|office|openoffice|pdflatex|pdf24|photoshop|powerpoint|prince|"
+            r"quartz|reportlab|safari|skia|tcpdf|tex|visma|word|wkhtml|wkhtmltopdf|xetex)",
+            re.IGNORECASE
+        )
         
         # --- GUI Setup ---
         self._setup_logging()
@@ -371,6 +387,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
                 "col_id": "#", "col_name": "Navn", "col_changed": "Ændret", "col_path": "Sti", "col_md5": "MD5",
                 "col_created": "Fil oprettet", "col_modified": "Fil sidst ændret", "col_exif": "EXIFTool", "col_indicators": "Tegn på ændring",
                 "export_report": "💾 Eksporter rapport",
+                "menu_file": "Fil", "menu_settings": "Indstillinger", "menu_exit": "Afslut",
                 "menu_help": "Hjælp", "menu_manual": "Manual", "menu_about": "Om PDFRecon", "menu_license": "Vis Licens",
                 "menu_log": "Vis logfil", "menu_language": "Sprog / Language",
                 "preparing_analysis": "Forbereder analyse...", "analyzing_file": "🔍 Analyserer: {file}",
@@ -408,7 +425,10 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
                 "view_pdf": "Vis PDF", "pdf_viewer_title": "PDF Fremviser", "pdf_viewer_error_title": "Fremvisningsfejl",
                 "pdf_viewer_error_message": "Kunne ikke åbne eller vise PDF-filen.\n\nFejl: {e}",
                 "status_no": "NEJ",
-                "filter_label": "🔎 Filter:"
+                "filter_label": "🔎 Filter:",
+                "settings_title": "Indstillinger", "settings_max_size": "Maks filstørrelse (MB):", "settings_timeout": "ExifTool Timeout (sek):",
+                "settings_threads": "Maks. analysetråde:", "settings_diff_pages": "Sider for visuel sammenligning:", "settings_save": "Gem", "settings_cancel": "Annuller",
+                "settings_saved_title": "Indstillinger Gemt", "settings_saved_msg": "Indstillingerne er blevet gemt.", "settings_invalid_input": "Ugyldigt input. Indtast venligst kun heltal."
             },
             "en": {
                 "full_manual": MANUAL_EN,
@@ -417,6 +437,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
                 "col_id": "#", "col_name": "Name", "col_changed": "Changed", "col_path": "Path", "col_md5": "MD5",
                 "col_created": "File Created", "col_modified": "File Modified", "col_exif": "EXIFTool", "col_indicators": "Signs of Alteration",
                 "export_report": "💾 Export Report",
+                "menu_file": "File", "menu_settings": "Settings", "menu_exit": "Exit",
                 "menu_help": "Help", "menu_manual": "Manual", "menu_about": "About PDFRecon", "menu_license": "Show License",
                 "menu_log": "Show Log File", "menu_language": "Language / Sprog",
                 "preparing_analysis": "Preparing analysis...", "analyzing_file": "🔍 Analyzing: {file}",
@@ -453,7 +474,10 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
                 "view_pdf": "View PDF", "pdf_viewer_title": "PDF Viewer", "pdf_viewer_error_title": "Viewer Error",
                 "pdf_viewer_error_message": "Could not open or display the PDF file.\n\nError: {e}",
                 "status_no": "NO",
-                "filter_label": "🔎 Filter:"
+                "filter_label": "🔎 Filter:",
+                "settings_title": "Settings", "settings_max_size": "Max file size (MB):", "settings_timeout": "ExifTool Timeout (sec):",
+                "settings_threads": "Max analysis threads:", "settings_diff_pages": "Pages for visual compare:", "settings_save": "Save", "settings_cancel": "Cancel",
+                "settings_saved_title": "Settings Saved", "settings_saved_msg": "Your settings have been saved.", "settings_invalid_input": "Invalid input. Please enter only integers."
             }
         }
 
@@ -468,7 +492,8 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
                 'MaxFileSizeMB': '500',
                 'ExifToolTimeout': '30',
                 'MaxWorkerThreads': str(PDFReconConfig.MAX_WORKER_THREADS),
-                'Language': self.default_language
+                'Language': self.default_language,
+                'VisualDiffPageLimit': str(PDFReconConfig.VISUAL_DIFF_PAGE_LIMIT)
             }
             try:
                 with open(self.config_path, 'w') as configfile:
@@ -484,6 +509,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
             PDFReconConfig.MAX_FILE_SIZE = settings.getint('MaxFileSizeMB', 500) * 1024 * 1024
             PDFReconConfig.EXIFTOOL_TIMEOUT = settings.getint('ExifToolTimeout', 30)
             PDFReconConfig.MAX_WORKER_THREADS = settings.getint('MaxWorkerThreads', PDFReconConfig.MAX_WORKER_THREADS)
+            PDFReconConfig.VISUAL_DIFF_PAGE_LIMIT = settings.getint('VisualDiffPageLimit', 5)
             # Load the language, fallback to the default 'en'
             self.default_language = settings.get('Language', 'en')
             logging.info(f"Configuration loaded from {self.config_path}")
@@ -514,21 +540,20 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
     def _setup_styles(self):
         """Initializes and configures the styles for ttk widgets."""
         self.style = ttk.Style()
-        # Brug dit tema som før (justér hvis du havde et andet)
+        # Use your theme as before (adjust if you had another one)
         try:
             self.style.theme_use("clam")
         except Exception:
             pass
 
-        # Fremhævning ved markering (behold som du havde)
+        # Highlight on selection (keep as you had it)
         self.style.map('Treeview', background=[('selected', '#0078D7')])
 
-        # Definér (eller behold) de faktiske farver til tags
-        # Hvis du allerede har disse styles et andet sted, lad dem stå uændret.
-        self.style.configure("red_row", background="#FFD6D6")     # rødlig baggrund
-        self.style.configure("yellow_row", background="#FFF4CC")  # gul baggrund
+        # Define the actual colors for tags
+        self.style.configure("red_row", background="#FFD6D6")     # reddish background
+        self.style.configure("yellow_row", background="#FFF4CC")  # yellow background
 
-        # KUN disse statusser mappes nu
+        # Map only these statuses now
         self.tree_tags = {
             "JA": "red_row",
             "YES": "red_row",
@@ -542,6 +567,13 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         """Creates the main menu bar for the application."""
         self.menubar = tk.Menu(self.root)
         
+        # --- File Menu ---
+        self.file_menu = tk.Menu(self.menubar, tearoff=0)
+        self.menubar.add_cascade(label=self._("menu_file"), menu=self.file_menu)
+        self.file_menu.add_command(label=self._("menu_settings"), command=self.open_settings_popup)
+        self.file_menu.add_separator()
+        self.file_menu.add_command(label=self._("menu_exit"), command=self.root.quit)
+
         # --- Help Menu ---
         self.help_menu = tk.Menu(self.menubar, tearoff=0)
         self.lang_menu = tk.Menu(self.help_menu, tearoff=0) 
@@ -581,14 +613,13 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         
         # Count occurrences of each status type
         changed_count = all_flags.count("JA") + all_flags.count("YES")
-        # EFTER (Korrekt optælling)
-        indications_found_count = (all_flags.count("Sandsynligt") + 
-                           all_flags.count("Possible") + 
-                           all_flags.count("Indikationer Fundet") + 
-                           all_flags.count("Indications Found"))
+        # Correctly count files with indications
+        indications_found_count = all_flags.count("Sandsynligt") + all_flags.count("Possible")
+                           
         error_count = sum(1 for flag in all_flags if flag in error_statuses)
         
         original_files_count = len([d for d in self.all_scan_data if not d.get('is_revision')])
+        # Correctly calculate clean files
         not_flagged_count = original_files_count - changed_count - indications_found_count - error_count
 
         # Format the summary text based on whether errors were found
@@ -615,7 +646,10 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
             path_of_selected = self.tree.item(selected_item_id, "values")[3]
 
         # --- Update Menu and Button Text ---
-        self.menubar.entryconfig(1, label=self._("menu_help"))
+        self.menubar.entryconfig(1, label=self._("menu_file"))
+        self.file_menu.entryconfig(0, label=self._("menu_settings"))
+        self.file_menu.entryconfig(2, label=self._("menu_exit"))
+        self.menubar.entryconfig(2, label=self._("menu_help"))
         self.help_menu.entryconfig(0, label=self._("menu_manual"))
         self.help_menu.entryconfig(1, label=self._("menu_about"))
         self.help_menu.entryconfig(3, label=self._("menu_language"))
@@ -851,10 +885,9 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         
         context_menu = tk.Menu(self.root, tearoff=0)
 
-        # --- NEW: Add "View PDF" for all rows ---
+        # Add "View PDF" for all rows
         context_menu.add_command(label=self._("view_pdf"), command=lambda: self.show_pdf_viewer_popup(item_id))
         context_menu.add_separator()
-        # --- End of new code ---
         
         # Add common menu items
         context_menu.add_command(label="View EXIFTool Output", command=lambda: self.show_exif_popup_from_item(item_id))
@@ -892,21 +925,17 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
             self.show_exif_popup(self.exif_outputs.get(values[3]))
     def show_exif_popup(self, content):
         """Display a large, scrollable popup window with EXIFTool output."""
-        from tkinter import messagebox, Toplevel
-        import tkinter as tk
-        from tkinter import ttk
-
         if not content:
             messagebox.showinfo(self._("no_exif_output_title"),
                                 self._("no_exif_output_message"),
                                 parent=self.root)
             return
 
-        # Luk eksisterende popup for at undgå dubletter
+        # Close existing popup to avoid duplicates
         if getattr(self, "exif_popup", None) and self.exif_popup.winfo_exists():
             self.exif_popup.destroy()
 
-        # Stor, centreret popup (~85% af skærmen)
+        # Large, centered popup (~85% of screen)
         self.exif_popup = Toplevel(self.root)
         self.exif_popup.title(self._("exif_popup_title"))
         self.exif_popup.resizable(True, True)
@@ -920,7 +949,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         self.exif_popup.geometry(f"{w}x{h}+{x}+{y}")
         self.exif_popup.transient(self.root)
 
-        # Scrollbars + monospatieret tekst
+        # Scrollbars + monospaced text
         frame = ttk.Frame(self.exif_popup, padding=8)
         frame.pack(fill="both", expand=True)
 
@@ -978,9 +1007,9 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         
     def _add_layer_indicators(self, raw: bytes, path: Path, indicator_keys: list):
         """
-        Tilføjer:
-          - "Has Layers" hvis der findes OCGs, nu med antal.
-          - "More Layers Than Pages" hvis lag > sideantal (kræver PyMuPDF).
+        Adds indicators for layers:
+          - "Has Layers (count)" if OCGs are found.
+          - "More Layers Than Pages" if layer count > page count.
         """
         try:
             layers_cnt = count_layers(raw)
@@ -990,13 +1019,11 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         if layers_cnt <= 0:
             return
 
-        # MODIFIED: Display the count directly in the indicator.
         indicator_keys.append(f"Has Layers ({layers_cnt})")
 
-        # Sammenlign med sideantal (best-effort)
+        # Compare with page count (best-effort)
         page_count = 0
         try:
-            import fitz  # PyMuPDF
             with fitz.open(path) as _doc:
                 page_count = _doc.page_count
         except Exception:
@@ -1214,7 +1241,92 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
             messagebox.showerror(self._("diff_error_title"), self._("diff_error_msg").format(e=e), parent=self.root)
             self.root.config(cursor="")
 
+    def open_settings_popup(self):
+        """Opens a window to edit application settings from config.ini."""
+        settings_popup = Toplevel(self.root)
+        settings_popup.title(self._("settings_title"))
+        settings_popup.transient(self.root)
+        settings_popup.geometry("400x200")
+        settings_popup.resizable(False, False)
+
+        main_frame = ttk.Frame(settings_popup, padding=15)
+        main_frame.pack(expand=True, fill="both")
+
+        # Create StringVars to hold the values from the entry boxes
+        size_var = tk.StringVar(value=str(PDFReconConfig.MAX_FILE_SIZE // (1024*1024)))
+        timeout_var = tk.StringVar(value=str(PDFReconConfig.EXIFTOOL_TIMEOUT))
+        threads_var = tk.StringVar(value=str(PDFReconConfig.MAX_WORKER_THREADS))
+        diff_pages_var = tk.StringVar(value=str(PDFReconConfig.VISUAL_DIFF_PAGE_LIMIT))
+
+        # Create labels and entry fields
+        fields = [
+            (self._("settings_max_size"), size_var),
+            (self._("settings_timeout"), timeout_var),
+            (self._("settings_threads"), threads_var),
+            (self._("settings_diff_pages"), diff_pages_var),
+        ]
+
+        for i, (label_text, var) in enumerate(fields):
+            label = ttk.Label(main_frame, text=label_text)
+            label.grid(row=i, column=0, sticky="w", pady=5)
+            entry = ttk.Entry(main_frame, textvariable=var, width=10)
+            entry.grid(row=i, column=1, sticky="e", pady=5)
         
+        main_frame.columnconfigure(1, weight=1)
+
+        def save_settings():
+            """Validates, saves, and applies the new settings."""
+            try:
+                # Read and validate values
+                new_size = int(size_var.get())
+                new_timeout = int(timeout_var.get())
+                new_threads = int(threads_var.get())
+                new_diff_pages = int(diff_pages_var.get())
+
+                # Update the running config
+                PDFReconConfig.MAX_FILE_SIZE = new_size * 1024 * 1024
+                PDFReconConfig.EXIFTOOL_TIMEOUT = new_timeout
+                PDFReconConfig.MAX_WORKER_THREADS = new_threads
+                PDFReconConfig.VISUAL_DIFF_PAGE_LIMIT = new_diff_pages
+
+                # Write to config.ini
+                parser = configparser.ConfigParser()
+                parser.read(self.config_path)
+                if 'Settings' not in parser:
+                    parser['Settings'] = {}
+                
+                parser['Settings']['MaxFileSizeMB'] = str(new_size)
+                parser['Settings']['ExifToolTimeout'] = str(new_timeout)
+                parser['Settings']['MaxWorkerThreads'] = str(new_threads)
+                parser['Settings']['VisualDiffPageLimit'] = str(new_diff_pages)
+
+                with open(self.config_path, 'w') as configfile:
+                    configfile.write("# PDFRecon Configuration File\n")
+                    parser.write(configfile)
+
+                logging.info("Settings updated and saved to config.ini.")
+                messagebox.showinfo(self._("settings_saved_title"), self._("settings_saved_msg"), parent=settings_popup)
+                settings_popup.destroy()
+
+            except ValueError:
+                messagebox.showerror("Error", self._("settings_invalid_input"), parent=settings_popup)
+            except Exception as e:
+                messagebox.showerror("Error", f"Could not save settings: {e}", parent=settings_popup)
+                logging.error(f"Failed to save settings: {e}")
+
+        # --- Buttons Frame ---
+        buttons_frame = ttk.Frame(main_frame)
+        buttons_frame.grid(row=len(fields), column=0, columnspan=2, pady=(15, 0))
+        
+        save_button = ttk.Button(buttons_frame, text=self._("settings_save"), command=save_settings)
+        save_button.pack(side="left", padx=5)
+
+        cancel_button = ttk.Button(buttons_frame, text=self._("settings_cancel"), command=settings_popup.destroy)
+        cancel_button.pack(side="left", padx=5)
+
+        settings_popup.grab_set()
+        self.root.wait_window(settings_popup)
+
 
     def show_indicators_popup(self, indicator_keys):
         """Shows a pop-up window with a list of found indicators."""
@@ -1415,8 +1527,6 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         - photoshop:DocumentAncestors (Bag of GUIDs/uuids)
         Returns a dict of sets with normalized uppercase IDs.
         """
-        import re
-
         def _norm(val):
             """Normalizes a UUID/GUID value for consistent comparison."""
             if val is None:
@@ -1531,10 +1641,10 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
             indicator_keys = self.detect_indicators(txt, doc)
             md5_hash = md5_file(fp)
             exif = self.exiftool_output(fp, detailed=True)
-            tool_changed, ctool, mtool, _ = self._detect_tool_change_from_exif(exif)
+            tool_changed, _, _, _ = self._detect_tool_change_from_exif_simple(exif)
             if tool_changed:
                 indicator_keys.append("Tool Change")
-            original_timeline = self.generate_comprehensive_timeline(fp, txt, exif)
+            original_timeline = self.generate_comprehensive_timeline(fp, txt, exif, is_revision=False)
             revisions = self.extract_revisions(raw, fp)
 
             doc.close()
@@ -1558,18 +1668,18 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
                 rev_md5 = hashlib.md5(rev_raw).hexdigest()
                 rev_exif = self.exiftool_output(rev_path, detailed=True)
                 rev_txt = self.extract_text(rev_raw)
-                revision_timeline = self.generate_comprehensive_timeline(rev_path, rev_txt, rev_exif)
+                revision_timeline = self.generate_comprehensive_timeline(rev_path, rev_txt, rev_exif, is_revision=True)
 
                 # Skip revisions that ExifTool identifies as corrupt
                 if "Warning" in rev_exif and "Invalid xref table" in rev_exif:
                     logging.info(f"Skipping revision {rev_path.name} due to 'Invalid xref table' warning.")
                     continue
 
-                # Check if the revision is visually identical to the original (first 5 pages)
+                # Check if the revision is visually identical to the original
                 is_identical = False
                 try:
                     with fitz.open(fp) as doc_orig, fitz.open(rev_path) as doc_rev:
-                        pages_to_compare = min(doc_orig.page_count, doc_rev.page_count, 5)
+                        pages_to_compare = min(doc_orig.page_count, doc_rev.page_count, PDFReconConfig.VISUAL_DIFF_PAGE_LIMIT)
                         if pages_to_compare > 0:
                             is_identical = True
                             for i in range(pages_to_compare):
@@ -1739,8 +1849,8 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
                 if not data.get('is_revision'):
                     try:
                         stat = data['path'].stat()
-                        searchable_items.append(datetime.fromtimestamp(stat.st_ctime).strftime("%Y-%m-%d %H:%M:%S"))
-                        searchable_items.append(datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S"))
+                        searchable_items.append(datetime.fromtimestamp(stat.st_ctime).strftime("%d-%m-%Y %H:%M:%S"))
+                        searchable_items.append(datetime.fromtimestamp(stat.st_mtime).strftime("%d-%m-%Y %H:%M:%S"))
                     except (FileNotFoundError, KeyError):
                         pass
 
@@ -1758,7 +1868,8 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         self._populate_tree_from_data(items_to_show)
 
     def _populate_tree_from_data(self, data_list):
-        """Repopulate the treeview from a (filtered) list of rows.
+        """
+        Repopulate the treeview from a (filtered) list of rows.
 
         Performance: two-pass build (O(n)) with minimal attribute lookups.
         Correctness: 'Revision of #N' uses the ORIGINAL's displayed ID within
@@ -1794,7 +1905,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         for d in data_list:
             counter += 1
 
-            # --- Error rows ------------------------------------------------------
+            # --- Error rows ---
             if d.get("status") == "error":
                 path = d["path"]
                 error_type_key = d.get("error_type", "unknown_error")
@@ -1815,7 +1926,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
                 insert("", "end", values=row_values, tags=("red_row",))
                 continue
 
-            # --- Normal rows (originals + revisions) ----------------------------
+            # --- Normal rows (originals + revisions) ---
             path = d["path"]
             is_rev = d.get("is_revision", False)
 
@@ -1845,11 +1956,11 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
                 tag = "gray_row" if d.get("is_identical") else "blue_row"
 
             else:
-                # ORIGINAL row: only stat() here (as before), but catch failures fast
+                # ORIGINAL row: only stat() here, but catch failures fast
                 try:
                     st = path.stat()
-                    created_time = datetime.fromtimestamp(st.st_ctime).strftime("%Y-%m-%d %H:%M:%S")
-                    modified_time = datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+                    created_time = datetime.fromtimestamp(st.st_ctime).strftime("%d-%m-%Y %H:%M:%S")
+                    modified_time = datetime.fromtimestamp(st.st_mtime).strftime("%d-%m-%Y %H:%M:%S")
                 except Exception:
                     created_time = ""
                     modified_time = ""
@@ -2045,15 +2156,8 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         create_engine = modify_engine = ""  # XMPToolkit at create/modify (heuristic)
         xmptoolkit = ""                    # general value
 
-        software_tokens = re.compile(
-            r"(adobe|acrobat|indesign|illustrator|photoshop|framemaker|pdf|ghostscript|"
-            r"microsoft|word|excel|powerpoint|office|libreoffice|openoffice|prince|"
-            r"latex|tex|pdflatex|xetex|wkhtmltopdf|canva|nitro|foxit|pdf24|reportlab|"
-            r"tcpdf|fpdf|itext|cairo|skia|quartz|clibpdf|wkhtml|chrome|chromium|edge|safari|firefox)",
-            re.IGNORECASE
-        )
         def looks_like_software(s: str) -> bool:
-            return bool(s and software_tokens.search(s))
+            return bool(s and self.software_tokens.search(s))
 
         # First pass: collect key/value pairs
         for ln in lines:
@@ -2164,21 +2268,14 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         creatortool = ""        # CreatorTool (only if it looks like software)
         xmptoolkit = ""         # XMP Engine (e.g., Adobe XMP Core ...)
 
-        software_tokens = re.compile(
-            r"(adobe|acrobat|indesign|illustrator|photoshop|framemaker|pdf|ghostscript|"
-            r"microsoft|word|excel|powerpoint|office|libreoffice|openoffice|prince|"
-            r"latex|tex|pdflatex|xetex|wkhtmltopdf|canva|nitro|foxit|pdf24|reportlab|"
-            r"tcpdf|fpdf|itext|cairo|skia|quartz|clibpdf|wkhtml|chrome|chromium|edge|safari|firefox)",
-            re.IGNORECASE
-        )
         def looks_like_software(s: str) -> bool:
-            return bool(s and software_tokens.search(s))
+            return bool(s and self.software_tokens.search(s))
 
         for ln in lines:
             m = kv_re.match(ln)
             if not m:
                 continue
-            group = m.group("group").strip().lower()   # e.g., "pdf", "xmp-pdf", "xmp-xmp"
+            group = m.group("group").strip().lower()   # e.g., "pdf", "xmp-pdf", "xmp_pdf"
             tag   = m.group("tag").strip().lower().replace(" ", "")
             val   = m.group("value").strip()
 
@@ -2299,7 +2396,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         return events
 
 
-    def _detect_tool_change_from_exif(self, exiftool_output: str):
+    def _detect_tool_change_from_exif_simple(self, exiftool_output: str):
         """
         Returns (changed: bool, create_tool: str, modify_tool: str, modify_dt: datetime|None)
         changed=True if tool at creation != tool at last modification.
@@ -2326,15 +2423,8 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
             elif key_base == "creatortool":
                 tool_fields["creatortool"] = val
 
-        software_tokens = re.compile(
-            r"(adobe|acrobat|indesign|illustrator|photoshop|framemaker|pdf|ghostscript|"
-            r"microsoft|word|excel|powerpoint|office|libreoffice|openoffice|prince|"
-            r"latex|tex|pdflatex|xetex|wkhtmltopdf|canva|nitro|foxit|pdf24|reportlab|"
-            r"tcpdf|fpdf|itext|cairo|skia|quartz|clibpdf|wkhtml|chrome|chromium|edge|safari|firefox)",
-            re.IGNORECASE
-        )
         def looks_like_software(s: str) -> bool:
-            return bool(s and software_tokens.search(s))
+            return bool(s and self.software_tokens.search(s))
 
         def select_tool(tag_lc: str, group_lc: str) -> str:
             """Selects the most likely tool name from the collected fields."""
@@ -2419,7 +2509,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
             label, date_str = match.groups()
             try:
                 dt_obj = datetime.strptime(date_str, "%Y%m%d%H%M%S")
-                display_line = f"Raw File: /{label}: {dt_obj.strftime('%Y-%m-%d %H:%M:%S')}"
+                display_line = f"Raw File: /{label}: {dt_obj.strftime('%d-%m-%Y %H:%M:%S')}"
                 events.append((dt_obj, display_line))
             except ValueError:
                 continue
@@ -2439,18 +2529,20 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
                 continue
         return events
 
-    def generate_comprehensive_timeline(self, filepath, raw_file_content, exiftool_output):
+    def generate_comprehensive_timeline(self, filepath, raw_file_content, exiftool_output, is_revision=False):
         """Combines all sources into a timeline and inserts an event for tool changes."""
         all_events = []
 
-        # 1) Get File System timestamps
-        all_events.extend(self._get_filesystem_times(filepath))
+        # 1) Get File System timestamps (only for original files, not revisions)
+        if not is_revision:
+            all_events.extend(self._get_filesystem_times(filepath))
 
-        # 2) Get timestamps from ExifTool (with labels, Tool, and XMP Engine)
+        # 2) Get timestamps from ExifTool (this is the most reliable for revisions)
         all_events.extend(self._parse_exiftool_timeline(exiftool_output))
 
-        # 3) Get timestamps from raw PDF/XMP content
-        all_events.extend(self._parse_raw_content_timeline(raw_file_content))
+        # 3) Get timestamps from raw PDF/XMP content (ONLY for original files, not revisions)
+        if not is_revision:
+            all_events.extend(self._parse_raw_content_timeline(raw_file_content))
 
         # 4) Add a special event if a tool change was detected
         try:
@@ -2540,7 +2632,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
             # Insert a date header when the day changes
             if dt_obj.date() != last_date:
                 if last_date is not None: text_widget.insert("end", "\n")
-                text_widget.insert("end", f"--- {dt_obj.strftime('%Y-%m-%d')} ---\n", "date_header")
+                text_widget.insert("end", f"--- {dt_obj.strftime('%d-%m-%Y')} ---\n", "date_header")
                 last_date = dt_obj.date()
 
             # Calculate the time delta from the previous event
@@ -2568,7 +2660,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
     @staticmethod
     def decompress_stream(b):
         """Attempts to decompress a PDF stream using common filters."""
-        for fn in (zlib.decompress, lambda d: __import__("base64").a85decode(re.sub(rb"\s", b"", d), adobe=True), lambda d: __import__("binascii").unhexlify(re.sub(rb"\s|>", b"", d))):
+        for fn in (zlib.decompress, lambda d: base64.a85decode(re.sub(rb"\s", b"", d), adobe=True), lambda d: binascii.unhexlify(re.sub(rb"\s|>", b"", d))):
             try: return fn(b).decode("latin1", "ignore")
             except Exception: pass
         return ""
@@ -2847,13 +2939,14 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
     
 
     def get_flag(self, indicator_keys, is_revision, parent_id=None):
-        """Determines the file's status flag based on the found indicator keys.
+        """
+        Determines the file's status flag based on the found indicator keys.
 
-        Regler:
-          - Revisioner: returnerer altid "Revision of <id>" (uændret).
-          - Højrisikoindikatorer: returnerer JA/YES.
-          - Alle andre fund: returnerer KUN "Sandsynligt"/"Possible".
-          - Ingen fund: returnerer "No".
+        Rules:
+          - Revisions always return "Revision of <id>".
+          - High-risk indicators return YES/JA.
+          - Any other findings return "Possible"/"Sandsynligt".
+          - No findings return "NO".
         """
         if is_revision:
             return self._("revision_of").format(id=parent_id)
@@ -2862,22 +2955,21 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         YES = "YES" if self.language.get() == "en" else "JA"
         NO = self._("status_no")
 
-        # Justér denne mængde til dine auto-JA indikatorer
+        # Adjust this set for your auto-YES indicators
         high_risk_indicators = {
             "Has Revisions",
             "TouchUp_TextEdit",
             "Signature: Invalid",
-            # tilføj evt. andre, der skal give automatisk JA
         }
 
         if any(ind in high_risk_indicators for ind in keys_set):
             return YES
 
-        # Hvis der er nogen indikationer overhovedet, men ikke auto-JA:
+        # If there are any indications at all, but not auto-YES:
         if keys_set:
             return "Possible" if self.language.get() == "en" else "Sandsynligt"
 
-        # Ingen indikationer:
+        # No indications:
         return NO
 
     
@@ -2910,7 +3002,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         about_text_widget.tag_configure("link", foreground="blue", underline=True)
         about_text_widget.tag_configure("header", font=("Segoe UI", 9, "bold", "underline"))
 
-        # --- NEW: Make links clickable ---
+        # --- Make links clickable ---
         def _open_link(event):
             index = about_text_widget.index(f"@{event.x},{event.y}")
             tag_indices = about_text_widget.tag_ranges("link")
@@ -2925,16 +3017,14 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         about_text_widget.tag_bind("link", "<Enter>", lambda e: about_text_widget.config(cursor="hand2"))
         about_text_widget.tag_bind("link", "<Leave>", lambda e: about_text_widget.config(cursor=""))
         about_text_widget.tag_bind("link", "<Button-1>", _open_link)
-        # --- END OF NEW CODE ---
 
         # --- Insert Content ---
         about_text_widget.insert("end", f"{self._('about_version')} ({datetime.now().strftime('%d-%m-%Y')})\n", "bold")
         about_text_widget.insert("end", self._("about_developer_info"))
 
-        # --- NEW: Addition of project website ---
+        # Add project website
         about_text_widget.insert("end", self._("about_project_website"), "bold")
         about_text_widget.insert("end", "github.com/Rasmus-Riis/PDFRecon\n", "link")
-        # --- END OF NEW CODE ---
 
         about_text_widget.insert("end", "\n------------------------------------\n\n")
         
@@ -3112,7 +3202,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
             parts = [self._(k) for k in keys]
             return "; ".join(parts)
 
-        # NEW: Prepare data with full EXIF output + full indicators
+        # Prepare data with full EXIF output + full indicators
         data_for_export = []
         for row_data in self.report_data:
             new_row = row_data[:]
@@ -3197,7 +3287,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
 
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(html.format(
-                date=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                date=datetime.now().strftime("%d-%m-%Y %H:%M:%S"),
                 headers=headers,
                 rows=rows
             ))
@@ -3213,3 +3303,5 @@ if __name__ == "__main__":
     app = PDFReconApp(root)
     # Start the application's main event loop
     root.mainloop()
+
+
