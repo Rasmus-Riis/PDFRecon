@@ -134,7 +134,7 @@ def safe_stat_times(path: Path):
 class PDFReconApp:
     def __init__(self, root):
         # --- Application Configuration ---
-        self.app_version = "16.0.0"
+        self.app_version = "16.1.1"
         self.config_path = self._resolve_path("config.ini", base_is_parent=True)
         self._load_or_create_config()
         
@@ -236,11 +236,11 @@ Nedenfor er en detaljeret forklaring af hver indikator, som PDFRecon leder efter
 
 <b>Multiple Font Subsets</b>
 *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: Når tekst tilføjes til en PDF, indlejres ofte kun de tegn fra en skrifttype, der rent faktisk bruges (et 'subset'). Hvis en fil redigeres med et andet program, der ikke har adgang til præcis samme skrifttype, kan der opstå et nyt subset af den samme grundlæggende skrifttype. At finde flere subsets (f.eks. 'ABCDE+Calibri' og 'FGHIJ+Calibri') er en stærk indikation på, at tekst er blevet tilføjet eller ændret på forskellige tidspunkter eller med forskellige værktøjer.
+• Hvad det betyder: Når tekst tilføjes til en PDF, indlejres ofte kun de tegn fra en skrifttype, der rent faktisk bruges (et 'subset'). Hvis en fil redigeres med et andet program, der ikke har adgang til præcis samme skrifttype, kan der opstå et nyt subset af den samme grundlæggende skrifttype. At finde flere subsets (f.eks. Multiple Font Subsets: 'Arial': {{'F1+ArialMT', 'F2+Arial-BoldMT'}}) er en stærk indikation på, at tekst er blevet tilføjet eller ændret på forskellige tidspunkter eller med forskellige værktøjer.
 
 <b>Multiple Creators / Producers</b>
 *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: PDF-filer indeholder metadata om, hvilket program der har oprettet (/Creator) og genereret (/Producer) filen. Hvis der findes flere forskellige navne i disse felter (f.eks. både 'Microsoft Word' og 'Adobe Acrobat'), indikerer det, at filen er blevet behandlet af mere end ét program. Dette sker typisk, når en fil oprettes i ét program og derefter redigeres i et andet.
+• Hvad det betyder: PDF-filer indeholder metadata om, hvilket program der har oprettet (/Creator) og genereret (/Producer) filen. Hvis der findes flere forskellige navne i disse felter (f.eks. Multiple Creators (Fundet 2): "Microsoft Word", "Adobe Acrobat Pro"), indikerer det, at filen er blevet behandlet af mere end ét program. Dette sker typisk, når en fil oprettes i ét program og derefter redigeres i et andet.
 
 <b>xmpMM:History / DerivedFrom / DocumentAncestors</b>
 *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
@@ -248,7 +248,7 @@ Nedenfor er en detaljeret forklaring af hver indikator, som PDFRecon leder efter
 
 <b>Multiple DocumentID / Different InstanceID</b>
 *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: Hver PDF har et unikt DocumentID, der ideelt set er det samme for alle versioner. InstanceID ændres derimod for hver gang, filen gemmes. Hvis der findes flere forskellige DocumentID'er, eller hvis der er et unormalt højt antal InstanceID'er, peger det på en kompleks redigeringshistorik, potentielt hvor dele fra forskellige dokumenter er blevet kombineret.
+• Hvad det betyder: Hver PDF har et unikt DocumentID, der ideelt set er det samme for alle versioner. InstanceID ændres derimod for hver gang, filen gemmes. Hvis der findes flere forskellige DocumentID'er (f.eks. Trailer ID Changed: Fra [ID1...] til [ID2...]), eller hvis der er et unormalt højt antal InstanceID'er, peger det på en kompleks redigeringshistorik, potentielt hvor dele fra forskellige dokumenter er blevet kombineret.
 
 <b>Multiple startxref</b>
 *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
@@ -288,7 +288,7 @@ Nedenfor er en detaljeret forklaring af hver indikator, som PDFRecon leder efter
 
 <b>Dato-inkonsistens (Info vs. XMP)</b>
 *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: Oprettelses- og ændringsdatoer i PDF’ens Info-felt stemmer ikke overens med datoerne i XMP-metadata. Sådanne uoverensstemmelser kan pege på skjulte eller uautoriserede ændringer.
+• Hvad det betyder: Oprettelses- og ændringsdatoer i PDF’ens Info-felt stemmer ikke overens med datoerne i XMP-metadata (f.eks. Creation Date Mismatch: Info='20230101...', XMP='2023-01-02...'). Sådanne uoverensstemmelser kan pege på skjulte eller uautoriserede ændringer.
 """
 
         MANUAL_EN = f"""
@@ -322,11 +322,11 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
 
 <b>Multiple Font Subsets</b>
 *<i>Changed:</i>* <yellow>Indications Found</yellow>
-• What it means: When text is added to a PDF, often only the characters actually used from a font are embedded (a 'subset'). If a file is edited with another program that does not have access to the exact same font, a new subset of the same base font may be created. Finding multiple subsets (e.g., 'ABCDE+Calibri' and 'FGHIJ+Calibri') is a strong indication that text has been added or changed at different times or with different tools.
+• What it means: When text is added to a PDF, often only the characters actually used from a font are embedded (a 'subset'). If a file is edited with another program that does not have access to the exact same font, a new subset of the same base font may be created. Finding multiple subsets (e.g., Multiple Font Subsets: 'Arial': {{'F1+ArialMT', 'F2+Arial-BoldMT'}}) is a strong indication that text has been added or changed at different times or with different tools.
 
 <b>Multiple Creators / Producers</b>
 *<i>Changed:</i>* <yellow>Indications Found</yellow>
-• What it means: PDF files contain metadata about which program created (/Creator) and generated (/Producer) the file. If multiple different names are found in these fields (e.g., both 'Microsoft Word' and 'Adobe Acrobat'), it indicates that the file has been processed by more than one program. This typically happens when a file is created in one program and then edited in another.
+• What it means: PDF files contain metadata about which program created (/Creator) and generated (/Producer) the file. If multiple different names are found in these fields (e.g., Multiple Creators (Found 2): "Microsoft Word", "Adobe Acrobat Pro"), it indicates that the file has been processed by more than one program. This typically happens when a file is created in one program and then edited in another.
 
 <b>xmpMM:History / DerivedFrom / DocumentAncestors</b>
 *<i>Changed:</i>* <yellow>Indications Found</yellow>
@@ -334,7 +334,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
 
 <b>Multiple DocumentID / Different InstanceID</b>
 *<i>Changed:</i>* <yellow>Indications Found</yellow>
-• What it means: Each PDF has a unique DocumentID that should ideally be the same for all versions. The InstanceID, however, changes every time the file is saved. If multiple different DocumentIDs are found, or if there is an abnormally high number of InstanceIDs, it points to a complex editing history, potentially where parts from different documents have been combined.
+• What it means: Each PDF has a unique DocumentID that should ideally be the same for all versions. The InstanceID, however, changes every time the file is saved. If multiple different DocumentIDs are found (e.g., Trailer ID Changed: From [ID1...] to [ID2...]), or if there is an abnormally high number of InstanceIDs, it points to a complex editing history, potentially where parts from different documents have been combined.
 
 <b>Multiple startxref</b>
 *<i>Changed:</i>* <yellow>Indications Found</yellow>
@@ -374,7 +374,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
 
 <b>Date inconsistency (Info vs. XMP)</b>
 *<i>Changed:</i>* <yellow>Indications Found</yellow>
-• What it means: The creation/modification dates in the PDF Info dictionary do not match the dates in XMP metadata. Such discrepancies can indicate hidden or unauthorized changes.
+• What it means: The creation/modification dates in the PDF Info dictionary do not match the dates in XMP metadata (e.g., Creation Date Mismatch: Info='20230101...', XMP='2023-01-02...'). Such discrepancies can indicate hidden or unauthorized changes.
 """
 
         # This dictionary holds all GUI text for easy language switching.
@@ -418,7 +418,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
                 "timeline_no_data": "Der blev ikke fundet tidsstempeldata for denne fil.", "choose_folder_title": "Vælg mappe til analyse",
                 "visual_diff": "Visuel sammenligning af revision", "diff_error_title": "Fejl ved sammenligning", "diff_error_msg": "Kunne ikke sammenligne filerne. En af filerne er muligvis korrupt eller tom.\n\nFejl: {e}",
                 "diff_popup_title": "Visuel Sammenligning", "diff_original_label": "Seneste version", "diff_revision_label": "Tidligere version", "diff_differences_label": "Forskelle (markeret med rød)",
-                "status_identical": "Visuelt Identisk (1-5 sider)", "diff_page_label": "Viser side {current} af {total}", "diff_prev_page": "Forrige Side", "diff_next_page": "Næste Side",
+                "status_identical": "Visuelt Identisk (op til {pages} sider)", "diff_page_label": "Viser side {current} af {total}", "diff_prev_page": "Forrige Side", "diff_next_page": "Næste Side",
                 "file_too_large": "Fil er for stor", "file_corrupt": "Korrupt fil", "file_encrypted": "Krypteret fil", "validation_error": "Valideringsfejl",
                 "processing_error": "Processeringsfejl", "unknown_error": "Ukendt fejl",
                 "Has XFA Form": "Har XFA Formular", "Has Digital Signature": "Har Digital Signatur", "Signature: Valid": "Signatur: Gyldig", "Signature: Invalid": "Signatur: Ugyldig", "More Layers Than Pages": "Flere Lag End Sider",
@@ -467,7 +467,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
                 "timeline_no_data": "No timestamp data was found for this file.", "choose_folder_title": "Select folder for analysis",
                 "visual_diff": "Visually Compare Revision", "diff_error_title": "Comparison Error", "diff_error_msg": "Could not compare the files. One of the files might be corrupt or empty.\n\nError: {e}",
                 "diff_popup_title": "Visual Comparison", "diff_original_label": "Latest version", "diff_revision_label": "Previous version", "diff_differences_label": "Differences (highlighted in red)",
-                "status_identical": "Visually Identical (1-5 pages)", "diff_page_label": "Showing page {current} of {total}", "diff_prev_page": "Previous Page", "diff_next_page": "Next Page",
+                "status_identical": "Visually Identical (up to {pages} pages)", "diff_page_label": "Showing page {current} of {total}", "diff_prev_page": "Previous Page", "diff_next_page": "Next Page",
                 "file_too_large": "File is too large", "file_corrupt": "Corrupt file", "file_encrypted": "Encrypted file", "validation_error": "Validation Error",
                 "processing_error": "Processing Error", "unknown_error": "Unknown Error",
                 "Has XFA Form": "Has XFA Form", "Has Digital Signature": "Has Digital Signature", "Signature: Valid": "Signature: Valid", "Signature: Invalid": "Signature: Invalid", "More Layers Than Pages": "More Layers Than Pages",
@@ -604,7 +604,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
                 error_type_key = data.get("error_type", "unknown_error")
                 all_flags.append(self._(error_type_key))
             elif not data.get("is_revision"):
-                flag = self.get_flag(data.get("indicator_keys", []), False)
+                flag = self.get_flag(data.get("indicator_keys", {}), False)
                 all_flags.append(flag)
 
         # Define the set of error statuses for counting
@@ -1005,7 +1005,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         text_widget.bind("<Control-c>", copy_selection) # Ctrl+C
         text_widget.bind("<Command-c>", copy_selection) # Command+C for macOS
         
-    def _add_layer_indicators(self, raw: bytes, path: Path, indicator_keys: list):
+    def _add_layer_indicators(self, raw: bytes, path: Path, indicators: dict):
         """
         Adds indicators for layers:
           - "Has Layers (count)" if OCGs are found.
@@ -1019,7 +1019,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         if layers_cnt <= 0:
             return
 
-        indicator_keys.append(f"Has Layers ({layers_cnt})")
+        indicators['HasLayers'] = {'count': layers_cnt}
 
         # Compare with page count (best-effort)
         page_count = 0
@@ -1030,7 +1030,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
             pass
 
         if page_count and layers_cnt > page_count:
-            indicator_keys.append("More Layers Than Pages")
+            indicators['MoreLayersThanPages'] = {'layers': layers_cnt, 'pages': page_count}
 
 
     def show_pdf_viewer_popup(self, item_id):
@@ -1328,9 +1328,9 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         self.root.wait_window(settings_popup)
 
 
-    def show_indicators_popup(self, indicator_keys):
+    def show_indicators_popup(self, indicators_dict):
         """Shows a pop-up window with a list of found indicators."""
-        if not indicator_keys:
+        if not indicators_dict:
             messagebox.showinfo(self._("indicators_popup_title"), self._("no_indicators_message"), parent=self.root)
             return
 
@@ -1341,7 +1341,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         # --- Popup Window Setup ---
         self.indicator_popup = Toplevel(self.root)
         self.indicator_popup.title(self._("indicators_popup_title"))
-        self.indicator_popup.geometry("450x300")
+        self.indicator_popup.geometry("600x400")
         self.indicator_popup.transient(self.root)
 
         # --- Text Widget with Scrollbar ---
@@ -1355,8 +1355,10 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         text_widget.pack(side="left", fill="both", expand=True)
         scrollbar.config(command=text_widget.yview)
         
-        # Format the content with translated keys
-        content = "• " + "\n• ".join(self._(key) for key in indicator_keys)
+        # Format the content with translated keys and details
+        content_lines = [self._format_indicator_details(key, details) for key, details in indicators_dict.items()]
+        content = "• " + "\n• ".join(content_lines)
+
         text_widget.insert("1.0", content)
         
         # Make the text copyable but not editable
@@ -1638,27 +1640,26 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
             raw = fp.read_bytes()
             doc = fitz.open(stream=raw, filetype="pdf")
             txt = self.extract_text(raw)
-            indicator_keys = self.detect_indicators(txt, doc)
+            indicators = self.detect_indicators(fp, txt, doc)
             md5_hash = md5_file(fp)
             exif = self.exiftool_output(fp, detailed=True)
             tool_changed, _, _, _ = self._detect_tool_change_from_exif_simple(exif)
             if tool_changed:
-                indicator_keys.append("Tool Change")
+                indicators['ToolChange'] = {}
             original_timeline = self.generate_comprehensive_timeline(fp, txt, exif, is_revision=False)
             revisions = self.extract_revisions(raw, fp)
 
             doc.close()
-            self._add_layer_indicators(raw, fp, indicator_keys)
+            self._add_layer_indicators(raw, fp, indicators)
 
             # Add "Has Revisions" indicator if any were found
-            final_indicator_keys = indicator_keys[:]
             if revisions:
-                final_indicator_keys.append("Has Revisions")
+                indicators['HasRevisions'] = {'count': len(revisions)}
 
             # --- Collect Results ---
             results = []
             original_row_data = {
-                "path": fp, "indicator_keys": final_indicator_keys, "md5": md5_hash, 
+                "path": fp, "indicator_keys": indicators, "md5": md5_hash, 
                 "exif": exif, "is_revision": False, "timeline": original_timeline, "status": "success"
             }
             results.append(original_row_data)
@@ -1693,7 +1694,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
                     logging.warning(f"Could not visually compare {rev_path.name}, keeping it. Error: {e}")
                 
                 revision_row_data = { 
-                    "path": rev_path, "indicator_keys": ["Revision"], "md5": rev_md5, "exif": rev_exif, 
+                    "path": rev_path, "indicator_keys": {"Revision": {}}, "md5": rev_md5, "exif": rev_exif, 
                     "is_revision": True, "timeline": revision_timeline, "original_path": fp, 
                     "is_identical": is_identical, "status": "success"
                 }
@@ -1949,7 +1950,10 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
                 if parent_id is None:
                     parent_id = self.path_to_id.get(str(d.get("original_path")))
 
-                flag = _("status_identical") if d.get("is_identical") else get_flag([], True, parent_id)
+                if d.get("is_identical"):
+                    flag = _("status_identical").format(pages=PDFReconConfig.VISUAL_DIFF_PAGE_LIMIT)
+                else:
+                    flag = get_flag({}, True, parent_id)
                 created_time = ""
                 modified_time = ""
                 indicators_str = ""
@@ -1965,7 +1969,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
                     created_time = ""
                     modified_time = ""
 
-                flag = get_flag(d.get("indicator_keys", []), False)
+                flag = get_flag(d.get("indicator_keys", {}), False)
                 indicators_str = _("indicators_view_output") if d.get("indicator_keys") else _("status_no")
                 tag = tree_tags.get(flag, "")
 
@@ -2003,6 +2007,9 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         self.detail_text.config(state="normal")
         self.detail_text.delete("1.0", tk.END)
 
+        # Find the original scan data for the selected path
+        original_data = next((d for d in self.all_scan_data if str(d.get('path')) == path_str), None)
+
         for i, val in enumerate(values):
             col_name = self.tree.heading(self.columns[i], "text")
             self.detail_text.insert(tk.END, f"{col_name}: ", ("bold",))
@@ -2010,18 +2017,11 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
             if col_name == self._("col_path"):
                 # Make the path a clickable link
                 self.detail_text.insert(tk.END, val + "\n", ("link",))
-            elif col_name == self._("col_indicators"):
-                # Find the original scan data for the selected path
-                original_data = next((d for d in self.all_scan_data if str(d.get('path')) == path_str), None)
-                
-                # Check if there are indicators to display
-                if original_data and original_data.get("indicator_keys"):
-                    # Display the list of indicators, each on a new line
-                    full_indicators_str = "\n  • " + "\n  • ".join(self._(key) for key in original_data["indicator_keys"])
-                    self.detail_text.insert(tk.END, full_indicators_str + "\n")
-                else:
-                    # If no indicators (or it's a revision), just show the value from the column (e.g., NO)
-                    self.detail_text.insert(tk.END, self._("status_no") + "\n")
+            elif col_name == self._("col_indicators") and original_data and original_data.get("indicator_keys"):
+                # Display the detailed, formatted list of indicators
+                indicator_details = [self._format_indicator_details(key, details) for key, details in original_data["indicator_keys"].items()]
+                full_indicators_str = "\n  • " + "\n  • ".join(indicator_details)
+                self.detail_text.insert(tk.END, full_indicators_str + "\n")
             else:
                 self.detail_text.insert(tk.END, val + "\n")
                 
@@ -2700,245 +2700,137 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
 
         return "\n".join(txt_segments)
 
-    def analyze_fonts(self, doc):
+    def analyze_fonts(self, filepath, doc):
             """
-            Analyzes the fonts in a PDF to detect multiple subsets of the same base font.
-
-            This is a strong indicator of editing, as adding text with a different tool
-            often creates a new subset of an existing font.
-
-            Args:
-                doc: A fitz.Document object from PyMuPDF.
-
-            Returns:
-                True if any base font has more than one subset, False otherwise.
+            Analyzes fonts to detect multiple subsets of the same base font.
+            Returns a dictionary of conflicting fonts, e.g.,
+            {'Calibri': {'ABC+Calibri', 'DEF+Calibri-Bold'}}
             """
-            # Dictionary to track font subsets.
-            # Key: 'Calibri', Value: {'ABCDE+Calibri', 'FGHIJ+Calibri'}
             font_subsets = {}
-
             # Iterate through each page to get the fonts used
             for page_num in range(len(doc)):
-                # get_page_fonts() returns a list of tuples with font details
-                # (xref, ext, type, basefont, name, font-file-ext, is_embedded)
                 fonts_on_page = doc.get_page_fonts(page_num)
-                
                 for font_info in fonts_on_page:
-                    # CORRECTED: Use font_info[3] (the basefont) instead of font_info[4]
                     basefont_name = font_info[3]
-
-                    # The '+' symbol is the standard convention for a font subset
                     if "+" in basefont_name:
                         try:
-                            # Split the name to get the base font
-                            _subset_tag, actual_base_font = basefont_name.split("+", 1)
-                            
-                            # Normalize the base font name by removing style info like Bold/Italic
-                            # e.g., 'Calibri-Bold' -> 'Calibri'
+                            _, actual_base_font = basefont_name.split("+", 1)
                             normalized_base = actual_base_font.split('-')[0]
-                            
-                            # If we haven't seen this base font before, initialize it
                             if normalized_base not in font_subsets:
                                 font_subsets[normalized_base] = set()
-                            
-                            # Add the full, unique subset name to our set
                             font_subsets[normalized_base].add(basefont_name)
                         except ValueError:
-                            # Skip malformed font names
                             continue
+            
+            # Filter for only those fonts that actually have multiple subsets
+            conflicting_fonts = {base: subsets for base, subsets in font_subsets.items() if len(subsets) > 1}
+            if conflicting_fonts:
+                logging.info(f"Multiple font subsets found in {filepath.name}: {conflicting_fonts}")
 
-            # Finally, check if any base font ended up with more than one subset
-            for base_font, subsets in font_subsets.items():
-                if len(subsets) > 1:
-                    logging.info(f"Detected multiple font subsets for '{base_font}': {subsets}")
-                    return True # Indicator found
-
-            # No font with multiple subsets was detected
-            return False
-    def detect_indicators(self, txt: str, doc):
+            return conflicting_fonts
+    def detect_indicators(self, filepath, txt: str, doc):
         """
         Searches for indicators of alteration/manipulation.
-        Returns a list of indicator strings.
+        Returns a dictionary of indicator keys to their details.
         """
-        indicators = []
+        indicators = {}
 
         # --- High-Confidence Indicators ---
         if re.search(r"touchup_textedit", txt, re.I):
-            indicators.append("TouchUp_TextEdit")
-        startxref_count = txt.lower().count("startxref")
-        if startxref_count > 1:
-            indicators.append("Multiple startxref")
+            indicators['TouchUp_TextEdit'] = {}
 
         # --- Metadata Indicators ---
         creators = set(re.findall(r"/Creator\s*\((.*?)\)", txt, re.I))
         if len(creators) > 1:
-            indicators.append(f"Multiple Creators (x{len(creators)})")
+            indicators['MultipleCreators'] = {'count': len(creators), 'values': list(creators)}
+        
         producers = set(re.findall(r"/Producer\s*\((.*?)\)", txt, re.I))
         if len(producers) > 1:
-            indicators.append(f"Multiple Producers (x{len(producers)})")
-        if re.search(r'<xmpMM:History>', txt, re.I | re.S):
-            indicators.append("xmpMM:History")
+            indicators['MultipleProducers'] = {'count': len(producers), 'values': list(producers)}
 
-        # --- Structural and Content Indicators (using PyMuPDF) ---
+        if re.search(r'<xmpMM:History>', txt, re.I | re.S):
+            indicators['XMPHistory'] = {}
+
+        # --- Structural and Content Indicators ---
         try:
-            if self.analyze_fonts(doc):
-                indicators.append("Multiple Font Subsets")
-        except Exception: pass
-        try:
-            if (hasattr(doc, 'is_xfa') and doc.is_xfa) or "/XFA" in txt:
-                indicators.append("Has XFA Form")
-        except Exception: pass
-        try:
-            ocgs = doc.get_ocgs()
-            if ocgs and len(ocgs) > len(doc):
-                indicators.append("More Layers Than Pages")
-        except Exception: pass
+            conflicting_fonts = self.analyze_fonts(filepath, doc)
+            if conflicting_fonts:
+                indicators['MultipleFontSubsets'] = {'fonts': conflicting_fonts}
+        except Exception as e:
+            logging.error(f"Error analyzing fonts for {filepath.name}: {e}")
+
+        if (hasattr(doc, 'is_xfa') and doc.is_xfa) or "/XFA" in txt:
+            indicators['HasXFAForm'] = {}
+
         if re.search(r"/Type\s*/Sig\b", txt):
-            indicators.append("Has Digital Signature")
+            indicators['HasDigitalSignature'] = {}
 
         # --- Incremental Update Indicators ---
+        startxref_count = txt.lower().count("startxref")
+        if startxref_count > 1:
+            indicators['MultipleStartxref'] = {'count': startxref_count}
+        
         prevs = re.findall(r"/Prev\s+\d+", txt)
         if prevs:
-            indicators.append(f"Incremental updates (x{len(prevs) + 1})")
+            indicators['IncrementalUpdates'] = {'count': len(prevs) + 1}
+        
         if re.search(r"/Linearized\s+\d+", txt):
-            indicators.append("Linearized")
+            indicators['Linearized'] = {}
             if startxref_count > 1 or prevs:
-                indicators.append("Linearized + updated")
+                indicators['LinearizedUpdated'] = {}
 
         # --- Feature Indicators ---
-        if re.search(r"/Redact\b", txt, re.I): indicators.append("Has Redactions")
-        if re.search(r"/Annots\b", txt, re.I): indicators.append("Has Annotations")
-        if re.search(r"/PieceInfo\b", txt, re.I): indicators.append("Has PieceInfo")
+        if re.search(r"/Redact\b", txt, re.I): indicators['HasRedactions'] = {}
+        if re.search(r"/Annots\b", txt, re.I): indicators['HasAnnotations'] = {}
+        if re.search(r"/PieceInfo\b", txt, re.I): indicators['HasPieceInfo'] = {}
         if re.search(r"/AcroForm\b", txt, re.I):
-            indicators.append("Has AcroForm")
+            indicators['HasAcroForm'] = {}
             if re.search(r"/NeedAppearances\s+true\b", txt, re.I):
-                indicators.append("AcroForm NeedAppearances=true")
+                indicators['AcroFormNeedAppearances'] = {}
 
         # Check for objects with generation > 0
-        gen_gt_zero_found = False
-        for match in re.finditer(r"\b(\d+)\s+(\d+)\s+obj\b", txt):
-            generation = int(match.group(2))
-            if generation > 0:
-                gen_gt_zero_found = True
-                break
-        if gen_gt_zero_found:
-            indicators.append("obj_gen_gt_zero")
+        gen_gt_zero_matches = [m for m in re.finditer(r"\b(\d+)\s+(\d+)\s+obj\b", txt) if int(m.group(2)) > 0]
+        if gen_gt_zero_matches:
+            indicators['ObjGenGtZero'] = {'count': len(gen_gt_zero_matches)}
 
         # --- ID Comparison (families separated) ---
         def _norm_uuid(x):
             if x is None: return None
             if isinstance(x, (bytes, bytearray)): return x.hex().upper()
-            s = str(x).strip()
-            s = re.sub(r"^urn:uuid:", "", s, flags=re.I)
-            s = s.strip("<>")
-            return s.upper() if s else None
+            s = str(x).strip().upper()
+            return re.sub(r"^(URN:UUID:|UUID:|XMP\.IID:|XMP\.DID:)", "", s).strip("<>")
 
-        # ——— XMP ID family ———
-        xmp_orig = xmp_doc = xmp_inst = None
-        m = re.search(r"xmpMM:OriginalDocumentID(?:>|=\")([^<\"]+)", txt, re.I);
-        if m: xmp_orig = _norm_uuid(m.group(1))
-        m = re.search(r"xmpMM:DocumentID(?:>|=\")([^<\"]+)", txt, re.I);
-        if m: xmp_doc  = _norm_uuid(m.group(1))
-        m = re.search(r"xmpMM:InstanceID(?:>|=\")([^<\"]+)", txt, re.I);
-        if m: xmp_inst = _norm_uuid(m.group(1))
+        # XMP ID family
+        xmp_orig = _norm_uuid(re.search(r"xmpMM:OriginalDocumentID(?:>|=\")([^<\"]+)", txt, re.I).group(1) if re.search(r"xmpMM:OriginalDocumentID", txt, re.I) else None)
+        xmp_doc = _norm_uuid(re.search(r"xmpMM:DocumentID(?:>|=\")([^<\"]+)", txt, re.I).group(1) if re.search(r"xmpMM:DocumentID", txt, re.I) else None)
+        
+        if xmp_orig and xmp_doc and xmp_doc != xmp_orig:
+            indicators['XMPIDChange'] = {'from': xmp_orig, 'to': xmp_doc}
 
-        # STRICT LOGIC: flag ONLY if current ≠ original (and both exist)
-        if xmp_orig and xmp_doc and xmp_doc != xmp_orig: indicators.append("XMP_ID_CHANGE")
-        if xmp_orig and xmp_inst and xmp_inst != xmp_orig: indicators.append("XMP_ID_CHANGE")
-
-        # ——— Trailer ID family (regex + PyMuPDF fallback) ———
-        trailer_orig = trailer_curr = None
-        m = re.search(r"/ID\s*\[\s*<\s*([0-9A-Fa-f]+)\s*>\s*<\s*([0-9A-Fa-f]+)\s*>\s*\]", txt)
-        if m:
-            trailer_orig = m.group(1).upper()
-            trailer_curr = m.group(2).upper()
-        if trailer_orig is None or trailer_curr is None:
-            try:
-                trailer = doc.xref_get_trailer() or {}
-                t_id = trailer.get("ID")
-                if isinstance(t_id, (list, tuple)) and len(t_id) == 2:
-                    if trailer_orig is None: trailer_orig = _norm_uuid(t_id[0])
-                    if trailer_curr is None: trailer_curr = _norm_uuid(t_id[1])
-            except Exception: pass
-        if trailer_orig and trailer_curr and trailer_curr != trailer_orig:
-            indicators.append("TRAILER_ID_CHANGE")
+        # Trailer ID family
+        trailer_match = re.search(r"/ID\s*\[\s*<\s*([0-9A-Fa-f]+)\s*>\s*<\s*([0-9A-Fa-f]+)\s*>\s*\]", txt)
+        if trailer_match:
+            trailer_orig, trailer_curr = _norm_uuid(trailer_match.group(1)), _norm_uuid(trailer_match.group(2))
+            if trailer_orig and trailer_curr and trailer_curr != trailer_orig:
+                indicators['TrailerIDChange'] = {'from': trailer_orig, 'to': trailer_curr}
         
         # --- Date Mismatch (Info vs. XMP) ---
         info_dates = dict(re.findall(r"/(ModDate|CreationDate)\s*\(\s*D:(\d{8,14})", txt))
-        xmp_pairs = re.findall(r"<xmp:(ModifyDate|CreateDate)>([^<]+)</xmp:\1>", txt)
-        xmp_dates = {k: v for k, v in xmp_pairs}
+        xmp_dates = {k: v for k, v in re.findall(r"<xmp:(ModifyDate|CreateDate)>([^<]+)</xmp:\1>", txt)}
 
-        def _short(d: str) -> str:
-            """Helper to normalize date strings for comparison."""
-            d = re.sub(r"[-:TZ]", "", d)
-            return d[:14]
+        def _short(d: str) -> str: return re.sub(r"[-:TZ]", "", d)[:14]
 
         if "CreationDate" in info_dates and "CreateDate" in xmp_dates:
-            a = _short(info_dates["CreationDate"]); b = _short(xmp_dates["CreateDate"])
-            if a and b and a != b: indicators.append("CreateDate mismatch (Info vs XMP)")
+            if _short(info_dates["CreationDate"]) != _short(xmp_dates["CreateDate"]):
+                indicators['CreateDateMismatch'] = {'info': info_dates["CreationDate"], 'xmp': xmp_dates["CreateDate"]}
         if "ModDate" in info_dates and "ModifyDate" in xmp_dates:
-            a = _short(info_dates["ModDate"]); b = _short(xmp_dates["ModifyDate"])
-            if a and b and a != b: indicators.append("ModifyDate mismatch (Info vs XMP)")
-
-        # --- Add full ID values to the indicators list for the detail view ---
-        if any([xmp_orig, xmp_doc, xmp_inst]):
-            indicators.append(f"XMP IDs:\n  Orig={xmp_orig}\n  Doc={xmp_doc}\n  Inst={xmp_inst}")
-        if any([trailer_orig, trailer_curr]):
-            indicators.append(f"Trailer IDs:\n  Orig={trailer_orig}\n  Curr={trailer_curr}")
-            try:
-                extra_ids = self.extract_additional_xmp_ids(txt)
-                lines = []
-
-                if extra_ids["stref_doc_ids"] or extra_ids["stref_inst_ids"]:
-                    lines.append("stRef anywhere:")
-                    if extra_ids["stref_doc_ids"]:
-                        for v in sorted(extra_ids["stref_doc_ids"]): lines.append(f"  stRef:documentID = {v}")
-                    if extra_ids["stref_inst_ids"]:
-                        for v in sorted(extra_ids["stref_inst_ids"]): lines.append(f"  stRef:instanceID = {v}")
-                if extra_ids["derived_doc_ids"] or extra_ids["derived_inst_ids"]:
-                    lines.append("DerivedFrom:")
-                    for v in sorted(extra_ids["derived_doc_ids"]): lines.append(f"  stRef:documentID = {v}")
-                    for v in sorted(extra_ids["derived_inst_ids"]): lines.append(f"  stRef:instanceID = {v}")
-                if extra_ids["ingredient_doc_ids"] or extra_ids["ingredient_inst_ids"]:
-                    lines.append("Ingredients:")
-                    for v in sorted(extra_ids["ingredient_doc_ids"]): lines.append(f"  stRef:documentID = {v}")
-                    for v in sorted(extra_ids["ingredient_inst_ids"]): lines.append(f"  stRef:instanceID = {v}")
-                if extra_ids["ps_doc_ancestors"]:
-                    lines.append("Photoshop:DocumentAncestors:")
-                    for v in sorted(extra_ids["ps_doc_ancestors"]): lines.append(f"  {v}")
-
-                # --- Additional XMP ID sources (Ancestors / DerivedFrom / Ingredients / History) ---
-                try:
-                    extra = self.extract_additional_xmp_ids(txt)
-                    lines = []
-
-                    if extra["derived_orig_ids"] or extra["derived_doc_ids"] or extra["derived_inst_ids"]:
-                        lines.append("DerivedFrom:")
-                        for v in sorted(extra["derived_orig_ids"]): lines.append(f"  OriginalDocumentID = {v}")
-                        for v in sorted(extra["derived_doc_ids"]): lines.append(f"  stRef:documentID   = {v}")
-                        for v in sorted(extra["derived_inst_ids"]): lines.append(f"  stRef:instanceID   = {v}")
-                    if extra["ingredient_doc_ids"] or extra["ingredient_inst_ids"]:
-                        lines.append("Ingredients:")
-                        for v in sorted(extra["ingredient_doc_ids"]): lines.append(f"  stRef:documentID   = {v}")
-                        for v in sorted(extra["ingredient_inst_ids"]): lines.append(f"  stRef:instanceID   = {v}")
-                    if extra["history_doc_ids"] or extra["history_inst_ids"]:
-                        lines.append("History (stRef/InstanceID):")
-                        for v in sorted(extra["history_doc_ids"]): lines.append(f"  documentID         = {v}")
-                        for v in sorted(extra["history_inst_ids"]): lines.append(f"  instanceID         = {v}")
-                    if extra["ps_doc_ancestors"]:
-                        lines.append("Photoshop:DocumentAncestors:")
-                        for v in sorted(extra["ps_doc_ancestors"]): lines.append(f"  {v}")
-                    if lines:
-                        indicators.append("Additional XMP IDs:\n" + "\n".join(lines))
-                except Exception: pass
+            if _short(info_dates["ModDate"]) != _short(xmp_dates["ModifyDate"]):
+                indicators['ModifyDateMismatch'] = {'info': info_dates["ModDate"], 'xmp': xmp_dates["ModifyDate"]}
         
-                if lines:
-                    indicators.append("Additional XMP IDs:\n" + "\n".join(lines))
-            except Exception: pass
         return indicators
     
 
-    def get_flag(self, indicator_keys, is_revision, parent_id=None):
+    def get_flag(self, indicators_dict, is_revision, parent_id=None):
         """
         Determines the file's status flag based on the found indicator keys.
 
@@ -2951,22 +2843,22 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         if is_revision:
             return self._("revision_of").format(id=parent_id)
 
-        keys_set = set(indicator_keys or [])
+        keys_set = set(indicators_dict.keys())
         YES = "YES" if self.language.get() == "en" else "JA"
         NO = self._("status_no")
 
         # Adjust this set for your auto-YES indicators
         high_risk_indicators = {
-            "Has Revisions",
+            "HasRevisions",
             "TouchUp_TextEdit",
-            "Signature: Invalid",
+            "Signature: Invalid", # Note: This key is not yet generated by detect_indicators
         }
 
         if any(ind in high_risk_indicators for ind in keys_set):
             return YES
 
         # If there are any indications at all, but not auto-YES:
-        if keys_set:
+        if indicators_dict:
             return "Possible" if self.language.get() == "en" else "Sandsynligt"
 
         # No indications:
@@ -3158,10 +3050,11 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
             """Helper function to get a formatted string of indicators for a given path."""
             rec = next((d for d in self.all_scan_data if str(d.get('path')) == path_str), None)
             if not rec: return ""
-            keys = rec.get('indicator_keys') or []
-            if not keys: return ""
-            parts = [self._(k) for k in keys]
-            return "• " + "\n• ".join(parts)
+            indicator_dict = rec.get('indicator_keys') or {}
+            if not indicator_dict: return ""
+            
+            lines = [self._format_indicator_details(key, details) for key, details in indicator_dict.items()]
+            return "• " + "\n• ".join(lines)
 
         # --- Write Data Rows ---
         for row_idx, row_data in enumerate(self.report_data, start=2):
@@ -3197,10 +3090,11 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
             """Helper function to get a semicolon-separated string of indicators."""
             rec = next((d for d in self.all_scan_data if str(d.get('path')) == path_str), None)
             if not rec: return ""
-            keys = rec.get('indicator_keys') or []
-            if not keys: return ""
-            parts = [self._(k) for k in keys]
-            return "; ".join(parts)
+            indicator_dict = rec.get('indicator_keys') or {}
+            if not indicator_dict: return ""
+
+            lines = [self._format_indicator_details(key, details) for key, details in indicator_dict.items()]
+            return "; ".join(lines)
 
         # Prepare data with full EXIF output + full indicators
         data_for_export = []
@@ -3229,6 +3123,20 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
             item_copy['path'] = path_str # Convert Path object to string
             if 'original_path' in item_copy:
                 item_copy['original_path'] = str(item_copy['original_path'])
+            
+            # Make indicator details serializable
+            if 'indicator_keys' in item_copy:
+                serializable_indicators = {}
+                for key, details in item_copy['indicator_keys'].items():
+                    if 'fonts' in details:
+                        # Convert sets to lists
+                        serializable_details = details.copy()
+                        serializable_details['fonts'] = {k: list(v) for k, v in details['fonts'].items()}
+                        serializable_indicators[key] = serializable_details
+                    else:
+                        serializable_indicators[key] = details
+                item_copy['indicator_keys'] = serializable_indicators
+
             item_copy['exif_data'] = self.exif_outputs.get(path_str, "")
             full_export.append(item_copy)
         
@@ -3292,6 +3200,38 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
                 rows=rows
             ))
 
+    def _format_indicator_details(self, key, details):
+        """Generates a human-readable string for an indicator and its details."""
+        if key == 'MultipleCreators':
+            return f"Multiple Creators (Found {details['count']}): " + ", ".join(f'"{v}"' for v in details['values'])
+        if key == 'MultipleProducers':
+            return f"Multiple Producers (Found {details['count']}): " + ", ".join(f'"{v}"' for v in details['values'])
+        if key == 'MultipleFontSubsets':
+            font_details = []
+            for base_font, subsets in details['fonts'].items():
+                font_details.append(f"'{base_font}': {{{', '.join(subsets)}}}")
+            return f"Multiple Font Subsets: " + "; ".join(font_details)
+        if key == 'CreateDateMismatch':
+            return f"Creation Date Mismatch: Info='{details['info']}', XMP='{details['xmp']}'"
+        if key == 'ModifyDateMismatch':
+            return f"Modify Date Mismatch: Info='{details['info']}', XMP='{details['xmp']}'"
+        if key == 'TrailerIDChange':
+            return f"Trailer ID Changed: From [{details['from']}] to [{details['to']}]"
+        if key == 'XMPIDChange':
+            return f"XMP DocumentID Changed: From [{details['from']}] to [{details['to']}]"
+        if key == 'MultipleStartxref':
+            return f"Multiple startxref (Found {details['count']})"
+        if key == 'IncrementalUpdates':
+            return f"Incremental updates (Found {details['count']} versions)"
+        if key == 'ObjGenGtZero':
+            return f"Objects with generation > 0 (Found {details['count']} objects)"
+        if key == 'HasLayers':
+            return f"Has Layers (Found {details['count']})"
+        if key == 'MoreLayersThanPages':
+            return f"More Layers ({details['layers']}) Than Pages ({details['pages']})"
+        # Fallback for simple indicators with no details
+        return key.replace("_", " ")
+
 
 if __name__ == "__main__":
     # Ensure multiprocessing works correctly when the app is frozen (e.g., by PyInstaller).
@@ -3303,5 +3243,6 @@ if __name__ == "__main__":
     app = PDFReconApp(root)
     # Start the application's main event loop
     root.mainloop()
+
 
 
