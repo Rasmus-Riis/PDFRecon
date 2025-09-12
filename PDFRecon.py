@@ -134,7 +134,7 @@ def safe_stat_times(path: Path):
 class PDFReconApp:
     def __init__(self, root):
         # --- Application Configuration ---
-        self.app_version = "16.1.1"
+        self.app_version = "16.1.2"
         self.config_path = self._resolve_path("config.ini", base_is_parent=True)
         self._load_or_create_config()
         
@@ -236,7 +236,7 @@ Nedenfor er en detaljeret forklaring af hver indikator, som PDFRecon leder efter
 
 <b>Multiple Font Subsets</b>
 *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: Når tekst tilføjes til en PDF, indlejres ofte kun de tegn fra en skrifttype, der rent faktisk bruges (et 'subset'). Hvis en fil redigeres med et andet program, der ikke har adgang til præcis samme skrifttype, kan der opstå et nyt subset af den samme grundlæggende skrifttype. At finde flere subsets (f.eks. Multiple Font Subsets: 'Arial': {{'F1+ArialMT', 'F2+Arial-BoldMT'}}) er en stærk indikation på, at tekst er blevet tilføjet eller ændret på forskellige tidspunkter eller med forskellige værktøjer.
+• Hvad det betyder: Når tekst tilføjes til en PDF, indlejres ofte kun de tegn fra en skrifttype, der rent faktisk bruges (et 'subset'). Hvis en fil redigeres med et andet program, der ikke har adgang til præcis samme skrifttype, kan der opstå et nyt subset af den samme grundlæggende skrifttype. At finde flere subsets (f.eks. Multiple Font Subsets: 'Arial':F1+ArialMT', 'F2+Arial-BoldMT er en stærk indikation på, at tekst er blevet tilføjet eller ændret på forskellige tidspunkter eller med forskellige værktøjer.
 
 <b>Multiple Creators / Producers</b>
 *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
@@ -311,7 +311,7 @@ The program classifies each file based on the indicators found. This is done to 
 
 ## Explanation of Indicators
 Below is a detailed explanation of each indicator that PDFRecon looks for.
-
+ 
 <b>Has Revisions</b>
 *<i>Changed:</i>* <red>YES</red>
 • What it means: The PDF standard allows changes to be saved on top of an existing file (incremental saving). This leaves the original version of the document intact inside the file. PDFRecon has found and extracted one or more of these previous versions. This is unequivocal proof that the file has been changed after its original creation.
@@ -322,10 +322,10 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
 
 <b>Multiple Font Subsets</b>
 *<i>Changed:</i>* <yellow>Indications Found</yellow>
-• What it means: When text is added to a PDF, often only the characters actually used from a font are embedded (a 'subset'). If a file is edited with another program that does not have access to the exact same font, a new subset of the same base font may be created. Finding multiple subsets (e.g., Multiple Font Subsets: 'Arial': {{'F1+ArialMT', 'F2+Arial-BoldMT'}}) is a strong indication that text has been added or changed at different times or with different tools.
+• What it means: When text is added to a PDF, often only the characters actually used from a font are embedded (a 'subset'). If a file is edited with another program that does not have access to the exact same font, a new subset of the same base font may be created. Finding multiple subsets (e.g., Multiple Font Subsets: 'Arial': F1+ArialMT', 'F2+Arial-BoldMT' is a strong indication that text has been added or changed at different times or with different tools.
 
 <b>Multiple Creators / Producers</b>
-*<i>Changed:</i>* <yellow>Indications Found</yellow>
+*<i>Changed:</i>* <yellow>Indikationer Fundet</yellow>
 • What it means: PDF files contain metadata about which program created (/Creator) and generated (/Producer) the file. If multiple different names are found in these fields (e.g., Multiple Creators (Found 2): "Microsoft Word", "Adobe Acrobat Pro"), it indicates that the file has been processed by more than one program. This typically happens when a file is created in one program and then edited in another.
 
 <b>xmpMM:History / DerivedFrom / DocumentAncestors</b>
@@ -724,13 +724,10 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         filter_entry.pack(side="left", fill="x", expand=True)
         self.filter_var.trace_add("write", self._apply_filter)
 
-        # --- Scanning Indicator and Status Bar ---
-        self.scanning_indicator_label = ttk.Label(frame, text="", foreground="blue", font=("Segoe UI", 9))
-        self.scanning_indicator_label.pack(pady=5)
-        
+        # --- Status Bar ---
         self.status_var = tk.StringVar(value=self._("status_initial"))
         status_label = ttk.Label(frame, textvariable=self.status_var, foreground="darkgreen")
-        status_label.pack(pady=(0, 10))
+        status_label.pack(pady=(5, 10))
 
         # --- Treeview (Main Results Table) ---
         tree_frame = ttk.Frame(frame)
@@ -1775,9 +1772,9 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
                     self.progressbar.config(mode='determinate', maximum=data if data > 0 else 1, value=0)
                 elif msg_type == "detailed_progress":
                     self.progressbar['value'] += 1
-                    self.scanning_indicator_label.config(text=self._("scan_progress_eta").format(**data))
+                    self.status_var.set(self._("scan_progress_eta").format(**data))
                 elif msg_type == "scan_status": 
-                    self.scanning_indicator_label.config(text=data)
+                    self.status_var.set(data)
                 elif msg_type == "file_row":
                     # Store all scan data, including revisions and errors
                     self.all_scan_data.append(data)
@@ -1819,7 +1816,6 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         # --- Update GUI to 'finished' state ---
         self.scan_button.config(state="normal")
         self.export_menubutton.config(state="normal")
-        self.scanning_indicator_label.config(text="")
         # Ensure the progress bar is full
         if self.progressbar['value'] < self.progressbar['maximum']:
              self.progressbar['value'] = self.progressbar['maximum']
@@ -3209,7 +3205,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         if key == 'MultipleFontSubsets':
             font_details = []
             for base_font, subsets in details['fonts'].items():
-                font_details.append(f"'{base_font}': {{{', '.join(subsets)}}}")
+                font_details.append(f"'{base_font}': {{{{{', '.join(subsets)}}}}}")
             return f"Multiple Font Subsets: " + "; ".join(font_details)
         if key == 'CreateDateMismatch':
             return f"Creation Date Mismatch: Info='{details['info']}', XMP='{details['xmp']}'"
@@ -3243,6 +3239,4 @@ if __name__ == "__main__":
     app = PDFReconApp(root)
     # Start the application's main event loop
     root.mainloop()
-
-
 
