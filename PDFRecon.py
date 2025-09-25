@@ -3,6 +3,7 @@ from tkinter import ttk, filedialog, messagebox, Toplevel
 import hashlib
 import os
 import re
+import shutil
 import subprocess
 import zlib
 from pathlib import Path
@@ -134,7 +135,7 @@ def safe_stat_times(path: Path):
 class PDFReconApp:
     def __init__(self, root):
         # --- Application Configuration ---
-        self.app_version = "16.1.2"
+        self.app_version = "16.4.0"
         self.config_path = self._resolve_path("config.ini", base_is_parent=True)
         self._load_or_create_config()
         
@@ -155,7 +156,7 @@ class PDFReconApp:
         except Exception as e:
             logging.error(f"Unexpected error when loading icon: {e}")
 
-
+    
         # --- Application Data ---
         self.report_data = [] 
         self.all_scan_data = []
@@ -167,6 +168,7 @@ class PDFReconApp:
         # --- State Variables ---
         self.revision_counter = 0
         self.scan_queue = queue.Queue()
+        self.copy_executor = None 
         self.tree_sort_column = None
         self.tree_sort_reverse = False
         self.exif_popup = None
@@ -392,8 +394,8 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
                 "menu_log": "Vis logfil", "menu_language": "Sprog / Language",
                 "preparing_analysis": "Forbereder analyse...", "analyzing_file": "🔍 Analyserer: {file}",
                 "scan_progress_eta": "🔍 {file} | {fps:.1f} filer/s | ETA: {eta}",
-                "scan_complete_summary": "✔ Færdig: {total} dokumenter | {changed} ændrede (JA) | {revs} revisioner | {inds} med indikationer | {clean} ikke påvist",
-                "scan_complete_summary_with_errors": "✔ Færdig: {total} dok. | {changed} JA | {revs} rev. | {inds} ind. | {errors} fejl | {clean} rene",
+                "scan_complete_summary": "✔ Færdig: {total} Dok. | Totalt ændrede {total_altered} -> {changed_count} med {revs} revisioner | {indications_found_count} med indikationer | {clean} ikke påvist",
+                "scan_complete_summary_with_errors": "✔ Færdig: {total} Dok. | Totalt ændrede {total_altered} -> {changed_count} med {revs} revisioner | {indications_found_count} med indikationer | {clean} ikke påvist | {errors} fejl",
                 "no_exif_output_title": "Ingen EXIFTool-output", "no_exif_output_message": "Der er enten ingen EXIFTool-output for denne fil, eller også opstod der en fejl under kørsel.",
                 "exif_popup_title": "EXIFTool Output", "exif_no_output": "Intet output", "exif_error": "Fejl. Læs exiftool i samme mappe", "exif_view_output": "Klik for at se output ➡",
                 "indicators_popup_title": "Fundne Indikatorer", "indicators_view_output": "Klik for at se detaljer ➡", "no_indicators_message": "Der er ingen indikatorer for denne fil.",
@@ -442,8 +444,8 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
                 "menu_log": "Show Log File", "menu_language": "Language / Sprog",
                 "preparing_analysis": "Preparing analysis...", "analyzing_file": "🔍 Analyzing: {file}",
                 "scan_progress_eta": "🔍 {file} | {fps:.1f} files/s | ETA: {eta}",
-                "scan_complete_summary": "✔ Finished: {total} documents | {changed} altered (YES) | {revs} revisions | {inds} with indications | {clean} not detected",
-                "scan_complete_summary_with_errors": "✔ Done: {total} docs | {changed} YES | {revs} revs | {inds} ind. | {errors} errors | {clean} clean",
+               "scan_complete_summary": "✔ Finished: {total} Documents | Total {total_altered} altered | {changed_count} files with {revs} revisions | {indications_found_count} with indications | {clean} not detected",
+                "scan_complete_summary_with_errors": "✔ Finished: {total} Documents | Total {total_altered} altered | {changed_count} files with {revs} revisions | {indications_found_count} with indications | {clean} not detected | {errors} errors",
                 "no_exif_output_title": "No EXIFTool Output", "no_exif_output_message": "There is either no EXIFTool output for this file, or an error occurred during execution.",
                 "exif_popup_title": "EXIFTool Output", "exif_no_output": "No output", "exif_error": "Error. Missing Exiftool", "exif_view_output": "Click to view output ➡",
                 "indicators_popup_title": "Indicators Found", "indicators_view_output": "Click to view details ➡", "no_indicators_message": "No indicators found for this file.",
@@ -613,8 +615,8 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         
         # Count occurrences of each status type
         changed_count = all_flags.count("JA") + all_flags.count("YES")
-        # Correctly count files with indications
         indications_found_count = all_flags.count("Sandsynligt") + all_flags.count("Possible")
+        total_altered = changed_count + indications_found_count
                            
         error_count = sum(1 for flag in all_flags if flag in error_statuses)
         
@@ -625,16 +627,30 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         # Format the summary text based on whether errors were found
         if error_count > 0:
             summary_text = self._("scan_complete_summary_with_errors").format(
-                total=original_files_count, changed=changed_count, revs=self.revision_counter,
-                inds=indications_found_count, errors=error_count, clean=not_flagged_count
+                total=original_files_count, total_altered=total_altered,
+                changed_count=changed_count, revs=self.revision_counter,
+                indications_found_count=indications_found_count, errors=error_count, clean=not_flagged_count
             )
         else:
             summary_text = self._("scan_complete_summary").format(
-                total=original_files_count, changed=changed_count, revs=self.revision_counter,
-                inds=indications_found_count, clean=not_flagged_count
+                total=original_files_count, total_altered=total_altered,
+                changed_count=changed_count, revs=self.revision_counter,
+                indications_found_count=indications_found_count, clean=not_flagged_count
             )
         self.status_var.set(summary_text)
 
+    def _perform_copy(self, source, dest_path):
+        """A simple worker task to copy a file, designed to be run in a thread pool."""
+        try:
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            if isinstance(source, Path):
+                shutil.copy2(source, dest_path)
+                logging.info(f"Copied file from {source.name} to: {dest_path}")
+            elif isinstance(source, bytes):
+                dest_path.write_bytes(source)
+                logging.info(f"Copied revision bytes to: {dest_path}")
+        except Exception as e:
+            logging.error(f"Error copying to {dest_path}: {e}")
 
     def switch_language(self):
         """Updates all text in the GUI to the selected language."""
@@ -1466,13 +1482,15 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         self.status_var.set(self._("preparing_analysis"))
         self.progressbar.config(value=0)
 
-        # --- Start Worker Thread ---
-        # The scan runs in a separate thread to keep the GUI responsive.
+        # --- NEW: Create a dedicated thread pool for copy operations ---
+        # A small number of threads is best for I/O to avoid disk thrashing.
+        self.copy_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix='CopyWorker')
+
+        # --- Start Main Worker Thread ---
         scan_thread = threading.Thread(target=self._scan_worker_parallel, args=(folder_path, self.scan_queue))
         scan_thread.daemon = True
         scan_thread.start()
 
-        # Start polling the queue for updates from the worker thread.
         self._process_queue()
 
     def _find_pdf_files_generator(self, folder):
@@ -1623,96 +1641,40 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
             out[k] = {v for v in out[k] if v}
 
         return out
+    
+    def start_scan_thread(self, folder_path):
+        """Initializes and starts the background scanning process."""
+        logging.info(f"Starting scan of folder: {folder_path}")
+        
+        # --- Reset Application State ---
+        self.tree.delete(*self.tree.get_children())
+        self.report_data.clear()
+        self.all_scan_data.clear()
+        self.exif_outputs.clear()
+        self.timeline_data.clear()
+        self.path_to_id.clear()
+        self.revision_counter = 0
+        self.scan_queue = queue.Queue()
+        self.scan_start_time = time.time()
+        self.filter_var.set("")
+        
+        # --- Update GUI for Scanning State ---
+        self.scan_button.config(state="disabled")
+        self.export_menubutton.config(state="disabled")
+        self.status_var.set(self._("preparing_analysis"))
+        self.progressbar.config(value=0)
 
-    def _process_single_file(self, fp):
-        """
-        Processes a single PDF file. This method is designed to run in a separate thread.
-        Returns a list of dictionaries (one for the original, and one for each revision).
-        """
-        try:
-            # First, validate the file (size, header, encryption)
-            self.validate_pdf_file(fp)
+        # --- NEW: Create a dedicated thread pool for copy operations ---
+        # A small number of threads is best for I/O to avoid disk thrashing.
+        self.copy_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix='CopyWorker')
 
-            # --- Main Analysis ---
-            raw = fp.read_bytes()
-            doc = fitz.open(stream=raw, filetype="pdf")
-            txt = self.extract_text(raw)
-            indicators = self.detect_indicators(fp, txt, doc)
-            md5_hash = md5_file(fp)
-            exif = self.exiftool_output(fp, detailed=True)
-            tool_changed, _, _, _ = self._detect_tool_change_from_exif_simple(exif)
-            if tool_changed:
-                indicators['ToolChange'] = {}
-            original_timeline = self.generate_comprehensive_timeline(fp, txt, exif, is_revision=False)
-            revisions = self.extract_revisions(raw, fp)
+        # --- Start Main Worker Thread ---
+        scan_thread = threading.Thread(target=self._scan_worker_parallel, args=(folder_path, self.scan_queue))
+        scan_thread.daemon = True
+        scan_thread.start()
 
-            doc.close()
-            self._add_layer_indicators(raw, fp, indicators)
-
-            # Add "Has Revisions" indicator if any were found
-            if revisions:
-                indicators['HasRevisions'] = {'count': len(revisions)}
-
-            # --- Collect Results ---
-            results = []
-            original_row_data = {
-                "path": fp, "indicator_keys": indicators, "md5": md5_hash, 
-                "exif": exif, "is_revision": False, "timeline": original_timeline, "status": "success"
-            }
-            results.append(original_row_data)
-
-            # --- Process Revisions ---
-            for rev_path, basefile, rev_raw in revisions:
-                rev_md5 = hashlib.md5(rev_raw).hexdigest()
-                rev_exif = self.exiftool_output(rev_path, detailed=True)
-                rev_txt = self.extract_text(rev_raw)
-                revision_timeline = self.generate_comprehensive_timeline(rev_path, rev_txt, rev_exif, is_revision=True)
-
-                # Skip revisions that ExifTool identifies as corrupt
-                if "Warning" in rev_exif and "Invalid xref table" in rev_exif:
-                    logging.info(f"Skipping revision {rev_path.name} due to 'Invalid xref table' warning.")
-                    continue
-
-                # Check if the revision is visually identical to the original
-                is_identical = False
-                try:
-                    with fitz.open(fp) as doc_orig, fitz.open(rev_path) as doc_rev:
-                        pages_to_compare = min(doc_orig.page_count, doc_rev.page_count, PDFReconConfig.VISUAL_DIFF_PAGE_LIMIT)
-                        if pages_to_compare > 0:
-                            is_identical = True
-                            for i in range(pages_to_compare):
-                                page_orig, page_rev = doc_orig.load_page(i), doc_rev.load_page(i)
-                                if page_orig.rect != page_rev.rect: is_identical = False; break
-                                pix_orig, pix_rev = page_orig.get_pixmap(dpi=96), page_rev.get_pixmap(dpi=96)
-                                img_orig = Image.frombytes("RGB", [pix_orig.width, pix_orig.height], pix_orig.samples)
-                                img_rev = Image.frombytes("RGB", [pix_rev.width, pix_rev.height], pix_rev.samples)
-                                if ImageChops.difference(img_orig, img_rev).getbbox() is not None: is_identical = False; break
-                except Exception as e:
-                    logging.warning(f"Could not visually compare {rev_path.name}, keeping it. Error: {e}")
-                
-                revision_row_data = { 
-                    "path": rev_path, "indicator_keys": {"Revision": {}}, "md5": rev_md5, "exif": rev_exif, 
-                    "is_revision": True, "timeline": revision_timeline, "original_path": fp, 
-                    "is_identical": is_identical, "status": "success"
-                }
-                results.append(revision_row_data)
-            return results
-
-        # --- Error Handling ---
-        # Catch specific, known errors and return a structured error message.
-        except PDFTooLargeError as e:
-            logging.warning(f"Skipping large file {fp.name}: {e}")
-            return [{"path": fp, "status": "error", "error_type": "file_too_large", "error_message": str(e)}]
-        except PDFEncryptedError as e:
-            logging.warning(f"Skipping encrypted file {fp.name}: {e}")
-            return [{"path": fp, "status": "error", "error_type": "file_encrypted", "error_message": str(e)}]
-        except PDFCorruptionError as e:
-            logging.warning(f"Skipping corrupt file {fp.name}: {e}")
-            return [{"path": fp, "status": "error", "error_type": "file_corrupt", "error_message": str(e)}]
-        except Exception as e:
-            logging.exception(f"Unexpected error processing file {fp.name}")
-            return [{"path": fp, "status": "error", "error_type": "processing_error", "error_message": str(e)}]
-
+        self._process_queue()
+   
     def _scan_worker_parallel(self, folder, q):
         """
         Finds PDF files and processes them in parallel using a ThreadPoolExecutor.
@@ -1726,13 +1688,12 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
                 q.put(("finished", None))
                 return
 
-            # Set progress bar to determinate mode
             q.put(("progress_mode_determinate", len(pdf_files)))
             files_processed = 0
 
-            # Use a thread pool to process files concurrently
             with ThreadPoolExecutor(max_workers=PDFReconConfig.MAX_WORKER_THREADS) as executor:
-                future_to_path = {executor.submit(self._process_single_file, fp): fp for fp in pdf_files}
+                # Pass the scan root 'folder' to each file processing job
+                future_to_path = {executor.submit(self._process_single_file, fp, folder): fp for fp in pdf_files}
                 for future in as_completed(future_to_path):
                     path = future_to_path[future]
                     files_processed += 1
@@ -1744,7 +1705,6 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
                         logging.error(f"Unexpected error from thread pool for file {path.name}: {e}")
                         q.put(("file_row", {"path": path, "status": "error", "error_type": "unknown_error", "error_message": str(e)}))
                     
-                    # Calculate and send progress update (FPS, ETA)
                     elapsed_time = time.time() - self.scan_start_time
                     fps = files_processed / elapsed_time if elapsed_time > 0 else 0
                     eta_seconds = (len(pdf_files) - files_processed) / fps if fps > 0 else 0
@@ -1754,9 +1714,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
             logging.error(f"Error in scan worker: {e}")
             q.put(("error", f"A critical error occurred: {e}"))
         finally:
-            # Signal that the scan is finished
             q.put(("finished", None))
-
 
     def _process_queue(self):
         """
@@ -1801,8 +1759,16 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
 
     def _finalize_scan(self):
         """Performs final actions after the scan is complete."""
+        # --- Wait for all background copy operations to complete ---
+        if self.copy_executor:
+            logging.info("Waiting for background copy operations to finish...")
+            # You can update the status bar here if you want
+            # self.status_var.set("Finishing copy operations...")
+            self.copy_executor.shutdown(wait=True)
+            self.copy_executor = None
+            logging.info("All copy operations finished.")
+
         # --- Build path-to-ID map ---
-        # This is done once from the complete dataset for efficiency.
         self.path_to_id.clear()
         temp_counter = 0
         for data in self.all_scan_data:
@@ -1810,59 +1776,80 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
                 temp_counter += 1
                 self.path_to_id[str(data["path"])] = temp_counter
 
-        # Apply the filter (which is initially empty) to show all results.
         self._apply_filter()
         
         # --- Update GUI to 'finished' state ---
         self.scan_button.config(state="normal")
         self.export_menubutton.config(state="normal")
-        # Ensure the progress bar is full
         if self.progressbar['value'] < self.progressbar['maximum']:
              self.progressbar['value'] = self.progressbar['maximum']
         
-        # Update the summary status bar
         self._update_summary_status()
         logging.info(f"Analysis complete. {self.status_var.get()}")
 
     def _apply_filter(self, *args):
-        """Filters the displayed results based on the search term."""
-        search_term = self.filter_var.get().lower()
-        
-        items_to_show = []
-        if not search_term:
-            # If no search term, show all data
-            items_to_show = self.all_scan_data
-        else:
-            # Otherwise, filter the data
-            for data in self.all_scan_data:
-                path_str = str(data.get('path', ''))
-                
-                # Build a list of searchable fields for each item
-                searchable_items = [
-                    path_str,
-                    data.get('md5', ''),
-                ]
-                
-                if not data.get('is_revision'):
-                    try:
-                        stat = data['path'].stat()
-                        searchable_items.append(datetime.fromtimestamp(stat.st_ctime).strftime("%d-%m-%Y %H:%M:%S"))
-                        searchable_items.append(datetime.fromtimestamp(stat.st_mtime).strftime("%d-%m-%Y %H:%M:%S"))
-                    except (FileNotFoundError, KeyError):
-                        pass
+            """Filters the displayed results based on the search term."""
+            search_term = self.filter_var.get().lower()
+            
+            items_to_show = []
+            if not search_term:
+                # If there's no search term, show all data
+                items_to_show = self.all_scan_data
+            else:
+                # Otherwise, filter the data
+                for data in self.all_scan_data:
+                    # --- Start building the searchable text for this item ---
+                    searchable_items = []
 
-                exif_output = self.exif_outputs.get(path_str, '')
-                if exif_output:
-                    searchable_items.append(exif_output)
-                
-                # Combine all searchable text and check for the search term
-                full_searchable_text = " ".join(searchable_items).lower()
+                    # Add data from Path (which includes Name) and MD5 columns
+                    path_str = str(data.get('path', ''))
+                    searchable_items.append(path_str)
+                    searchable_items.append(data.get('md5', ''))
 
-                if search_term in full_searchable_text:
-                    items_to_show.append(data)
-        
-        # Repopulate the treeview with the filtered results
-        self._populate_tree_from_data(items_to_show)
+                    # Add data from File Created and File Modified columns
+                    if not data.get('is_revision'):
+                        try:
+                            stat = data['path'].stat()
+                            searchable_items.append(datetime.fromtimestamp(stat.st_ctime).strftime("%d-%m-%Y %H:%M:%S"))
+                            searchable_items.append(datetime.fromtimestamp(stat.st_mtime).strftime("%d-%m-%Y %H:%M:%S"))
+                        except (FileNotFoundError, KeyError):
+                            pass
+
+                    # Add data from the 'Altered' column
+                    is_rev = data.get("is_revision", False)
+                    if data.get("status") == "error":
+                        error_type_key = data.get("error_type", "unknown_error")
+                        searchable_items.append(self._(error_type_key))
+                    elif is_rev:
+                        if data.get("is_identical"):
+                             searchable_items.append(self._("status_identical"))
+                        # Add generic 'revision' text so users can search for "revision"
+                        searchable_items.append(self._("revision_of").split("{")[0])
+                    else: # For original files
+                        flag = self.get_flag(data.get("indicator_keys", {}), False)
+                        searchable_items.append(flag)
+
+                    # Add the full EXIFTool output
+                    exif_output = self.exif_outputs.get(path_str, '')
+                    if exif_output:
+                        searchable_items.append(exif_output)
+
+                    # Add the detailed indicator text from the "Signs of Alteration" column
+                    indicator_dict = data.get('indicator_keys', {})
+                    if indicator_dict:
+                        # This generates the full text (e.g., "Multiple Creators (Found 2): ...") for searching
+                        indicator_details = [self._format_indicator_details(key, details) for key, details in indicator_dict.items()]
+                        searchable_items.extend(indicator_details)
+                    elif not is_rev: # Don't add "NO" for revisions
+                        searchable_items.append(self._("status_no"))
+                    
+                    # --- Combine all text and perform the search ---
+                    full_searchable_text = " ".join(searchable_items).lower()
+                    if search_term in full_searchable_text:
+                        items_to_show.append(data)
+            
+            # Repopulate the treeview with the filtered results
+            self._populate_tree_from_data(items_to_show)
 
     def _populate_tree_from_data(self, data_list):
         """
@@ -2041,7 +2028,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
     def extract_revisions(self, raw, original_path):
         """
         Extracts previous versions (revisions) of a PDF from its raw byte content
-        by looking for '%%EOF' markers.
+        by looking for '%%EOF' markers. It prepares potential paths but does not write files.
         """
         revisions = []
         offsets = []
@@ -2052,17 +2039,16 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         # Filter out invalid or unlikely offsets
         valid_offsets = [o for o in sorted(offsets) if 1000 <= o <= len(raw) - 500]
         if valid_offsets:
-            # Create a subdirectory for the extracted revisions
+            # Define the subdirectory for potential revisions
             altered_dir = original_path.parent / "Altered_files"
-            altered_dir.mkdir(exist_ok=True)
+            
             for i, offset in enumerate(valid_offsets, start=1):
                 rev_bytes = raw[:offset + 5] # The revision is the content from the start to the EOF marker
                 rev_filename = f"{original_path.stem}_rev{i}_@{offset}.pdf"
                 rev_path = altered_dir / rev_filename
-                try:
-                    rev_path.write_bytes(rev_bytes)
-                    revisions.append((rev_path, original_path.name, rev_bytes))
-                except Exception as e: logging.error(f"Error extracting revision: {e}")
+                # Package the data for later validation without writing the file.
+                revisions.append((rev_path, original_path.name, rev_bytes))
+                
         return revisions
 
     def exiftool_output(self, path, detailed=False):
@@ -2115,282 +2101,295 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
             return self._("exif_err_run").format(e=e)
 
     def _get_filesystem_times(self, filepath):
-        """Helper function to get created/modified timestamps from the file system."""
-        events = []
-        try:
-            stat = filepath.stat()
-            mtime = datetime.fromtimestamp(stat.st_mtime)
-            events.append((mtime, f"File System: {self._('col_modified')}"))
-            ctime = datetime.fromtimestamp(stat.st_ctime)
-            events.append((ctime, f"File System: {self._('col_created')}"))
-        except FileNotFoundError:
-            pass
-        return events
-        
-        
-    def _detect_tool_change_from_exif(self, exiftool_output: str):
-        """
-        Returns a dict with:
-          {
-            'changed': bool,
-            'create_tool': str, 'modify_tool': str,
-            'create_engine': str, 'modify_engine': str,
-            'modify_dt': datetime|None,
-            'reason': 'producer'|'software'|'engine'|'mixed'
-          }
-        Sets changed=True if the tool or XMP engine has changed between the first create and the last modify.
-        """
-        lines = exiftool_output.splitlines()
-        kv_re = re.compile(r'^\[(?P<group>[^\]]+)\]\s*(?P<tag>[\w\-/ ]+?)\s*:\s*(?P<value>.+)$')
-        date_re = re.compile(
-            r'^\[(?P<group>[^\]]+)\]\s*(?P<tag>[\w\-/ ]+?)\s*:\s*(?P<value>.*?)(?P<date>\d{4}:\d{2}:\d{2}\s\d{2}:\d{2}:\d{2}(?:[+\-]\d{2}:\d{2}|Z)?).*$'
-        )
-
-        # Collect relevant fields
-        producer_pdf = producer_xmppdf = ""
-        softwareagent = application = software = creatortool = ""
-        create_engine = modify_engine = ""  # XMPToolkit at create/modify (heuristic)
-        xmptoolkit = ""                    # general value
-
-        def looks_like_software(s: str) -> bool:
-            return bool(s and self.software_tokens.search(s))
-
-        # First pass: collect key/value pairs
-        for ln in lines:
-            m = kv_re.match(ln)
-            if not m:
-                continue
-            group = m.group("group").strip().lower()
-            tag   = m.group("tag").strip().lower().replace(" ", "")
-            val   = m.group("value").strip()
-
-            if tag == "producer":
-                if group == "pdf" and not producer_pdf:
-                    producer_pdf = val
-                elif group in ("xmp-pdf", "xmp_pdf") and not producer_xmppdf:
-                    producer_xmppdf = val
-                if not producer_pdf and producer_xmppdf:
-                    producer_pdf = producer_xmppdf
-                if not producer_xmppdf and producer_pdf:
-                    producer_xmppdf = producer_pdf
-
-            elif tag == "softwareagent" and not softwareagent:
-                softwareagent = val
-            elif tag == "application" and not application:
-                application = val
-            elif tag == "software" and not software:
-                software = val
-            elif tag == "creatortool" and not creatortool:
-                if looks_like_software(val):
-                    creatortool = val
-            elif tag == "xmptoolkit" and not xmptoolkit:
-                xmptoolkit = val
-
-        # Select tool based on a priority order
-        def choose_tool_for_create():
-            return producer_pdf or producer_xmppdf or application or software or creatortool or ""
-        def choose_tool_for_modify():
-            return softwareagent or producer_pdf or producer_xmppdf or application or software or creatortool or ""
-
-        # Find the first Create* and latest Modify*/MetadataDate timestamp
-        create_dt = None
-        modify_dt = None
-        for ln in lines:
-            m = date_re.match(ln)
-            if not m:
-                continue
-            tag = m.group("tag").strip().lower().replace(" ", "")
-            date_str = m.group("date")
-            base = date_str.replace("Z", "+00:00").split('+')[0].split('-')[0]
+            """Helper function to get created/modified timestamps from the file system."""
+            events = []
             try:
-                dt = datetime.strptime(base, "%Y:%m:%d %H:%M:%S")
-            except ValueError:
-                continue
-            if tag in {"createdate", "creationdate"} and create_dt is None:
-                create_dt = dt
-            elif tag in {"modifydate", "metadatadate"}:
-                if (modify_dt is None) or (dt > modify_dt):
-                    modify_dt = dt
+                stat = filepath.stat()
+                mtime = datetime.fromtimestamp(stat.st_mtime)
+                events.append((mtime, f"File System: {self._('col_modified')}"))
+                ctime = datetime.fromtimestamp(stat.st_ctime)
+                events.append((ctime, f"File System: {self._('col_created')}"))
+            except FileNotFoundError:
+                pass
+            return events
 
-        create_tool = choose_tool_for_create()
-        modify_tool = choose_tool_for_modify()
+    def _detect_tool_change_from_exif(self, exiftool_output: str):
+            """
+            Returns a dict with:
+              {
+                'changed': bool,
+                'create_tool': str, 'modify_tool': str,
+                'create_engine': str, 'modify_engine': str,
+                'modify_dt': datetime|None,
+                'reason': 'producer'|'software'|'engine'|'mixed'
+              }
+            Sets changed=True if the tool or XMP engine has changed between the first create and the last modify.
+            """
+            lines = exiftool_output.splitlines()
+            kv_re = re.compile(r'^\[(?P<group>[^\]]+)\]\s*(?P<tag>[\w\-/ ]+?)\s*:\s*(?P<value>.+)$')
+            date_re = re.compile(
+                r'^\[(?P<group>[^\]]+)\]\s*(?P<tag>[\w\-/ ]+?)\s*:\s*(?P<value>.*?)(?P<date>\d{4}:\d{2}:\d{2}\s\d{2}:\d{2}:\d{2}(?:[+\-]\d{2}:\d{2}|Z)?).*$'
+            )
 
-        # Heuristic: bind XMPToolkit as the engine for both create/modify if known.
-        # If there's a ModifyDate, assume the same toolkit was active at the last change.
-        if xmptoolkit:
-            if create_dt:
-                create_engine = xmptoolkit
-            if modify_dt:
-                modify_engine = xmptoolkit
+            # Collect relevant fields
+            producer_pdf = producer_xmppdf = ""
+            softwareagent = application = software = creatortool = ""
+            create_engine = modify_engine = ""  # XMPToolkit at create/modify (heuristic)
+            xmptoolkit = ""                    # general value
 
-        # Evaluate the change
-        changed_tool = bool(create_tool and modify_tool and create_tool.strip() != modify_tool.strip())
-        changed_engine = bool(create_engine and modify_engine and create_engine.strip() != modify_engine.strip())
+            software_tokens = re.compile(
+                r"(adobe|acrobat|indesign|illustrator|photoshop|framemaker|pdf|ghostscript|"
+                r"microsoft|word|excel|powerpoint|office|libreoffice|openoffice|prince|"
+                r"latex|tex|pdflatex|xetex|wkhtmltopdf|canva|nitro|foxit|pdf24|reportlab|"
+                r"tcpdf|fpdf|itext|cairo|skia|quartz|clibpdf|wkhtml|chrome|chromium|edge|safari|firefox)",
+                re.IGNORECASE
+            )
+            def looks_like_software(s: str) -> bool:
+                return bool(s and software_tokens.search(s))
 
-        reason = None
-        if changed_tool and changed_engine:
-            reason = "mixed"
-        elif changed_tool:
-            reason = "producer" if (producer_pdf or producer_xmppdf) else "software"
-        elif changed_engine:
-            reason = "engine"
-        else:
-            reason = ""
+            # First pass: collect key/value pairs
+            for ln in lines:
+                m = kv_re.match(ln)
+                if not m:
+                    continue
+                group = m.group("group").strip().lower()
+                tag   = m.group("tag").strip().lower().replace(" ", "")
+                val   = m.group("value").strip()
 
-        return {
-            "changed": bool(changed_tool or changed_engine),
-            "create_tool": create_tool, "modify_tool": modify_tool,
-            "create_engine": create_engine, "modify_engine": modify_engine,
-            "modify_dt": modify_dt,
-            "reason": reason
-        }
+                if tag == "producer":
+                    if group == "pdf" and not producer_pdf:
+                        producer_pdf = val
+                    elif group in ("xmp-pdf", "xmp_pdf") and not producer_xmppdf:
+                        producer_xmppdf = val
+                    if not producer_pdf and producer_xmppdf:
+                        producer_pdf = producer_xmppdf
+                    if not producer_xmppdf and producer_pdf:
+                        producer_xmppdf = producer_pdf
+
+                elif tag == "softwareagent" and not softwareagent:
+                    softwareagent = val
+                elif tag == "application" and not application:
+                    application = val
+                elif tag == "software" and not software:
+                    software = val
+                elif tag == "creatortool" and not creatortool:
+                    if looks_like_software(val):
+                        creatortool = val
+                elif tag == "xmptoolkit" and not xmptoolkit:
+                    xmptoolkit = val
+
+            # Select tool based on a priority order
+            def choose_tool_for_create():
+                return producer_pdf or producer_xmppdf or application or software or creatortool or ""
+            def choose_tool_for_modify():
+                return softwareagent or producer_pdf or producer_xmppdf or application or software or creatortool or ""
+
+            # Find the first Create* and latest Modify*/MetadataDate timestamp
+            create_dt = None
+            modify_dt = None
+            for ln in lines:
+                m = date_re.match(ln)
+                if not m:
+                    continue
+                tag = m.group("tag").strip().lower().replace(" ", "")
+                date_str = m.group("date")
+                base = date_str.replace("Z", "+00:00").split('+')[0].split('-')[0]
+                try:
+                    dt = datetime.strptime(base, "%Y:%m:%d %H:%M:%S")
+                except ValueError:
+                    continue
+                if tag in {"createdate", "creationdate"} and create_dt is None:
+                    create_dt = dt
+                elif tag in {"modifydate", "metadatadate"}:
+                    if (modify_dt is None) or (dt > modify_dt):
+                        modify_dt = dt
+
+            create_tool = choose_tool_for_create()
+            modify_tool = choose_tool_for_modify()
+
+            # Heuristic: bind XMPToolkit as the engine for both create/modify if known.
+            # If there's a ModifyDate, assume the same toolkit was active at the last change.
+            if xmptoolkit:
+                if create_dt:
+                    create_engine = xmptoolkit
+                if modify_dt:
+                    modify_engine = xmptoolkit
+
+            # Evaluate the change
+            changed_tool = bool(create_tool and modify_tool and create_tool.strip() != modify_tool.strip())
+            changed_engine = bool(create_engine and modify_engine and create_engine.strip() != modify_engine.strip())
+
+            reason = None
+            if changed_tool and changed_engine:
+                reason = "mixed"
+            elif changed_tool:
+                reason = "producer" if (producer_pdf or producer_xmppdf) else "software"
+            elif changed_engine:
+                reason = "engine"
+            else:
+                reason = ""
+
+            return {
+                "changed": bool(changed_tool or changed_engine),
+                "create_tool": create_tool, "modify_tool": modify_tool,
+                "create_engine": create_engine, "modify_engine": modify_engine,
+                "modify_dt": modify_dt,
+                "reason": reason
+            }        
+        
 
     def _parse_exiftool_timeline(self, exiftool_output):
-        """
-        Parses ExifTool output for timeline events with clear types (Created/Modified/Metadata),
-        the correct 'Tool' (SoftwareAgent/Producer/Application/Software; CreatorTool only if software),
-        and a separate 'XMP Engine' from XMPToolkit.
-        """
-        events = []
-        lines = exiftool_output.splitlines()
+            """
+            Parses ExifTool output for timeline events with clear types (Created/Modified/Metadata),
+            the correct 'Tool' (SoftwareAgent/Producer/Application/Software; CreatorTool only if software),
+            and a separate 'XMP Engine' from XMPToolkit.
+            """
+            events = []
+            lines = exiftool_output.splitlines()
 
-        # --- Collect relevant fields ---
-        kv_re = re.compile(r'^\[(?P<group>[^\]]+)\]\s*(?P<tag>[\w\-/ ]+?)\s*:\s*(?P<value>.+)$')
-        producer_pdf = ""       # [PDF] Producer
-        producer_xmppdf = ""    # [XMP-pdf] Producer
-        softwareagent = ""      # XMP History SoftwareAgent or [XMP-*] SoftwareAgent
-        application = ""        # Application
-        software = ""           # Software
-        creatortool = ""        # CreatorTool (only if it looks like software)
-        xmptoolkit = ""         # XMP Engine (e.g., Adobe XMP Core ...)
+            # --- Collect relevant fields ---
+            kv_re = re.compile(r'^\[(?P<group>[^\]]+)\]\s*(?P<tag>[\w\-/ ]+?)\s*:\s*(?P<value>.+)$')
+            producer_pdf = ""       # [PDF] Producer
+            producer_xmppdf = ""    # [XMP-pdf] Producer
+            softwareagent = ""      # XMP History SoftwareAgent or [XMP-*] SoftwareAgent
+            application = ""        # Application
+            software = ""           # Software
+            creatortool = ""        # CreatorTool (only if it looks like software)
+            xmptoolkit = ""         # XMP Engine (e.g., Adobe XMP Core ...)
 
-        def looks_like_software(s: str) -> bool:
-            return bool(s and self.software_tokens.search(s))
+            software_tokens = re.compile(
+                r"(adobe|acrobat|indesign|illustrator|photoshop|framemaker|pdf|ghostscript|"
+                r"microsoft|word|excel|powerpoint|office|libreoffice|openoffice|prince|"
+                r"latex|tex|pdflatex|xetex|wkhtmltopdf|canva|nitro|foxit|pdf24|reportlab|"
+                r"tcpdf|fpdf|itext|cairo|skia|quartz|clibpdf|wkhtml|chrome|chromium|edge|safari|firefox)",
+                re.IGNORECASE
+            )
+            def looks_like_software(s: str) -> bool:
+                return bool(s and software_tokens.search(s))
 
-        for ln in lines:
-            m = kv_re.match(ln)
-            if not m:
-                continue
-            group = m.group("group").strip().lower()   # e.g., "pdf", "xmp-pdf", "xmp_pdf"
-            tag   = m.group("tag").strip().lower().replace(" ", "")
-            val   = m.group("value").strip()
+            for ln in lines:
+                m = kv_re.match(ln)
+                if not m:
+                    continue
+                group = m.group("group").strip().lower()   # e.g., "pdf", "xmp-pdf", "xmp-xmp"
+                tag   = m.group("tag").strip().lower().replace(" ", "")
+                val   = m.group("value").strip()
 
-            if tag == "producer":
-                if group == "pdf" and not producer_pdf:
-                    producer_pdf = val
-                elif group in ("xmp-pdf", "xmp_pdf") and not producer_xmppdf:
-                    producer_xmppdf = val
-                if not producer_pdf and producer_xmppdf:
-                    producer_pdf = producer_xmppdf
-                if not producer_xmppdf and producer_pdf:
-                    producer_xmppdf = producer_pdf
+                if tag == "producer":
+                    if group == "pdf" and not producer_pdf:
+                        producer_pdf = val
+                    elif group in ("xmp-pdf", "xmp_pdf") and not producer_xmppdf:
+                        producer_xmppdf = val
+                    if not producer_pdf and producer_xmppdf:
+                        producer_pdf = producer_xmppdf
+                    if not producer_xmppdf and producer_pdf:
+                        producer_xmppdf = producer_pdf
 
-            elif tag == "softwareagent" and not softwareagent:
-                softwareagent = val
-            elif tag == "application" and not application:
-                application = val
-            elif tag == "software" and not software:
-                software = val
-            elif tag == "creatortool" and not creatortool:
-                if looks_like_software(val):
-                    creatortool = val
-            elif tag == "xmptoolkit" and not xmptoolkit:
-                xmptoolkit = val
-            # 'creator' is intentionally ignored as it's often a person's name
+                elif tag == "softwareagent" and not softwareagent:
+                    softwareagent = val
+                elif tag == "application" and not application:
+                    application = val
+                elif tag == "software" and not software:
+                    software = val
+                elif tag == "creatortool" and not creatortool:
+                    if looks_like_software(val):
+                        creatortool = val
+                elif tag == "xmptoolkit" and not xmptoolkit:
+                    xmptoolkit = val
+                # 'creator' is intentionally ignored as it's often a person's name
 
-        # Pre-select tools for display
-        tool_for_create = producer_pdf or producer_xmppdf or application or software or creatortool or ""
-        tool_for_modify = softwareagent or producer_pdf or producer_xmppdf or application or software or creatortool or ""
+            # Pre-select tools for display
+            tool_for_create = producer_pdf or producer_xmppdf or application or software or creatortool or ""
+            tool_for_modify = softwareagent or producer_pdf or producer_xmppdf or application or software or creatortool or ""
 
-        # --- XMP History (Action/Agent/Changed) ---
-        history_full_pattern = re.compile(r"\[XMP-xmpMM\]\s+History\s+:\s+(.*)")
-        for line in lines:
-            full_match = history_full_pattern.match(line)
-            if full_match:
-                history_str = full_match.group(1)
-                event_blocks = re.findall(r'\{([^}]+)\}', history_str)
-                for block in event_blocks:
-                    details = {}
-                    for pair in block.split(','):
-                        if '=' in pair:
-                            key, value = pair.split('=', 1)
-                            details[key.strip()] = value.strip()
-                    if 'When' in details:
-                        try:
-                            date_str = details['When']
-                            dt_obj = datetime.strptime(date_str.replace("Z", "+00:00").split('+')[0].split('.')[0], "%Y:%m:%d %H:%M:%S")
-                            action = details.get('Action', 'N/A')
-                            agent  = details.get('SoftwareAgent', '')
-                            changed = details.get('Changed', '')
+            # --- XMP History (Action/Agent/Changed) ---
+            history_full_pattern = re.compile(r"\[XMP-xmpMM\]\s+History\s+:\s+(.*)")
+            for line in lines:
+                full_match = history_full_pattern.match(line)
+                if full_match:
+                    history_str = full_match.group(1)
+                    event_blocks = re.findall(r'\{([^}]+)\}', history_str)
+                    for block in event_blocks:
+                        details = {}
+                        for pair in block.split(','):
+                            if '=' in pair:
+                                key, value = pair.split('=', 1)
+                                details[key.strip()] = value.strip()
+                        if 'When' in details:
+                            try:
+                                date_str = details['When']
+                                dt_obj = datetime.strptime(date_str.replace("Z", "+00:00").split('+')[0].split('.')[0], "%Y:%m:%d %H:%M:%S")
+                                action = details.get('Action', 'N/A')
+                                agent  = details.get('SoftwareAgent', '')
+                                changed = details.get('Changed', '')
 
-                            desc = [f"Action: {action}"]
-                            if agent:   desc.append(f"Agent: {agent}")
-                            if changed: desc.append(f"Changed: {changed}")
+                                desc = [f"Action: {action}"]
+                                if agent:   desc.append(f"Agent: {agent}")
+                                if changed: desc.append(f"Changed: {changed}")
 
-                            events.append((dt_obj, f"XMP History   - {' | '.join(desc)}"))
-                        except (ValueError, IndexError):
-                            pass
+                                events.append((dt_obj, f"XMP History   - {' | '.join(desc)}"))
+                            except (ValueError, IndexError):
+                                pass
 
-        # --- Generic Date Lines ---
-        date_re = re.compile(
-            r'^\[(?P<group>[^\]]+)\]\s*(?P<tag>[\w\-/ ]+?)\s*:\s*(?P<value>.*?)(?P<date>\d{4}:\d{2}:\d{2}\s\d{2}:\d{2}:\d{2}(?:[+\-]\d{2}:\d{2}|Z)?).*$'
-        )
-        def _ts_label(tag: str) -> str:
-            """Translates date tag names to more readable labels."""
-            t = tag.replace(" ", "").lower()
-            if self.language.get() == "da":
-                return {"createdate": "Oprettet",
-                        "creationdate": "Oprettet",
-                        "modifydate": "Ændret",
-                        "metadatadate": "Metadata"}.get(t, tag)
-            else:
-                return {"createdate": "Created",
-                        "creationdate": "Created",
-                        "modifydate": "Modified",
-                        "metadatadate": "Metadata"}.get(t, tag)
+            # --- Generic Date Lines ---
+            date_re = re.compile(
+                r'^\[(?P<group>[^\]]+)\]\s*(?P<tag>[\w\-/ ]+?)\s*:\s*(?P<value>.*?)(?P<date>\d{4}:\d{2}:\d{2}\s\d{2}:\d{2}:\d{2}(?:[+\-]\d{2}:\d{2}|Z)?).*$'
+            )
+            def _ts_label(tag: str) -> str:
+                """Translates date tag names to more readable labels."""
+                t = tag.replace(" ", "").lower()
+                if self.language.get() == "da":
+                    return {"createdate": "Oprettet",
+                            "creationdate": "Oprettet",
+                            "modifydate": "Ændret",
+                            "metadatadate": "Metadata"}.get(t, tag)
+                else:
+                    return {"createdate": "Created",
+                            "creationdate": "Created",
+                            "modifydate": "Modified",
+                            "metadatadate": "Metadata"}.get(t, tag)
 
-        for line in lines:
-            m = date_re.match(line)
-            if not m:
-                continue
-            date_str = m.group("date")
-            try:
-                base = date_str.replace("Z", "+00:00").split('+')[0].split('-')[0]
-                dt_obj = datetime.strptime(base, "%Y:%m:%d %H:%M:%S")
-            except ValueError:
-                continue
+            for line in lines:
+                m = date_re.match(line)
+                if not m:
+                    continue
+                date_str = m.group("date")
+                try:
+                    base = date_str.replace("Z", "+00:00").split('+')[0].split('-')[0]
+                    dt_obj = datetime.strptime(base, "%Y:%m:%d %H:%M:%S")
+                except ValueError:
+                    continue
 
-            group = m.group("group").strip()      # e.g., "PDF", "XMP-xmp"
-            tag   = m.group("tag").strip()        # e.g., "CreateDate", "ModifyDate"
-            tag_lc = tag.replace(" ", "").lower()
+                group = m.group("group").strip()      # e.g., "PDF", "XMP-xmp"
+                tag   = m.group("tag").strip()        # e.g., "CreateDate", "ModifyDate"
+                tag_lc = tag.replace(" ", "").lower()
 
-            label = _ts_label(tag)
-            source = group if group else "ExifTool"
+                label = _ts_label(tag)
+                source = group if group else "ExifTool"
 
-            # Assign the appropriate tool based on the date type
-            if tag_lc in {"createdate", "creationdate"}:
-                tool = tool_for_create
-            elif tag_lc in {"modifydate", "metadatadate"}:
-                tool = tool_for_modify
-            else:
-                tool = softwareagent or producer_pdf or producer_xmppdf or application or software or creatortool or ""
+                # Assign the appropriate tool based on the date type
+                if tag_lc in {"createdate", "creationdate"}:
+                    tool = tool_for_create
+                elif tag_lc in {"modifydate", "metadatadate"}:
+                    tool = tool_for_modify
+                else:
+                    tool = softwareagent or producer_pdf or producer_xmppdf or application or software or creatortool or ""
 
-            tool_part = f" | Tool: {tool}" if tool else ""
-            events.append((dt_obj, f"ExifTool ({source}) - {label}: {date_str}{tool_part}"))
+                tool_part = f" | Tool: {tool}" if tool else ""
+                events.append((dt_obj, f"ExifTool ({source}) - {label}: {date_str}{tool_part}"))
 
-        # --- Display XMP Engine separately (no date - add at first known time) ---
-        if xmptoolkit:
-            # find a suitable "anchor date": first Create or Modify if possible
-            anchor_dt = None
-            if events:
-                anchor_dt = sorted(events, key=lambda x: x[0])[0][0]
-            if not anchor_dt:
-                anchor_dt = datetime.now()
-            label_engine = "XMP Engine" if self.language.get() == "en" else "XMP-motor"
-            events.append((anchor_dt, f"{label_engine}: {xmptoolkit}"))
+            # --- Display XMP Engine separately (no date - add at first known time) ---
+            if xmptoolkit:
+                # find a suitable "anchor date": first Create or Modify if possible
+                anchor_dt = None
+                if events:
+                    anchor_dt = sorted(events, key=lambda x: x[0])[0][0]
+                if not anchor_dt:
+                    anchor_dt = datetime.now()
+                label_engine = "XMP Engine" if self.language.get() == "en" else "XMP-motor"
+                events.append((anchor_dt, f"{label_engine}: {xmptoolkit}"))
 
-        return events
-
+            return events
 
     def _detect_tool_change_from_exif_simple(self, exiftool_output: str):
         """
@@ -2478,22 +2477,22 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
 
         
     def _format_timedelta(self, delta):
-            """Formats a timedelta object into a readable string (e.g., (+1d 2h 3m 4.56s))."""
-            if not delta or delta.total_seconds() < 0.001:
-                return ""
+                """Formats a timedelta object into a readable string (e.g., (+1d 2h 3m 4.56s))."""
+                if not delta or delta.total_seconds() < 0.001:
+                    return ""
 
-            s = delta.total_seconds()
-            days, remainder = divmod(s, 86400)
-            hours, remainder = divmod(remainder, 3600)
-            minutes, seconds = divmod(remainder, 60)
-            
-            parts = []
-            if days > 0: parts.append(f"{int(days)}d")
-            if hours > 0: parts.append(f"{int(hours)}h")
-            if minutes > 0: parts.append(f"{int(minutes)}m")
-            if seconds > 0 or not parts: parts.append(f"{seconds:.2f}s")
+                s = delta.total_seconds()
+                days, remainder = divmod(s, 86400)
+                hours, remainder = divmod(remainder, 3600)
+                minutes, seconds = divmod(remainder, 60)
+                
+                parts = []
+                if days > 0: parts.append(f"{int(days)}d")
+                if hours > 0: parts.append(f"{int(hours)}h")
+                if minutes > 0: parts.append(f"{int(minutes)}m")
+                if seconds > 0 or not parts: parts.append(f"{seconds:.2f}s")
 
-            return f"(+{ ' '.join(parts) })"
+                return f"(+{ ' '.join(parts) })"
             
     def _parse_raw_content_timeline(self, file_content_string):
         """Helper function to parse timestamps directly from the file's raw content."""
@@ -2505,7 +2504,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
             label, date_str = match.groups()
             try:
                 dt_obj = datetime.strptime(date_str, "%Y%m%d%H%M%S")
-                display_line = f"Raw File: /{label}: {dt_obj.strftime('%d-%m-%Y %H:%M:%S')}"
+                display_line = f"Raw File: /{label}: {dt_obj.strftime('%Y-%m-%d %H:%M:%S')}"
                 events.append((dt_obj, display_line))
             except ValueError:
                 continue
@@ -2523,137 +2522,174 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
                 events.append((dt_obj, display_line))
             except (ValueError, IndexError):
                 continue
-        return events
+        return events        
+    def _clean_cell_value(self, value):
+        """Fjerner tegn, der kan give XLSX/XML-fejl (BOM/mojibake/kontroltegn)."""
+        import re
+        if value is None:
+            return ""
+        s = str(value)
+        # ulovlige XML-kontroltegn (tillader \t \n \r)
+        s = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F]", "", s)
+        # reelle BOM-tegn
+        if s.startswith("\ufeff") or s.startswith("\ufffe"):
+            s = s.lstrip("\ufeff\ufffe")
+        # typisk mojibake for BOM ('þÿ'/'ÿþ')
+        if s.startswith("þÿ") or s.startswith("ÿþ"):
+            s = s[2:]
+        # fjern NUL
+        s = s.replace("\x00", "")
+        return s
 
-    def generate_comprehensive_timeline(self, filepath, raw_file_content, exiftool_output, is_revision=False):
-        """Combines all sources into a timeline and inserts an event for tool changes."""
+    def generate_comprehensive_timeline(self, filepath, raw_file_content, exiftool_output):
+        """
+        Combines events from all sources, separating them into timezone-aware and naive lists.
+        """
         all_events = []
 
-        # 1) Get File System timestamps (only for original files, not revisions)
-        if not is_revision:
-            all_events.extend(self._get_filesystem_times(filepath))
-
-        # 2) Get timestamps from ExifTool (this is the most reliable for revisions)
+        # 1) Get File System, ExifTool, and Raw Content timestamps
+        all_events.extend(self._get_filesystem_times(filepath))
         all_events.extend(self._parse_exiftool_timeline(exiftool_output))
+        all_events.extend(self._parse_raw_content_timeline(raw_file_content))
 
-        # 3) Get timestamps from raw PDF/XMP content (ONLY for original files, not revisions)
-        if not is_revision:
-            all_events.extend(self._parse_raw_content_timeline(raw_file_content))
-
-        # 4) Add a special event if a tool change was detected
+        # 2) Add a special event if a tool change was detected
         try:
             info = self._detect_tool_change_from_exif(exiftool_output)
             if info.get("changed"):
-                # Use the modification date of the change if available, otherwise find the latest known date
                 when = info.get("modify_dt")
                 if not when and all_events:
-                    when = max(all_events, key=lambda x: x[0])[0]
+                    # Find a datetime object to anchor the event, prioritizing naive ones if present
+                    naive_dts = [e[0] for e in all_events if e[0].tzinfo is None]
+                    when = max(naive_dts) if naive_dts else max(e[0] for e in all_events)
                 if not when:
                     when = datetime.now()
-
+                
                 # Format the description of the tool change
                 if self.language.get() == "da":
                     label = "Værktøj skiftet"
-                    parts = []
-                    if info.get("create_tool") or info.get("modify_tool"):
-                        parts.append(f"{info.get('create_tool','?')} → {info.get('modify_tool','?')}")
-                    if info.get("reason") == "engine" and (info.get('create_engine') or info.get('modify_engine')):
+                    parts = [f"{info.get('create_tool','?')} → {info.get('modify_tool','?')}"]
+                    if info.get("reason") == "engine":
                         parts.append(f"(XMP-motor: {info.get('create_engine','?')} → {info.get('modify_engine','?')})")
-                    line = f"{label}: " + " ".join(parts) if parts else label
+                    line = f"{label}: " + " ".join(parts)
                 else:
                     label = "Tool changed"
-                    parts = []
-                    if info.get("create_tool") or info.get("modify_tool"):
-                        parts.append(f"{info.get('create_tool','?')} → {info.get('modify_tool','?')}")
-                    if info.get("reason") == "engine" and (info.get('create_engine') or info.get('modify_engine')):
+                    parts = [f"{info.get('create_tool','?')} → {info.get('modify_tool','?')}"]
+                    if info.get("reason") == "engine":
                         parts.append(f"(XMP engine: {info.get('create_engine','?')} → {info.get('modify_engine','?')})")
-                    line = f"{label}: " + " ".join(parts) if parts else label
-
+                    line = f"{label}: " + " ".join(parts)
                 all_events.append((when, line))
         except Exception:
             pass
 
-        # 5) Return all events, sorted chronologically
-        return sorted(all_events, key=lambda x: x[0])
+        # 3) Separate events into two lists based on timezone info
+        aware_events = []
+        naive_events = []
+        for dt_obj, description in all_events:
+            if dt_obj.tzinfo is not None:
+                aware_events.append((dt_obj, description))
+            else:
+                naive_events.append((dt_obj, description))
 
+        # 4) Sort each list independently
+        aware_events.sort(key=lambda x: x[0])
+        naive_events.sort(key=lambda x: x[0])
+
+        return {"aware": aware_events, "naive": naive_events}
         
     def show_timeline_popup(self):
-        """Displays a popup window with the detailed timeline for a selected file."""
+        """
+        Displays a popup with the timeline, separated into sections for events
+        with and without timezone information.
+        """
         selected_item = self.tree.selection()
         if not selected_item: return
         path_str = self.tree.item(selected_item[0], "values")[3]
         
-        events = self.timeline_data.get(path_str)
-        if not events:
+        timeline_data = self.timeline_data.get(path_str)
+        
+        if not timeline_data or (not timeline_data.get("aware") and not timeline_data.get("naive")):
             messagebox.showinfo(self._("no_exif_output_title"), self._("timeline_no_data"), parent=self.root)
             return
 
-        # --- Popup Window Setup ---
         popup = Toplevel(self.root)
         popup.title(f"Timeline for {os.path.basename(path_str)}")
         popup.geometry("950x700")
         popup.transient(self.root)
 
-        # --- Text Widget with Scrollbars ---
         text_frame = ttk.Frame(popup, padding=10)
         text_frame.pack(fill="both", expand=True)
-
         scrollbar = ttk.Scrollbar(text_frame)
         scrollbar.pack(side="right", fill="y")
-        
         text_widget = tk.Text(text_frame, wrap="none", font=("Courier New", 10), yscrollcommand=scrollbar.set, borderwidth=0, highlightthickness=0)
         text_widget.pack(side="left", expand=True, fill="both")
-        
         x_scrollbar = ttk.Scrollbar(text_frame, orient="horizontal", command=text_widget.xview)
         x_scrollbar.pack(side="bottom", fill="x")
         text_widget.config(xscrollcommand=x_scrollbar.set)
-        
         scrollbar.config(command=text_widget.yview)
         
-        # --- Configure Text Tags for Formatting ---
         text_widget.tag_configure("date_header", font=("Courier New", 11, "bold", "underline"), spacing1=10, spacing3=5)
         text_widget.tag_configure("time", font=("Courier New", 10, "bold"))
         text_widget.tag_configure("delta", foreground="#0078D7")
+        text_widget.tag_configure("section_header", font=("Courier New", 12, "bold"), spacing1=15, spacing3=10, justify='center')
+        text_widget.tag_configure("source_fs", foreground="#008000")
+        text_widget.tag_configure("source_exif", foreground="#555555")
+        text_widget.tag_configure("source_raw", foreground="#800080")
+        text_widget.tag_configure("source_xmp", foreground="#C00000")
+
+        aware_events = timeline_data.get("aware", [])
+        naive_events = timeline_data.get("naive", [])
         
-        text_widget.tag_configure("source_fs", foreground="#008000") # Green for filesystem
-        text_widget.tag_configure("source_exif", foreground="#555555") # Gray for exiftool
-        text_widget.tag_configure("source_raw", foreground="#800080") # Purple for raw content
-        text_widget.tag_configure("source_xmp", foreground="#C00000") # Red for XMP history
+        # --- Part 1: Display Timezone-Aware Events ---
+        if aware_events:
+            last_date = None
+            last_dt_obj = None
+            for dt_obj, description in aware_events:
+                local_dt = dt_obj.astimezone()
+                if local_dt.date() != last_date:
+                    if last_date is not None: text_widget.insert("end", "\n")
+                    text_widget.insert("end", f"--- {local_dt.strftime('%d-%m-%Y')} ---\n", "date_header")
+                    last_date = local_dt.date()
+                delta_str = ""
+                if last_dt_obj:
+                    delta = local_dt - last_dt_obj
+                    delta_str = self._format_timedelta(delta)
+                source_tag = "source_exif"
+                if description.startswith("FS"): source_tag = "source_fs"
+                time_str = local_dt.strftime('%H:%M:%S %z')
+                text_widget.insert("end", f"{time_str:<15}", "time")
+                text_widget.insert("end", f" | {description:<60}", source_tag)
+                text_widget.insert("end", f" | {delta_str}\n", "delta")
+                last_dt_obj = local_dt
 
-        # --- Populate the Timeline View ---
-        last_date = None
-        last_dt_obj = None
-
-        for dt_obj, description in events:
-            # Insert a date header when the day changes
-            if dt_obj.date() != last_date:
-                if last_date is not None: text_widget.insert("end", "\n")
-                text_widget.insert("end", f"--- {dt_obj.strftime('%d-%m-%Y')} ---\n", "date_header")
-                last_date = dt_obj.date()
-
-            # Calculate the time delta from the previous event
-            delta_str = ""
-            if last_dt_obj:
-                delta = dt_obj - last_dt_obj
-                delta_str = self._format_timedelta(delta)
-
-            # Assign a color tag based on the event source
-            source_tag = "source_exif"
-            if description.startswith("File System"): source_tag = "source_fs"
-            elif description.startswith("Raw File"): source_tag = "source_raw"
-            elif description.startswith("XMP History"): source_tag = "source_xmp"
-                
-            # Insert the formatted line
-            text_widget.insert("end", f"{dt_obj.strftime('%H:%M:%S')} ", "time")
-            text_widget.insert("end", f"| {description:<80} ", source_tag)
-            text_widget.insert("end", f"{delta_str}\n", "delta")
+        # --- Part 2: Display Timezone-Naive Events ---
+        if naive_events:
+            header_text = ("\n--- Tider uden tidszoneinformation ---\n" if self.language.get() == "da" 
+                           else "\n--- Times without timezone information ---\n")
+            text_widget.insert("end", header_text, "section_header")
             
-            last_dt_obj = dt_obj
+            last_date = None
+            last_dt_obj = None
+            for dt_obj, description in naive_events:
+                if dt_obj.date() != last_date:
+                    if last_date is not None: text_widget.insert("end", "\n")
+                    text_widget.insert("end", f"--- {dt_obj.strftime('%d-%m-%Y')} ---\n", "date_header")
+                    last_date = dt_obj.date()
+                delta_str = ""
+                if last_dt_obj:
+                    delta = dt_obj - last_dt_obj
+                    delta_str = self._format_timedelta(delta)
+                source_tag = "source_exif"
+                if description.startswith("File System"): source_tag = "source_fs"
+                elif description.startswith("Raw File"): source_tag = "source_raw"
+                elif description.startswith("XMP History"): source_tag = "source_xmp"
+                time_str = dt_obj.strftime('%H:%M:%S')
+                text_widget.insert("end", f"{time_str:<15}", "time")
+                text_widget.insert("end", f" | {description:<60}", source_tag)
+                text_widget.insert("end", f" | {delta_str}\n", "delta")
+                last_dt_obj = dt_obj
         
-        # Make the content copyable
         self._make_text_copyable(text_widget)
-        
-    @staticmethod
+ 
     def decompress_stream(b):
         """Attempts to decompress a PDF stream using common filters."""
         for fn in (zlib.decompress, lambda d: base64.a85decode(re.sub(rb"\s", b"", d), adobe=True), lambda d: binascii.unhexlify(re.sub(rb"\s|>", b"", d))):
@@ -2825,6 +2861,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         
         return indicators
     
+ 
 
     def get_flag(self, indicators_dict, is_revision, parent_id=None):
         """
@@ -2996,7 +3033,112 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         # --- Close Button ---
         close_button = ttk.Button(outer_frame, text=self._("close_button_text"), command=manual_popup.destroy)
         close_button.grid(row=1, column=0, pady=(10, 0))
+    def _process_single_file(self, fp, scan_root_folder):
+        """
+        Processes a single PDF file, submitting copy jobs to a dedicated thread pool.
+        """
+        try:
+            self.validate_pdf_file(fp)
 
+            raw = fp.read_bytes()
+            doc = fitz.open(stream=raw, filetype="pdf")
+            txt = self.extract_text(raw)
+            indicators = self.detect_indicators(fp, txt, doc)
+            md5_hash = md5_file(fp)
+            exif = self.exiftool_output(fp, detailed=True)
+
+            invalid_xref_dir = scan_root_folder / "Invalid XREF"
+            # --- Submit invalid XREF originals to the copy pool ---
+            if "Warning" in exif and "Invalid xref table" in exif:
+                dest_path = invalid_xref_dir / fp.name
+                if self.copy_executor:
+                    self.copy_executor.submit(self._perform_copy, fp, dest_path)
+
+            tool_change_info = self._detect_tool_change_from_exif(exif)
+            if tool_change_info.get("changed"):
+                indicators['ToolChange'] = {}
+            original_timeline = self.generate_comprehensive_timeline(fp, txt, exif)
+            potential_revisions = self.extract_revisions(raw, fp)
+
+            doc.close()
+            self._add_layer_indicators(raw, fp, indicators)
+
+            valid_revision_results = []
+            for rev_path, basefile, rev_raw in potential_revisions:
+                tmp_path = None
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+                        tmp_file.write(rev_raw)
+                        tmp_path = Path(tmp_file.name)
+                    
+                    rev_exif = self.exiftool_output(tmp_path, detailed=True)
+
+                    # --- Submit invalid XREF revisions to the copy pool ---
+                    if "Warning" in rev_exif and "Invalid xref table" in rev_exif:
+                        logging.info(f"Submitting invalid XREF revision for {basefile} to be copied.")
+                        dest_path = invalid_xref_dir / rev_path.name
+                        rev_bytes_from_temp = tmp_path.read_bytes()
+                        if self.copy_executor:
+                           self.copy_executor.submit(self._perform_copy, rev_bytes_from_temp, dest_path)
+                        continue 
+
+                    rev_path.parent.mkdir(exist_ok=True)
+                    rev_path.write_bytes(rev_raw)
+                    
+                    rev_md5 = hashlib.md5(rev_raw).hexdigest()
+                    rev_txt = self.extract_text(rev_raw)
+                    revision_timeline = self.generate_comprehensive_timeline(rev_path, rev_txt, rev_exif)
+
+                    is_identical = False
+                    try:
+                        with fitz.open(fp) as doc_orig, fitz.open(rev_path) as doc_rev:
+                            pages_to_compare = min(doc_orig.page_count, doc_rev.page_count, PDFReconConfig.VISUAL_DIFF_PAGE_LIMIT)
+                            if pages_to_compare > 0:
+                                is_identical = True
+                                for i in range(pages_to_compare):
+                                    page_orig, page_rev = doc_orig.load_page(i), doc_rev.load_page(i)
+                                    if page_orig.rect != page_rev.rect: is_identical = False; break
+                                    pix_orig, pix_rev = page_orig.get_pixmap(dpi=96), page_rev.get_pixmap(dpi=96)
+                                    img_orig = Image.frombytes("RGB", [pix_orig.width, pix_orig.height], pix_orig.samples)
+                                    img_rev = Image.frombytes("RGB", [pix_rev.width, pix_rev.height], pix_rev.samples)
+                                    if ImageChops.difference(img_orig, img_rev).getbbox() is not None: is_identical = False; break
+                    except Exception as e:
+                        logging.warning(f"Could not visually compare {rev_path.name}, keeping it. Error: {e}")
+                    
+                    revision_row_data = { 
+                        "path": rev_path, "indicator_keys": {"Revision": {}}, "md5": rev_md5, "exif": rev_exif, 
+                        "is_revision": True, "timeline": revision_timeline, "original_path": fp, 
+                        "is_identical": is_identical, "status": "success"
+                    }
+                    valid_revision_results.append(revision_row_data)
+                finally:
+                    if tmp_path and tmp_path.exists():
+                        os.remove(tmp_path)
+
+            if valid_revision_results:
+                indicators['HasRevisions'] = {'count': len(valid_revision_results)}
+
+            original_row_data = {
+                "path": fp, "indicator_keys": indicators, "md5": md5_hash, 
+                "exif": exif, "is_revision": False, "timeline": original_timeline, "status": "success"
+            }
+            
+            results = [original_row_data] + valid_revision_results
+            return results
+
+        except PDFTooLargeError as e:
+            logging.warning(f"Skipping large file {fp.name}: {e}")
+            return [{"path": fp, "status": "error", "error_type": "file_too_large", "error_message": str(e)}]
+        except PDFEncryptedError as e:
+            logging.warning(f"Skipping encrypted file {fp.name}: {e}")
+            return [{"path": fp, "status": "error", "error_type": "file_encrypted", "error_message": str(e)}]
+        except PDFCorruptionError as e:
+            logging.warning(f"Skipping corrupt file {fp.name}: {e}")
+            return [{"path": fp, "status": "error", "error_type": "file_corrupt", "error_message": str(e)}]
+        except Exception as e:
+            logging.exception(f"Unexpected error processing file {fp.name}")
+            return [{"path": fp, "status": "error", "error_type": "processing_error", "error_message": str(e)}]
+            
     def _prompt_and_export(self, file_format):
         """Prompts the user for a file path and calls the relevant export function."""
         if not self.report_data:
@@ -3026,58 +3168,83 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
             messagebox.showerror(self._("excel_save_error_title"), self._("excel_save_error_message").format(e=e))
 
     def _export_to_excel(self, file_path):
-        """Exports the displayed data to an Excel file."""
+        """Eksporterer de viste data (self.report_data) til XLSX med rensede værdier."""
+        import logging
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
+
         logging.info(f"Exporting report to Excel file: {file_path}")
+
         wb = Workbook()
         ws = wb.active
         ws.title = "PDFRecon Results"
-        
-        # --- Create Headers ---
+
+        # --- Kolonneoverskrifter ---
         headers = [self._(key) for key in self.columns_keys]
-        headers[8] = f"{self._('col_indicators')} {self._('excel_indicators_overview')}"
+        # Hvis din 9. kolonne er indikator-oversigten, tilføj label som i UI:
+        if len(headers) >= 9:
+            headers[8] = f"{self._('col_indicators')} {self._('excel_indicators_overview')}"
 
         for col_num, header in enumerate(headers, 1):
-            cell = ws.cell(row=1, column=col_num, value=header)
+            cell = ws.cell(row=1, column=col_num, value=self._clean_cell_value(header))
             cell.font = Font(bold=True)
             cell.fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
             cell.alignment = Alignment(wrap_text=True, horizontal="center", vertical="center")
-        
+
+        # Hjælper til at samle indikator-detaljer til XLSX
         def _indicators_for_path(path_str: str) -> str:
-            """Helper function to get a formatted string of indicators for a given path."""
-            rec = next((d for d in self.all_scan_data if str(d.get('path')) == path_str), None)
-            if not rec: return ""
-            indicator_dict = rec.get('indicator_keys') or {}
-            if not indicator_dict: return ""
-            
+            rec = next((d for d in getattr(self, "all_scan_data", []) if str(d.get("path")) == str(path_str)), None)
+            if not rec:
+                return ""
+            indicator_dict = rec.get("indicator_keys") or {}
+            if not indicator_dict:
+                return ""
             lines = [self._format_indicator_details(key, details) for key, details in indicator_dict.items()]
             return "• " + "\n• ".join(lines)
 
-        # --- Write Data Rows ---
-        for row_idx, row_data in enumerate(self.report_data, start=2):
-            path = row_data[3]
-            exif_text = self.exif_outputs.get(path, "")
-            row_data_xlsx = row_data[:]
-            row_data_xlsx[7] = exif_text # Replace placeholder with full EXIF text
-            
-            # Replace placeholder with full indicators list
-            indicators_full = _indicators_for_path(path)
-            if indicators_full:
-                row_data_xlsx[8] = indicators_full
+        # --- Data-rækker ---
+        for row_idx, row_data in enumerate(getattr(self, "report_data", []), start=2):
+            # antag at stien ligger i kolonne 4 (index 3) som i UI
+            try:
+                path = row_data[3]
+            except Exception:
+                path = ""
 
-            for col_idx, value in enumerate(row_data_xlsx, start=1):
-                cell = ws.cell(row=row_idx, column=col_idx, value=str(value))
-                cell.alignment = Alignment(wrap_text=True, vertical="top")
-        
-        # --- Final Touches ---
-        ws.freeze_panes = "A2"
+            # tilføj fuld EXIF-tekst (map fra path)
+            exif_text = ""
+            try:
+                exif_text = self.exif_outputs.get(path, "")
+            except Exception:
+                pass
+
+            # lav en kopi, så vi kan erstatte bestemte felter
+            row_out = list(row_data)
+
+            # skriv EXIF i kolonne 8 (index 7) hvis den findes
+            if len(row_out) >= 8:
+                row_out[7] = exif_text
+
+            # skriv indikator-oversigt i kolonne 9 (index 8) hvis den findes
+            if len(row_out) >= 9:
+                ind_full = _indicators_for_path(path)
+                if ind_full:
+                    row_out[8] = ind_full
+
+            # rens og skriv celler
+            for col_idx, value in enumerate(row_out, start=1):
+                ws.cell(row=row_idx, column=col_idx, value=self._clean_cell_value(value))
+
+        # bredder (simpel auto-fit)
         for col in ws.columns:
-            # Auto-adjust column width (with a max limit)
-            max_len = max(len(str(cell.value)) if cell.value else 0 for cell in col)
-            ws.column_dimensions[col[0].column_letter].width = min(max_len + 2, 50)
-        
-        wb.save(file_path)
-        logging.info(f"Excel report saved successfully to {file_path}")
+            try:
+                max_len = max(len(str(c.value)) if c.value else 0 for c in col)
+                ws.column_dimensions[col[0].column_letter].width = min(max_len + 2, 50)
+            except Exception:
+                pass
 
+        wb.save(file_path)
+
+    
     def _export_to_csv(self, file_path):
         """Exports the displayed data to a CSV file."""
         headers = [self._(key) for key in self.columns_keys]
