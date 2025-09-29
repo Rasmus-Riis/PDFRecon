@@ -10,11 +10,15 @@ from pathlib import Path
 from datetime import datetime, timezone
 import threading
 import queue
+import difflib
+import base64
+import binascii
 import webbrowser
 import sys
 import logging
 import tempfile
 import multiprocessing
+import pickle
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import configparser
 import csv
@@ -135,7 +139,7 @@ def safe_stat_times(path: Path):
 class PDFReconApp:
     def __init__(self, root):
         # --- Application Configuration ---
-        self.app_version = "16.4.0"
+        self.app_version = "16.5.0" # <-- CHANGE THIS LINE
         self.config_path = self._resolve_path("config.ini", base_is_parent=True)
         self._load_or_create_config()
         
@@ -160,6 +164,7 @@ class PDFReconApp:
         # --- Application Data ---
         self.report_data = [] 
         self.all_scan_data = []
+        self.last_scan_folder = None 
         self.exif_outputs = {}
         self.timeline_data = {}
         self.path_to_id = {}
@@ -208,176 +213,176 @@ class PDFReconApp:
         
         # --- Manual Texts ---
         MANUAL_DA = f"""
-# PDFRecon - Manual
+    # PDFRecon - Manual
 
-## Introduktion
-PDFRecon er et værktøj designet til at assistere i efterforskningen af PDF-filer. Programmet analyserer filer for en række tekniske indikatorer, der kan afsløre ændring, redigering eller skjult indhold. Resultaterne præsenteres i en overskuelig tabel, der kan eksporteres til Excel for videre dokumentation.
+    ## Introduktion
+    PDFRecon er et værktøj designet til at assistere i efterforskningen af PDF-filer. Programmet analyserer filer for en række tekniske indikatorer, der kan afsløre ændring, redigering eller skjult indhold. Resultaterne præsenteres i en overskuelig tabel, der kan eksporteres til Excel for videre dokumentation.
 
-## Vigtig bemærkning om tidsstempler
-Kolonnerne 'Fil oprettet' og 'Fil sidst ændret' viser tidsstempler fra computerens filsystem. Vær opmærksom på, at disse tidsstempler kan være upålidelige. En simpel handling som at kopiere en fil fra én placering til en anden vil typisk opdatere disse datoer til tidspunktet for kopieringen. For en mere pålidelig tidslinje, brug funktionen 'Vis Tidslinje', som er baseret på metadata inde i selve filen.
+    ## Vigtig bemærkning om tidsstempler
+    Kolonnerne 'Fil oprettet' og 'Fil sidst ændret' viser tidsstempler fra computerens filsystem. Vær opmærksom på, at disse tidsstempler kan være upålidelige. En simpel handling som at kopiere en fil fra én placering til en anden vil typisk opdatere disse datoer til tidspunktet for kopieringen. For en mere pålidelig tidslinje, brug funktionen 'Vis Tidslinje', som er baseret på metadata inde i selve filen.
 
-## Klassificeringssystem
-Programmet klassificerer hver fil baseret på de fundne indikatorer. Dette gøres for hurtigt at kunne prioritere, hvilke filer der kræver nærmere undersøgelse.
+    ## Klassificeringssystem
+    Programmet klassificerer hver fil baseret på de fundne indikatorer. Dette gøres for hurtigt at kunne prioritere, hvilke filer der kræver nærmere undersøgelse.
 
-<red><b>JA (Høj Risiko):</b></red> Tildeles filer, hvor der er fundet stærke beviser for ændring. Disse filer bør altid undersøges grundigt. Indikatorer, der udløser dette flag, er typisk svære at forfalske og peger direkte på en ændring i filens indhold eller struktur.
+    <red><b>JA (Høj Risiko):</b></red> Tildeles filer, hvor der er fundet stærke beviser for ændring. Disse filer bør altid undersøges grundigt. Indikatorer, der udløser dette flag, er typisk svære at forfalske og peger direkte på en ændring i filens indhold eller struktur.
 
-<yellow><b>Indikationer Fundet (Mellem Risiko):</b></yellow> Tildeles filer, hvor der er fundet en eller flere tekniske spor, der afviger fra en standard, 'ren' PDF. Disse spor er ikke i sig selv et endegyldigt bevis på ændring, men de viser, at filen har en historik eller struktur, der berettiger et nærmere kig.
+    <yellow><b>Indikationer Fundet (Mellem Risiko):</b></yellow> Tildeles filer, hvor der er fundet en eller flere tekniske spor, der afviger fra en standard, 'ren' PDF. Disse spor er ikke i sig selv et endegyldigt bevis på ændring, men de viser, at filen har en historik eller struktur, der berettiger et nærmere kig.
 
-<green><b>IKKE PÅVIST (Lav Risiko):</b></green> Tildeles filer, hvor programmet ikke har fundet nogen af de kendte indikatorer. Dette betyder ikke, at filen med 100% sikkerhed er uændret, men at den ikke udviser de typiske tegn på ændring, som værktøjet leder efter.
+    <green><b>IKKE PÅVIST (Lav Risiko):</b></green> Tildeles filer, hvor programmet ikke har fundet nogen af de kendte indikatorer. Dette betyder ikke, at filen med 100% sikkerhed er uændret, men at den ikke udviser de typiske tegn på ændring, som værktøjet leder efter.
 
-## Forklaring af Indikatorer
-Nedenfor er en detaljeret forklaring af hver indikator, som PDFRecon leder efter.
+    ## Forklaring af Indikatorer
+    Nedenfor er en detaljeret forklaring af hver indikator, som PDFRecon leder efter.
 
-<b>Has Revisions</b>
-*<i>Ændret:</i>* <red>JA</red>
-• Hvad det betyder: PDF-standarden tillader, at man gemmer ændringer oven i en eksisterende fil (inkrementel lagring). Dette efterlader den oprindelige version af dokumentet intakt inde i filen. PDFRecon har fundet og udtrukket en eller flere af disse tidligere versioner. Dette er et utvetydigt bevis på, at filen er blevet ændret efter sin oprindelige oprettelse.
+    <b>Has Revisions</b>
+    *<i>Ændret:</i>* <red>JA</red>
+    • Hvad det betyder: PDF-standarden tillader, at man gemmer ændringer oven i en eksisterende fil (inkrementel lagring). Dette efterlader den oprindelige version af dokumentet intakt inde i filen. PDFRecon har fundet og udtrukket en eller flere af disse tidligere versioner. Dette er et utvetydigt bevis på, at filen er blevet ændret efter sin oprindelige oprettelse.
 
-<b>TouchUp_TextEdit</b>
-*<i>Ændret:</i>* <red>JA</red>
-• Hvad det betyder: Dette er et specifikt metadata-flag, som Adobe Acrobat efterlader, når en bruger manuelt har redigeret tekst direkte i PDF-dokumentet. Det er et meget stærkt bevis på direkte ændring af indholdet.
+    <b>TouchUp_TextEdit</b>
+    *<i>Ændret:</i>* <red>JA</red>
+    • Hvad det betyder: Dette er et specifikt metadata-flag, som Adobe Acrobat efterlader, når en bruger manuelt har redigeret tekst direkte i PDF-dokumentet. Det er et meget stærkt bevis på direkte ændring af indholdet.
 
-<b>Multiple Font Subsets</b>
-*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: Når tekst tilføjes til en PDF, indlejres ofte kun de tegn fra en skrifttype, der rent faktisk bruges (et 'subset'). Hvis en fil redigeres med et andet program, der ikke har adgang til præcis samme skrifttype, kan der opstå et nyt subset af den samme grundlæggende skrifttype. At finde flere subsets (f.eks. Multiple Font Subsets: 'Arial':F1+ArialMT', 'F2+Arial-BoldMT er en stærk indikation på, at tekst er blevet tilføjet eller ændret på forskellige tidspunkter eller med forskellige værktøjer.
+    <b>Multiple Font Subsets</b>
+    *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+    • Hvad det betyder: Når tekst tilføjes til en PDF, indlejres ofte kun de tegn fra en skrifttype, der rent faktisk bruges (et 'subset'). Hvis en fil redigeres med et andet program, der ikke har adgang til præcis samme skrifttype, kan der opstå et nyt subset af den samme grundlæggende skrifttype. At finde flere subsets (f.eks. Multiple Font Subsets: 'Arial':F1+ArialMT', 'F2+Arial-BoldMT er en stærk indikation på, at tekst er blevet tilføjet eller ændret på forskellige tidspunkter eller med forskellige værktøjer.
 
-<b>Multiple Creators / Producers</b>
-*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: PDF-filer indeholder metadata om, hvilket program der har oprettet (/Creator) og genereret (/Producer) filen. Hvis der findes flere forskellige navne i disse felter (f.eks. Multiple Creators (Fundet 2): "Microsoft Word", "Adobe Acrobat Pro"), indikerer det, at filen er blevet behandlet af mere end ét program. Dette sker typisk, når en fil oprettes i ét program og derefter redigeres i et andet.
+    <b>Multiple Creators / Producers</b>
+    *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+    • Hvad det betyder: PDF-filer indeholder metadata om, hvilket program der har oprettet (/Creator) og genereret (/Producer) filen. Hvis der findes flere forskellige navne i disse felter (f.eks. Multiple Creators (Fundet 2): "Microsoft Word", "Adobe Acrobat Pro"), indikerer det, at filen er blevet behandlet af mere end ét program. Dette sker typisk, når en fil oprettes i ét program og derefter redigeres i et andet.
 
-<b>xmpMM:History / DerivedFrom / DocumentAncestors</b>
-*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: Dette er forskellige typer af XMP-metadata, som gemmer information om filens historik. De kan indeholde tidsstempler for, hvornår filen er gemt, ID'er fra tidligere versioner, og hvilket software der er brugt. Fund af disse felter beviser, at filen har en redigeringshistorik.
+    <b>xmpMM:History / DerivedFrom / DocumentAncestors</b>
+    *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+    • Hvad det betyder: Dette er forskellige typer af XMP-metadata, som gemmer information om filens historik. De kan indeholde tidsstempler for, hvornår filen er gemt, ID'er fra tidligere versioner, og hvilket software der er brugt. Fund af disse felter beviser, at filen har en redigeringshistorik.
 
-<b>Multiple DocumentID / Different InstanceID</b>
-*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: Hver PDF har et unikt DocumentID, der ideelt set er det samme for alle versioner. InstanceID ændres derimod for hver gang, filen gemmes. Hvis der findes flere forskellige DocumentID'er (f.eks. Trailer ID Changed: Fra [ID1...] til [ID2...]), eller hvis der er et unormalt højt antal InstanceID'er, peger det på en kompleks redigeringshistorik, potentielt hvor dele fra forskellige dokumenter er blevet kombineret.
+    <b>Multiple DocumentID / Different InstanceID</b>
+    *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+    • Hvad det betyder: Hver PDF har et unikt DocumentID, der ideelt set er det samme for alle versioner. InstanceID ændres derimod for hver gang, filen gemmes. Hvis der findes flere forskellige DocumentID'er (f.eks. Trailer ID Changed: Fra [ID1...] til [ID2...]), eller hvis der er et unormalt højt antal InstanceID'er, peger det på en kompleks redigeringshistorik, potentielt hvor dele fra forskellige dokumenter er blevet kombineret.
 
-<b>Multiple startxref</b>
-*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: 'startxref' er et nøgleord, der fortæller en PDF-læser, hvor den skal begynde at læse filens struktur. En standard, uændret fil har kun ét. Hvis der er flere, er det et tegn på, at der er foretaget inkrementelle ændringer (se 'Has Revisions').
+    <b>Multiple startxref</b>
+    *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+    • Hvad det betyder: 'startxref' er et nøgleord, der fortæller en PDF-læser, hvor den skal begynde at læse filens struktur. En standard, uændret fil har kun ét. Hvis der er flere, er det et tegn på, at der er foretaget inkrementelle ændringer (se 'Has Revisions').
 
-<b>Objekter med generation > 0</b>
-*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: Hvert objekt i en PDF-fil har et versionsnummer (generation). I en original, uændret fil er dette nummer typisk 0 for alle objekter. Hvis der findes objekter med et højere generationsnummer (f.eks. '12 1 obj'), er det et tegn på, at objektet er blevet overskrevet i en senere, inkrementel gemning. Dette indikerer, at filen er blevet opdateret.
+    <b>Objekter med generation > 0</b>
+    *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+    • Hvad det betyder: Hvert objekt i en PDF-fil har et versionsnummer (generation). I en original, uændret fil er dette nummer typisk 0 for alle objekter. Hvis der findes objekter med et højere generationsnummer (f.eks. '12 1 obj'), er det et tegn på, at objektet er blevet overskrevet i en senere, inkrementel gemning. Dette indikerer, at filen er blevet opdateret.
 
-<b>Flere Lag End Sider</b>
-*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: Dokumentets struktur indeholder flere lag (Optional Content Groups) end der er sider. Hvert lag er en container for indhold, som kan vises eller skjules. Selvom det er teknisk muligt, er det usædvanligt at have flere lag end sider. Det kan indikere et komplekst dokument, en fil der er blevet kraftigt redigeret, eller potentielt at information er skjult på lag, som ikke er knyttet til synligt indhold. Filer med denne indikation bør undersøges nærmere i en PDF-læser, der understøtter lag-funktionalitet.
+    <b>Flere Lag End Sider</b>
+    *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+    • Hvad det betyder: Dokumentets struktur indeholder flere lag (Optional Content Groups) end der er sider. Hvert lag er en container for indhold, som kan vises eller skjules. Selvom det er teknisk muligt, er det usædvanligt at have flere lag end sider. Det kan indikere et komplekst dokument, en fil der er blevet kraftigt redigeret, eller potentielt at information er skjult på lag, som ikke er knyttet til synligt indhold. Filer med denne indikation bør undersøges nærmere i en PDF-læser, der understøtter lag-funktionalitet.
 
-<b>Linearized / Linearized + updated</b>
-*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: En "linearized" PDF er optimeret til hurtig webvisning. Hvis en sådan fil efterfølgende er blevet ændret (updated), vil PDFRecon markere det. Det kan indikere, at et ellers færdigt dokument er blevet redigeret senere.
+    <b>Linearized / Linearized + updated</b>
+    *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+    • Hvad det betyder: En "linearized" PDF er optimeret til hurtig webvisning. Hvis en sådan fil efterfølgende er blevet ændret (updated), vil PDFRecon markere det. Det kan indikere, at et ellers færdigt dokument er blevet redigeret senere.
 
-<b>Has PieceInfo</b>
-*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: Nogle programmer, især fra Adobe, gemmer ekstra tekniske spor (PieceInfo) om ændringer eller versioner. Det kan afsløre, at filen har været behandlet i bestemte værktøjer som f.eks. Illustrator.
+    <b>Has PieceInfo</b>
+    *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+    • Hvad det betyder: Nogle programmer, især fra Adobe, gemmer ekstra tekniske spor (PieceInfo) om ændringer eller versioner. Det kan afsløre, at filen har været behandlet i bestemte værktøjer som f.eks. Illustrator.
 
-<b>Has Redactions</b>
-*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: Dokumentet indeholder tekniske felter for sløring/sletning af indhold. I nogle tilfælde kan den skjulte tekst stadig findes i filen. Derfor bør redaktioner altid vurderes kritisk.
+    <b>Has Redactions</b>
+    *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+    • Hvad det betyder: Dokumentet indeholder tekniske felter for sløring/sletning af indhold. I nogle tilfælde kan den skjulte tekst stadig findes i filen. Derfor bør redaktioner altid vurderes kritisk.
 
-<b>Has Annotations</b>
-*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: Dokumentet rummer kommentarer, noter eller markeringer. De kan være tilføjet senere og kan indeholde oplysninger, der ikke fremgår af det viste indhold.
+    <b>Has Annotations</b>
+    *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+    • Hvad det betyder: Dokumentet rummer kommentarer, noter eller markeringer. De kan være tilføjet senere og kan indeholde oplysninger, der ikke fremgår af det viste indhold.
 
-<b>AcroForm NeedAppearances=true</b>
-*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: Formularfelter kan kræve, at visningen genskabes, når dokumentet åbnes. Felt-tekster kan derfor ændre udseende eller udfyldes automatisk. Det kan skjule eller forplumre det oprindelige indhold.
+    <b>AcroForm NeedAppearances=true</b>
+    *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+    • Hvad det betyder: Formularfelter kan kræve, at visningen genskabes, når dokumentet åbnes. Felt-tekster kan derfor ændre udseende eller udfyldes automatisk. Det kan skjule eller forplumre det oprindelige indhold.
 
-<b>Has Digital Signature</b>
-*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: Dokumentet indeholder en digital signatur. En gyldig signatur kan bekræfte, at dokumentet ikke er ændret siden signering. En ugyldig/brudt signatur kan være et stærkt tegn på efterfølgende ændring.
+    <b>Has Digital Signature</b>
+    *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+    • Hvad det betyder: Dokumentet indeholder en digital signatur. En gyldig signatur kan bekræfte, at dokumentet ikke er ændret siden signering. En ugyldig/brudt signatur kan være et stærkt tegn på efterfølgende ændring.
 
-<b>Dato-inkonsistens (Info vs. XMP)</b>
-*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: Oprettelses- og ændringsdatoer i PDF’ens Info-felt stemmer ikke overens med datoerne i XMP-metadata (f.eks. Creation Date Mismatch: Info='20230101...', XMP='2023-01-02...'). Sådanne uoverensstemmelser kan pege på skjulte eller uautoriserede ændringer.
-"""
+    <b>Dato-inkonsistens (Info vs. XMP)</b>
+    *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+    • Hvad det betyder: Oprettelses- og ændringsdatoer i PDF’ens Info-felt stemmer ikke overens med datoerne i XMP-metadata (f.eks. Creation Date Mismatch: Info='20230101...', XMP='2023-01-02...'). Sådanne uoverensstemmelser kan pege på skjulte eller uautoriserede ændringer.
+    """
 
         MANUAL_EN = f"""
-# PDFRecon - Manual
+    # PDFRecon - Manual
 
-## Introduction
-PDFRecon is a tool designed to assist in the investigation of PDF files. The program analyzes files for a range of technical indicators that can reveal alteration, editing, or hidden content. The results are presented in a clear table that can be exported to Excel for further documentation.
+    ## Introduction
+    PDFRecon is a tool designed to assist in the investigation of PDF files. The program analyzes files for a range of technical indicators that can reveal alteration, editing, or hidden content. The results are presented in a clear table that can be exported to Excel for further documentation.
 
-## Important Note on Timestamps
-The 'File Created' and 'File Modified' columns show timestamps from the computer's file system. Be aware that these timestamps can be unreliable. A simple action like copying a file from one location to another will typically update these dates to the time of the copy. For a more reliable timeline, use the 'Show Timeline' feature, which is based on metadata inside the file itself.
+    ## Important Note on Timestamps
+    The 'File Created' and 'File Modified' columns show timestamps from the computer's file system. Be aware that these timestamps can be unreliable. A simple action like copying a file from one location to another will typically update these dates to the time of the copy. For a more reliable timeline, use the 'Show Timeline' feature, which is based on metadata inside the file itself.
 
-## Classification System
-The program classifies each file based on the indicators found. This is done to quickly prioritize which files require closer examination.
+    ## Classification System
+    The program classifies each file based on the indicators found. This is done to quickly prioritize which files require closer examination.
 
-<red><b>YES (High Risk):</b></red> Assigned to files where strong evidence of alteration has been found. These files should always be thoroughly investigated. Indicators that trigger this flag are typically difficult to forge and point directly to a change in the file's content or structure.
+    <red><b>YES (High Risk):</b></red> Assigned to files where strong evidence of alteration has been found. These files should always be thoroughly investigated. Indicators that trigger this flag are typically difficult to forge and point directly to a change in the file's content or structure.
 
-<yellow><b>Indications Found (Medium Risk):</b></yellow> Assigned to files where one or more technical traces have been found that deviate from a standard, 'clean' PDF. These traces are not definitive proof of alteration in themselves, but they show that the file has a history or structure that warrants a closer look.
+    <yellow><b>Indications Found (Medium Risk):</b></yellow> Assigned to files where one or more technical traces have been found that deviate from a standard, 'clean' PDF. These traces are not definitive proof of alteration in themselves, but they show that the file has a history or structure that warrants a closer look.
 
-<green><b>NOT DETECTED (Low Risk):</b></green> Assigned to files where the program has not found any of the known indicators. This does not mean that the file is 100% unchanged, but that it does not exhibit the typical signs of alteration that the tool looks for.
+    <green><b>NOT DETECTED (Low Risk):</b></green> Assigned to files where the program has not found any of the known indicators. This does not mean that the file is 100% unchanged, but that it does not exhibit the typical signs of alteration that the tool looks for.
 
-## Explanation of Indicators
-Below is a detailed explanation of each indicator that PDFRecon looks for.
- 
-<b>Has Revisions</b>
-*<i>Changed:</i>* <red>YES</red>
-• What it means: The PDF standard allows changes to be saved on top of an existing file (incremental saving). This leaves the original version of the document intact inside the file. PDFRecon has found and extracted one or more of these previous versions. This is unequivocal proof that the file has been changed after its original creation.
+    ## Explanation of Indicators
+    Below is a detailed explanation of each indicator that PDFRecon looks for.
+     
+    <b>Has Revisions</b>
+    *<i>Changed:</i>* <red>YES</red>
+    • What it means: The PDF standard allows changes to be saved on top of an existing file (incremental saving). This leaves the original version of the document intact inside the file. PDFRecon has found and extracted one or more of these previous versions. This is unequivocal proof that the file has been changed after its original creation.
 
-<b>TouchUp_TextEdit</b>
-*<i>Changed:</i>* <red>YES</red>
-• What it means: This is a specific metadata flag left by Adobe Acrobat when a user has manually edited text directly in the PDF document. It is very strong evidence of direct content alteration.
+    <b>TouchUp_TextEdit</b>
+    *<i>Changed:</i>* <red>YES</red>
+    • What it means: This is a specific metadata flag left by Adobe Acrobat when a user has manually edited text directly in the PDF document. It is very strong evidence of direct content alteration.
 
-<b>Multiple Font Subsets</b>
-*<i>Changed:</i>* <yellow>Indications Found</yellow>
-• What it means: When text is added to a PDF, often only the characters actually used from a font are embedded (a 'subset'). If a file is edited with another program that does not have access to the exact same font, a new subset of the same base font may be created. Finding multiple subsets (e.g., Multiple Font Subsets: 'Arial': F1+ArialMT', 'F2+Arial-BoldMT' is a strong indication that text has been added or changed at different times or with different tools.
+    <b>Multiple Font Subsets</b>
+    *<i>Changed:</i>* <yellow>Indications Found</yellow>
+    • What it means: When text is added to a PDF, often only the characters actually used from a font are embedded (a 'subset'). If a file is edited with another program that does not have access to the exact same font, a new subset of the same base font may be created. Finding multiple subsets (e.g., Multiple Font Subsets: 'Arial': F1+ArialMT', 'F2+Arial-BoldMT' is a strong indication that text has been added or changed at different times or with different tools.
 
-<b>Multiple Creators / Producers</b>
-*<i>Changed:</i>* <yellow>Indikationer Fundet</yellow>
-• What it means: PDF files contain metadata about which program created (/Creator) and generated (/Producer) the file. If multiple different names are found in these fields (e.g., Multiple Creators (Found 2): "Microsoft Word", "Adobe Acrobat Pro"), it indicates that the file has been processed by more than one program. This typically happens when a file is created in one program and then edited in another.
+    <b>Multiple Creators / Producers</b>
+    *<i>Changed:</i>* <yellow>Indikationer Fundet</yellow>
+    • Hvad det betyder: PDF-filer indeholder metadata om, hvilket program der har oprettet (/Creator) og genereret (/Producer) filen. Hvis der findes flere forskellige navne i disse felter (f.eks. Multiple Creators (Fundet 2): "Microsoft Word", "Adobe Acrobat Pro"), indikerer det, at filen er blevet behandlet af mere end ét program. Dette sker typisk, når en fil oprettes i ét program og derefter redigeres i et andet.
 
-<b>xmpMM:History / DerivedFrom / DocumentAncestors</b>
-*<i>Changed:</i>* <yellow>Indications Found</yellow>
-• What it means: These are different types of XMP metadata that store information about the file's history. They can contain timestamps for when the file was saved, IDs from previous versions, and what software was used. The presence of these fields proves that the file has an editing history.
+    <b>xmpMM:History / DerivedFrom / DocumentAncestors</b>
+    *<i>Changed:</i>* <yellow>Indications Found</yellow>
+    • What it means: These are different types of XMP metadata that store information about the file's history. They can contain timestamps for when the file was saved, IDs from previous versions, and what software was used. The presence of these fields proves that the file has an editing history.
 
-<b>Multiple DocumentID / Different InstanceID</b>
-*<i>Changed:</i>* <yellow>Indications Found</yellow>
-• What it means: Each PDF has a unique DocumentID that should ideally be the same for all versions. The InstanceID, however, changes every time the file is saved. If multiple different DocumentIDs are found (e.g., Trailer ID Changed: From [ID1...] to [ID2...]), or if there is an abnormally high number of InstanceIDs, it points to a complex editing history, potentially where parts from different documents have been combined.
+    <b>Multiple DocumentID / Different InstanceID</b>
+    *<i>Changed:</i>* <yellow>Indications Found</yellow>
+    • What it means: Each PDF has a unique DocumentID that should ideally be the same for all versions. The InstanceID, however, changes every time the file is saved. If multiple different DocumentIDs are found (e.g., Trailer ID Changed: From [ID1...] to [ID2...]), or if there is an abnormally high number of InstanceIDs, it points to a complex editing history, potentially where parts from different documents have been combined.
 
-<b>Multiple startxref</b>
-*<i>Changed:</i>* <yellow>Indications Found</yellow>
-• What it means: 'startxref' is a keyword that tells a PDF reader where to start reading the file's structure. A standard, unchanged file has only one. If there are more, it is a sign that incremental changes have been made (see 'Has Revisions').
+    <b>Multiple startxref</b>
+    *<i>Changed:</i>* <yellow>Indications Found</yellow>
+    • What it means: 'startxref' is a keyword that tells a PDF reader where to start reading the file's structure. A standard, unchanged file has only one. If there are more, it is a sign that incremental changes have been made (see 'Has Revisions').
 
-<b>Objects with generation > 0</b>
-*<i>Changed:</i>* <yellow>Indications Found</yellow>
-• What it means: Each object in a PDF file has a version number (generation). In an original, unaltered file, this number is typically 0 for all objects. If objects are found with a higher generation number (e.g., '12 1 obj'), it is a sign that the object has been overwritten in a later, incremental save. This indicates that the file has been updated.
+    <b>Objects with generation > 0</b>
+    *<i>Changed:</i>* <yellow>Indications Found</yellow>
+    • What it means: Each object in a PDF file has a version number (generation). In an original, unaltered file, this number is typically 0 for all objects. If objects are found with a higher generation number (e.g., '12 1 obj'), it is a sign that the object has been overwritten in a later, incremental save. This indicates that the file has been updated.
 
-<b>More Layers Than Pages</b>
-*<i>Changed:</i>* <yellow>Indications Found</yellow>
-• What it means: The document's structure contains more layers (Optional Content Groups) than it has pages. Each layer is a container for content that can be shown or hidden. While technically possible, having more layers than pages is unusual. It might indicate a complex document, a file that has been heavily edited, or potentially that information is hidden in layers not associated with visible content. Files with this indicator should be examined more closely in a PDF reader that supports layer functionality.
+    <b>More Layers Than Pages</b>
+    *<i>Changed:</i>* <yellow>Indications Found</yellow>
+    • What it means: The document's structure contains more layers (Optional Content Groups) than it has pages. Each layer is a container for content that can be shown or hidden. While technically possible, having more layers than pages is unusual. It might indicate a complex document, a file that has been heavily edited, or potentially that information is hidden in layers not associated with visible content. Files with this indicator should be examined more closely in a PDF reader that supports layer functionality.
 
-<b>Linearized / Linearized + updated</b>
-*<i>Changed:</i>* <yellow>Indications Found</yellow>
-• What it means: A "linearized" PDF is optimized for fast web viewing. If such a file was later modified (updated), PDFRecon flags it. This may indicate that a supposedly final document was edited afterwards.
+    <b>Linearized / Linearized + updated</b>
+    *<i>Changed:</i>* <yellow>Indications Found</yellow>
+    • What it means: A "linearized" PDF is optimized for fast web viewing. If such a file was later modified (updated), PDFRecon flags it. This may indicate that a supposedly final document was edited afterwards.
 
-<b>Has PieceInfo</b>
-*<i>Changed:</i>* <yellow>Indications Found</yellow>
-• What it means: Some applications, particularly from Adobe, store extra technical traces (PieceInfo) about changes or versions. This can reveal that the file has been processed in specific tools like Illustrator.
+    <b>Has PieceInfo</b>
+    *<i>Changed:</i>* <yellow>Indications Found</yellow>
+    • What it means: Some applications, particularly from Adobe, store extra technical traces (PieceInfo) about changes or versions. This can reveal that the file has been processed in specific tools like Illustrator.
 
-<b>Has Redactions</b>
-*<i>Changed:</i>* <yellow>Indications Found</yellow>
-• What it means: The document contains technical fields for redaction (blackouts/removals). In some cases, hidden text may still be present. Redactions should always be assessed critically.
+    <b>Has Redactions</b>
+    *<i>Changed:</i>* <yellow>Indications Found</yellow>
+    • What it means: The document contains technical fields for redaction (blackouts/removals). In some cases, hidden text may still be present. Redactions should always be assessed critically.
 
-<b>Has Annotations</b>
-*<i>Changed:</i>* <yellow>Indications Found</yellow>
-• What it means: The document includes comments, notes, or highlights. They may have been added later and can contain information that is not visible in the main content.
+    <b>Has Annotations</b>
+    *<i>Changed:</i>* <yellow>Indications Found</yellow>
+    • What it means: The document includes comments, notes, or highlights. They may have been added later and can contain information that is not visible in the main content.
 
-<b>AcroForm NeedAppearances=true</b>
-*<i>Changed:</i>* <yellow>Indications Found</yellow>
-• What it means: Form fields may need their appearance regenerated when the document opens. Field text can change or be auto-filled, which may obscure the original content.
+    <b>AcroForm NeedAppearances=true</b>
+    *<i>Changed:</i>* <yellow>Indications Found</yellow>
+    • What it means: Form fields may need their appearance regenerated when the document opens. Field text can change or be auto-filled, which may obscure the original content.
 
-<b>Has Digital Signature</b>
-*<i>Changed:</i>* <yellow>Indications Found</yellow>
-• What it means: The document contains a digital signature. A valid signature confirms the file has not changed since signing. An invalid/broken signature can be a strong sign of later alteration.
+    <b>Has Digital Signature</b>
+    *<i>Changed:</i>* <yellow>Indications Found</yellow>
+    • What it means: The document contains a digital signature. A valid signature confirms the file has not changed since signing. An invalid/broken signature can be a strong sign of later alteration.
 
-<b>Date inconsistency (Info vs. XMP)</b>
-*<i>Changed:</i>* <yellow>Indications Found</yellow>
-• What it means: The creation/modification dates in the PDF Info dictionary do not match the dates in XMP metadata (e.g., Creation Date Mismatch: Info='20230101...', XMP='2023-01-02...'). Such discrepancies can indicate hidden or unauthorized changes.
-"""
+    <b>Date inconsistency (Info vs. XMP)</b>
+    *<i>Changed:</i>* <yellow>Indications Found</yellow>
+    • What it means: The creation/modification dates in the PDF Info dictionary do not match the dates in XMP metadata (e.g., Creation Date Mismatch: Info='20230101...', XMP='2023-01-02...'). Such discrepancies can indicate hidden or unauthorized changes.
+    """
 
         # This dictionary holds all GUI text for easy language switching.
         return {
@@ -385,11 +390,11 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
                 "full_manual": MANUAL_DA,
                 "choose_folder": "📁 Vælg mappe og scan",
                 "show_timeline": "Vis Tidslinje",
-                "status_initial": "Træk en mappe hertil eller brug knappen for at starte en analyse.",
+                "status_initial": "Træk en mappe hertil, åbn en sag, eller brug knappen for at starte en analyse.",
                 "col_id": "#", "col_name": "Navn", "col_changed": "Ændret", "col_path": "Sti", "col_md5": "MD5",
                 "col_created": "Fil oprettet", "col_modified": "Fil sidst ændret", "col_exif": "EXIFTool", "col_indicators": "Tegn på ændring",
                 "export_report": "💾 Eksporter rapport",
-                "menu_file": "Fil", "menu_settings": "Indstillinger", "menu_exit": "Afslut",
+                "menu_file": "Fil", "menu_open_case": "Åbn Sag...", "menu_save_case": "Gem Sag Som...", "menu_settings": "Indstillinger", "menu_exit": "Afslut",
                 "menu_help": "Hjælp", "menu_manual": "Manual", "menu_about": "Om PDFRecon", "menu_license": "Vis Licens",
                 "menu_log": "Vis logfil", "menu_language": "Sprog / Language",
                 "preparing_analysis": "Forbereder analyse...", "analyzing_file": "🔍 Analyserer: {file}",
@@ -430,16 +435,20 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
                 "filter_label": "🔎 Filter:",
                 "settings_title": "Indstillinger", "settings_max_size": "Maks filstørrelse (MB):", "settings_timeout": "ExifTool Timeout (sek):",
                 "settings_threads": "Maks. analysetråde:", "settings_diff_pages": "Sider for visuel sammenligning:", "settings_save": "Gem", "settings_cancel": "Annuller",
-                "settings_saved_title": "Indstillinger Gemt", "settings_saved_msg": "Indstillingerne er blevet gemt.", "settings_invalid_input": "Ugyldigt input. Indtast venligst kun heltal."
+                "settings_saved_title": "Indstillinger Gemt", "settings_saved_msg": "Indstillingerne er blevet gemt.", "settings_invalid_input": "Ugyldigt input. Indtast venligst kun heltal.",
+                "case_open_warning_title": "Advarsel", "case_open_warning_msg": "Åbning af en ny sag vil rydde de nuværende resultater. Vil du fortsætte?",
+                "case_nothing_to_save_title": "Ingen Data at Gemme", "case_nothing_to_save_msg": "Der er ingen analyseresultater at gemme.",
+                "case_save_error_title": "Fejl ved Gem", "case_save_error_msg": "Sagen kunne ikke gemmes.\n\nFejl: {e}",
+                "case_open_error_title": "Fejl ved Åbning", "case_open_error_msg": "Sagen kunne ikke åbnes. Filen er muligvis korrupt eller ikke en gyldig sagfil.\n\nFejl: {e}",
             },
             "en": {
                 "full_manual": MANUAL_EN,
-                "choose_folder": "📁 Choose folder and scan", "show_timeline": "Show Timeline", "status_initial": "Drag a folder here or use the button to start an analysis.",
+                "choose_folder": "📁 Choose folder and scan", "show_timeline": "Show Timeline", "status_initial": "Drag a folder here, open a case, or use the button to start an analysis.",
                 "obj_gen_gt_zero": "Object with generation > 0",
                 "col_id": "#", "col_name": "Name", "col_changed": "Changed", "col_path": "Path", "col_md5": "MD5",
                 "col_created": "File Created", "col_modified": "File Modified", "col_exif": "EXIFTool", "col_indicators": "Signs of Alteration",
                 "export_report": "💾 Export Report",
-                "menu_file": "File", "menu_settings": "Settings", "menu_exit": "Exit",
+                "menu_file": "File", "menu_open_case": "Open Case...", "menu_save_case": "Save Case As...", "menu_settings": "Settings", "menu_exit": "Exit",
                 "menu_help": "Help", "menu_manual": "Manual", "menu_about": "About PDFRecon", "menu_license": "Show License",
                 "menu_log": "Show Log File", "menu_language": "Language / Sprog",
                 "preparing_analysis": "Preparing analysis...", "analyzing_file": "🔍 Analyzing: {file}",
@@ -479,10 +488,14 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
                 "filter_label": "🔎 Filter:",
                 "settings_title": "Settings", "settings_max_size": "Max file size (MB):", "settings_timeout": "ExifTool Timeout (sec):",
                 "settings_threads": "Max analysis threads:", "settings_diff_pages": "Pages for visual compare:", "settings_save": "Save", "settings_cancel": "Cancel",
-                "settings_saved_title": "Settings Saved", "settings_saved_msg": "Your settings have been saved.", "settings_invalid_input": "Invalid input. Please enter only integers."
+                "settings_saved_title": "Settings Saved", "settings_saved_msg": "Your settings have been saved.", "settings_invalid_input": "Invalid input. Please enter only integers.",
+                "case_open_warning_title": "Warning", "case_open_warning_msg": "Opening a new case will clear the current results. Do you want to continue?",
+                "case_nothing_to_save_title": "No Data to Save", "case_nothing_to_save_msg": "There is no analysis data to save.",
+                "case_save_error_title": "Save Error", "case_save_error_msg": "Could not save the case file.\n\nError: {e}",
+                "case_open_error_title": "Open Error", "case_open_error_msg": "Could not open the case file. The file may be corrupt or not a valid case file.\n\nError: {e}",
             }
         }
-
+        
     def _load_or_create_config(self):
         """Loads configuration from config.ini or creates the file with default values."""
         parser = configparser.ConfigParser()
@@ -572,6 +585,9 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         # --- File Menu ---
         self.file_menu = tk.Menu(self.menubar, tearoff=0)
         self.menubar.add_cascade(label=self._("menu_file"), menu=self.file_menu)
+        self.file_menu.add_command(label=self._("menu_open_case"), command=self._open_case)
+        self.file_menu.add_command(label=self._("menu_save_case"), command=self._save_case, state="disabled")
+        self.file_menu.add_separator()
         self.file_menu.add_command(label=self._("menu_settings"), command=self.open_settings_popup)
         self.file_menu.add_separator()
         self.file_menu.add_command(label=self._("menu_exit"), command=self.root.quit)
@@ -895,26 +911,24 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         
         self.tree.selection_set(item_id)
         values = self.tree.item(item_id, "values")
-        
-        context_menu = tk.Menu(self.root, tearoff=0)
+        path_str = values[3] if values else None
 
-        # Add "View PDF" for all rows
+        context_menu = tk.Menu(self.root, tearoff=0)
         context_menu.add_command(label=self._("view_pdf"), command=lambda: self.show_pdf_viewer_popup(item_id))
         context_menu.add_separator()
-        
-        # Add common menu items
         context_menu.add_command(label="View EXIFTool Output", command=lambda: self.show_exif_popup_from_item(item_id))
         context_menu.add_command(label="View Timeline", command=self.show_timeline_popup)
         
-        # Check if the selected item is a revision
-        path_str = values[3] if values else None
-        is_revision = False
-        if path_str:
-            scan_data_item = next((item for item in self.all_scan_data if str(item.get('path')) == path_str), None)
-            if scan_data_item and scan_data_item.get('is_revision'):
-                is_revision = True
+        # --- NEW: Add the 'View Text Diff' option if available ---
+        file_data = next((d for d in self.all_scan_data if str(d.get('path')) == path_str), None)
+        text_diff_available = file_data and file_data.get("indicator_keys", {}).get("TouchUp_TextEdit", {}).get("text_diff")
 
-        # Add revision-specific menu items
+        if text_diff_available:
+            context_menu.add_command(label="View Text Diff", command=lambda: self.show_text_diff_popup(item_id))
+        
+        # --- (Rest of the menu) ---
+        is_revision = file_data and file_data.get('is_revision')
+
         if is_revision:
             context_menu.add_separator()
             context_menu.add_command(label=self._("visual_diff"), command=lambda: self.show_visual_diff_popup(item_id))
@@ -922,9 +936,8 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         context_menu.add_separator()
         context_menu.add_command(label="Open File Location", command=lambda: self.open_file_location(item_id))
         
-        # Display the context menu at the cursor's position
         context_menu.tk_popup(event.x_root, event.y_root)
-
+        
     def open_file_location(self, item_id):
         """Opens the folder containing the selected file in the system's file explorer."""
         values = self.tree.item(item_id, "values")
@@ -1465,6 +1478,29 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         logging.info(f"Starting scan of folder: {folder_path}")
         
         # --- Reset Application State ---
+        self._reset_state()
+        self.last_scan_folder = folder_path
+        
+        # --- Update GUI for Scanning State ---
+        self.scan_button.config(state="disabled")
+        self.export_menubutton.config(state="disabled")
+        self.file_menu.entryconfig(self._("menu_save_case"), state="disabled") # Disable during scan
+        self.status_var.set(self._("preparing_analysis"))
+        self.progressbar.config(value=0)
+
+        # --- Create a dedicated thread pool for copy operations ---
+        self.copy_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix='CopyWorker')
+
+        # --- Start Main Worker Thread ---
+        scan_thread = threading.Thread(target=self._scan_worker_parallel, args=(folder_path, self.scan_queue))
+        scan_thread.daemon = True
+        scan_thread.start()
+
+        self._process_queue()
+
+       
+    def _reset_state(self):
+        """Resets all data and GUI elements to their initial state."""
         self.tree.delete(*self.tree.get_children())
         self.report_data.clear()
         self.all_scan_data.clear()
@@ -1475,23 +1511,79 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         self.scan_queue = queue.Queue()
         self.scan_start_time = time.time()
         self.filter_var.set("")
+        self.last_scan_folder = None
+        self.detail_text.config(state="normal")
+        self.detail_text.delete("1.0", tk.END)
+        self.detail_text.config(state="disabled")
+
+    def _open_case(self):
+        """Opens a dialog to load a previously saved analysis case."""
+        if self.all_scan_data:
+            if not messagebox.askokcancel(self._("case_open_warning_title"), self._("case_open_warning_msg")):
+                return
         
-        # --- Update GUI for Scanning State ---
-        self.scan_button.config(state="disabled")
-        self.export_menubutton.config(state="disabled")
-        self.status_var.set(self._("preparing_analysis"))
-        self.progressbar.config(value=0)
+        filepath = filedialog.askopenfilename(
+            title="Open PDFRecon Case",
+            filetypes=[("PDFRecon Case Files", "*.pdfreconcase"), ("All files", "*.*")]
+        )
+        if not filepath:
+            return
 
-        # --- NEW: Create a dedicated thread pool for copy operations ---
-        # A small number of threads is best for I/O to avoid disk thrashing.
-        self.copy_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix='CopyWorker')
+        try:
+            with open(filepath, 'rb') as f:
+                case_data = pickle.load(f)
 
-        # --- Start Main Worker Thread ---
-        scan_thread = threading.Thread(target=self._scan_worker_parallel, args=(folder_path, self.scan_queue))
-        scan_thread.daemon = True
-        scan_thread.start()
+            # --- Restore State from Case File ---
+            self._reset_state()
+            self.all_scan_data = case_data.get('all_scan_data', [])
+            self.exif_outputs = case_data.get('exif_outputs', {})
+            self.timeline_data = case_data.get('timeline_data', {})
+            self.path_to_id = case_data.get('path_to_id', {})
+            self.revision_counter = case_data.get('revision_counter', 0)
+            self.last_scan_folder = case_data.get('scan_folder', None)
+            
+            # --- Update GUI with loaded data ---
+            self._apply_filter()
+            self._update_summary_status()
+            self.export_menubutton.config(state="normal")
+            self.file_menu.entryconfig(self._("menu_save_case"), state="normal")
+            logging.info(f"Successfully loaded case file: {filepath}")
 
-        self._process_queue()
+        except Exception as e:
+            logging.error(f"Failed to open case file '{filepath}': {e}")
+            messagebox.showerror(self._("case_open_error_title"), self._("case_open_error_msg").format(e=e))
+
+    def _save_case(self):
+        """Saves the current analysis results to a case file."""
+        if not self.all_scan_data:
+            messagebox.showwarning(self._("case_nothing_to_save_title"), self._("case_nothing_to_save_msg"))
+            return
+            
+        filepath = filedialog.asksaveasfilename(
+            title="Save PDFRecon Case As",
+            defaultextension=".pdfreconcase",
+            filetypes=[("PDFRecon Case Files", "*.pdfreconcase"), ("All files", "*.*")]
+        )
+        if not filepath:
+            return
+
+        case_data = {
+            'app_version': self.app_version,
+            'scan_folder': self.last_scan_folder,
+            'all_scan_data': self.all_scan_data,
+            'exif_outputs': self.exif_outputs,
+            'timeline_data': self.timeline_data,
+            'path_to_id': self.path_to_id,
+            'revision_counter': self.revision_counter,
+        }
+        
+        try:
+            with open(filepath, 'wb') as f:
+                pickle.dump(case_data, f)
+            logging.info(f"Successfully saved case to: {filepath}")
+        except Exception as e:
+            logging.error(f"Failed to save case file '{filepath}': {e}")
+            messagebox.showerror(self._("case_save_error_title"), self._("case_save_error_msg").format(e=e))
 
     def _find_pdf_files_generator(self, folder):
         """A generator that 'yields' PDF files as soon as they are found."""
@@ -1762,8 +1854,6 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         # --- Wait for all background copy operations to complete ---
         if self.copy_executor:
             logging.info("Waiting for background copy operations to finish...")
-            # You can update the status bar here if you want
-            # self.status_var.set("Finishing copy operations...")
             self.copy_executor.shutdown(wait=True)
             self.copy_executor = None
             logging.info("All copy operations finished.")
@@ -1781,12 +1871,13 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         # --- Update GUI to 'finished' state ---
         self.scan_button.config(state="normal")
         self.export_menubutton.config(state="normal")
+        self.file_menu.entryconfig(self._("menu_save_case"), state="normal") # Enable saving
         if self.progressbar['value'] < self.progressbar['maximum']:
              self.progressbar['value'] = self.progressbar['maximum']
         
         self._update_summary_status()
         logging.info(f"Analysis complete. {self.status_var.get()}")
-
+    
     def _apply_filter(self, *args):
             """Filters the displayed results based on the search term."""
             search_term = self.filter_var.get().lower()
@@ -2762,14 +2853,33 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
             return conflicting_fonts
     def detect_indicators(self, filepath, txt: str, doc):
         """
-        Searches for indicators of alteration/manipulation.
-        Returns a dictionary of indicator keys to their details.
+        Searches for indicators, now with an integrated text-diff feature for TouchUp edits.
         """
         indicators = {}
 
         # --- High-Confidence Indicators ---
         if re.search(r"touchup_textedit", txt, re.I):
-            indicators['TouchUp_TextEdit'] = {}
+            found_text = self._extract_touchup_text(doc)
+            details = {'found_text': found_text, 'text_diff': None}
+
+            # Check for revisions to perform a text diff
+            revisions = self.extract_revisions(doc.write(), filepath)
+            if revisions:
+                latest_rev_path, _, latest_rev_bytes = revisions[0] # Compare against the most recent revision
+                logging.info(f"TouchUp found with revisions. Performing text diff for {filepath.name}.")
+                
+                original_text = self._get_text_for_comparison(filepath)
+                revision_text = self._get_text_for_comparison(latest_rev_bytes)
+
+                if original_text and revision_text:
+                    diff = difflib.unified_diff(
+                        revision_text.splitlines(keepends=True),
+                        original_text.splitlines(keepends=True),
+                        fromfile='Previous Version',
+                        tofile='Final Version',
+                    )
+                    details['text_diff'] = list(diff)
+            indicators['TouchUp_TextEdit'] = details
 
         # --- Metadata Indicators ---
         creators = set(re.findall(r"/Creator\s*\((.*?)\)", txt, re.I))
@@ -2820,48 +2930,40 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
             if re.search(r"/NeedAppearances\s+true\b", txt, re.I):
                 indicators['AcroFormNeedAppearances'] = {}
 
-        # Check for objects with generation > 0
         gen_gt_zero_matches = [m for m in re.finditer(r"\b(\d+)\s+(\d+)\s+obj\b", txt) if int(m.group(2)) > 0]
         if gen_gt_zero_matches:
             indicators['ObjGenGtZero'] = {'count': len(gen_gt_zero_matches)}
 
-        # --- ID Comparison (families separated) ---
+        # --- ID Comparison ---
         def _norm_uuid(x):
             if x is None: return None
-            if isinstance(x, (bytes, bytearray)): return x.hex().upper()
             s = str(x).strip().upper()
             return re.sub(r"^(URN:UUID:|UUID:|XMP\.IID:|XMP\.DID:)", "", s).strip("<>")
 
-        # XMP ID family
         xmp_orig = _norm_uuid(re.search(r"xmpMM:OriginalDocumentID(?:>|=\")([^<\"]+)", txt, re.I).group(1) if re.search(r"xmpMM:OriginalDocumentID", txt, re.I) else None)
         xmp_doc = _norm_uuid(re.search(r"xmpMM:DocumentID(?:>|=\")([^<\"]+)", txt, re.I).group(1) if re.search(r"xmpMM:DocumentID", txt, re.I) else None)
         
         if xmp_orig and xmp_doc and xmp_doc != xmp_orig:
             indicators['XMPIDChange'] = {'from': xmp_orig, 'to': xmp_doc}
 
-        # Trailer ID family
         trailer_match = re.search(r"/ID\s*\[\s*<\s*([0-9A-Fa-f]+)\s*>\s*<\s*([0-9A-Fa-f]+)\s*>\s*\]", txt)
         if trailer_match:
             trailer_orig, trailer_curr = _norm_uuid(trailer_match.group(1)), _norm_uuid(trailer_match.group(2))
             if trailer_orig and trailer_curr and trailer_curr != trailer_orig:
                 indicators['TrailerIDChange'] = {'from': trailer_orig, 'to': trailer_curr}
         
-        # --- Date Mismatch (Info vs. XMP) ---
+        # --- Date Mismatch ---
         info_dates = dict(re.findall(r"/(ModDate|CreationDate)\s*\(\s*D:(\d{8,14})", txt))
         xmp_dates = {k: v for k, v in re.findall(r"<xmp:(ModifyDate|CreateDate)>([^<]+)</xmp:\1>", txt)}
 
         def _short(d: str) -> str: return re.sub(r"[-:TZ]", "", d)[:14]
 
-        if "CreationDate" in info_dates and "CreateDate" in xmp_dates:
-            if _short(info_dates["CreationDate"]) != _short(xmp_dates["CreateDate"]):
-                indicators['CreateDateMismatch'] = {'info': info_dates["CreationDate"], 'xmp': xmp_dates["CreateDate"]}
-        if "ModDate" in info_dates and "ModifyDate" in xmp_dates:
-            if _short(info_dates["ModDate"]) != _short(xmp_dates["ModifyDate"]):
-                indicators['ModifyDateMismatch'] = {'info': info_dates["ModDate"], 'xmp': xmp_dates["ModifyDate"]}
+        if "CreationDate" in info_dates and "CreateDate" in xmp_dates and _short(info_dates["CreationDate"]) != _short(xmp_dates["CreateDate"]):
+            indicators['CreateDateMismatch'] = {'info': info_dates["CreationDate"], 'xmp': xmp_dates["CreateDate"]}
+        if "ModDate" in info_dates and "ModifyDate" in xmp_dates and _short(info_dates["ModDate"]) != _short(xmp_dates["ModifyDate"]):
+            indicators['ModifyDateMismatch'] = {'info': info_dates["ModDate"], 'xmp': xmp_dates["ModifyDate"]}
         
         return indicators
-    
- 
 
     def get_flag(self, indicators_dict, is_revision, parent_id=None):
         """
@@ -3362,9 +3464,119 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
                 headers=headers,
                 rows=rows
             ))
+    
+    def _extract_touchup_text(self, doc):
+        """
+        Parses a PDF's internal objects to find any text associated with a TouchUp_TextEdit flag.
+        Returns a list of extracted text strings.
+        """
+        found_text = []
+        if not doc or doc.is_closed:
+            return found_text
+            
+        # Iterate through all objects in the PDF's cross-reference table
+        for xref in range(1, doc.xref_length()):
+            try:
+                # Get the raw source code of the object
+                obj_source = doc.xref_object(xref, compressed=False)
+                
+                # Check if this object contains the flag
+                if "/TouchUp_TextEdit" in obj_source:
+                    # If it's a stream object, get its decoded content
+                    stream = doc.xref_stream(xref)
+                    if stream:
+                        # This regex finds text within parentheses followed by the 'Tj' (Show Text) operator.
+                        # It's a common pattern for simple text entries in content streams.
+                        matches = re.findall(rb"\((.*?)\)\s*Tj", stream)
+                        for match in matches:
+                            try:
+                                # Decode the text using a PDF-specific utility to handle special characters
+                                decoded_text = fitz.utils.pdfdoc_decode(match)
+                                if decoded_text.strip():
+                                    found_text.append(decoded_text.strip())
+                            except:
+                                continue # Ignore text that can't be decoded
+            except Exception as e:
+                logging.warning(f"Could not process object {xref} for TouchUp text: {e}")
+                continue
+        return found_text
+        
+    def _get_text_for_comparison(self, source):
+        """
+        Performs a robust, layout-preserving text extraction on a PDF.
+        This corresponds to Tier 2 in the analysis document.
+        """
+        full_text = []
+        try:
+            # Open the PDF from a file path or from raw bytes in memory
+            doc = fitz.open(stream=source, filetype="pdf") if isinstance(source, bytes) else fitz.open(source)
+            for page in doc:
+                # Use sort=True to preserve the reading order of the page layout
+                full_text.append(page.get_text("text", sort=True))
+            doc.close()
+            return "\n".join(full_text)
+        except Exception as e:
+            logging.error(f"Robust text extraction failed: {e}")
+            return "" # Return empty string on failure
+            
+    def show_text_diff_popup(self, item_id):
+        """Displays a popup showing the text differences between a file and its revision."""
+        path_str = self.tree.item(item_id, "values")[3]
+        file_data = next((d for d in self.all_scan_data if str(d.get('path')) == path_str), None)
+        
+        text_diff_data = file_data.get("indicator_keys", {}).get("TouchUp_TextEdit", {}).get("text_diff")
+        if not text_diff_data:
+            messagebox.showinfo("No Diff", "No text comparison data is available for this file.", parent=self.root)
+            return
 
+        popup = Toplevel(self.root)
+        popup.title(f"Text Comparison for {file_data['path'].name}")
+        popup.geometry("900x600")
+        popup.transient(self.root)
+
+        frame = ttk.Frame(popup, padding=10)
+        frame.pack(fill="both", expand=True)
+        
+        text_widget = tk.Text(frame, wrap="word", font=("Courier New", 10))
+        v_scroll = ttk.Scrollbar(frame, orient="vertical", command=text_widget.yview)
+        text_widget.config(yscrollcommand=v_scroll.set)
+        v_scroll.pack(side="right", fill="y")
+        text_widget.pack(side="left", fill="both", expand=True)
+
+        text_widget.tag_configure("addition", foreground="green")
+        text_widget.tag_configure("deletion", foreground="red")
+
+        for line in text_diff_data:
+            if line.startswith('+ '):
+                text_widget.insert(tk.END, line, "addition")
+            elif line.startswith('- '):
+                text_widget.insert(tk.END, line, "deletion")
+            else:
+                text_widget.insert(tk.END, line)
+        
+        self._make_text_copyable(text_widget)
+        
+    
     def _format_indicator_details(self, key, details):
         """Generates a human-readable string for an indicator and its details."""
+        if key == 'TouchUp_TextEdit':
+            found_text_str = ""
+            diff_str = ""
+            if details and details.get('found_text'):
+                text_list_str = ', '.join(f'"{t}"' for t in details['found_text'])
+                found_text_str = f"Found isolated text: {text_list_str}"
+            if details and details.get('text_diff'):
+                diff_str = "A text comparison to a previous version is available."
+            
+            if found_text_str and diff_str:
+                return f"TouchUp TextEdit ({found_text_str}. {diff_str})"
+            elif found_text_str:
+                return f"TouchUp TextEdit ({found_text_str})"
+            elif diff_str:
+                return f"TouchUp TextEdit ({diff_str})"
+            else:
+                return "TouchUp TextEdit (Flag found, but no specific text or revisions to compare)"
+
         if key == 'MultipleCreators':
             return f"Multiple Creators (Found {details['count']}): " + ", ".join(f'"{v}"' for v in details['values'])
         if key == 'MultipleProducers':
@@ -3394,8 +3606,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
             return f"More Layers ({details['layers']}) Than Pages ({details['pages']})"
         # Fallback for simple indicators with no details
         return key.replace("_", " ")
-
-
+        
 if __name__ == "__main__":
     # Ensure multiprocessing works correctly when the app is frozen (e.g., by PyInstaller).
     if sys.platform.startswith('win'):
