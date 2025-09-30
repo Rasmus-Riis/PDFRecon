@@ -11,7 +11,9 @@ from datetime import datetime, timezone
 import threading
 import queue
 import difflib
+import stat
 import base64
+import copy
 import binascii
 import webbrowser
 import sys
@@ -137,15 +139,19 @@ def safe_stat_times(path: Path):
 
 
 class PDFReconApp:
+
     def __init__(self, root):
         # --- Application Configuration ---
-        self.app_version = "16.5.0" # <-- CHANGE THIS LINE
+        self.app_version = "16.8.6"
         self.config_path = self._resolve_path("config.ini", base_is_parent=True)
         self._load_or_create_config()
         
         # --- Root Window Setup ---
         self.root = root
-        self.root.title(f"PDFRecon v{self.app_version}")
+        
+        self.is_reader_mode = "reader" in Path(sys.executable).stem.lower()
+        title = f"PDFRecon Reader v{self.app_version}" if self.is_reader_mode else f"PDFRecon v{self.app_version}"
+        self.root.title(title)
         self.root.geometry("1200x700")
 
         # --- Set Application Icon ---
@@ -154,17 +160,18 @@ class PDFReconApp:
             if icon_path.exists():
                 self.root.iconbitmap(icon_path)
             else:
-                logging.warning("icon.ico was not found. Using default icon.")
+                logging.warning("icon.ico not found. Using default icon.")
         except tk.TclError:
             logging.warning("Could not load icon.ico. Using default icon.")
         except Exception as e:
             logging.error(f"Unexpected error when loading icon: {e}")
 
-    
         # --- Application Data ---
         self.report_data = [] 
         self.all_scan_data = []
         self.last_scan_folder = None 
+        self.case_root_path = None
+        self.evidence_hashes = {}
         self.exif_outputs = {}
         self.timeline_data = {}
         self.path_to_id = {}
@@ -200,8 +207,12 @@ class PDFReconApp:
         self._setup_main_frame()
         self._setup_drag_and_drop()
         
-        logging.info(f"PDFRecon v{self.app_version} started.")
+        logging.info(f"PDFRecon v{self.app_version} started in {'Reader' if self.is_reader_mode else 'Full'} mode.")
 
+        # --- NY LOGIK: Auto-load case in Reader mode ---
+        if self.is_reader_mode:
+            self.root.after(100, self._autoload_case_in_reader)
+            
     def _(self, key):
         """Returns the translated text for a given key."""
         # Fallback for keys that might not exist in a language
@@ -213,176 +224,176 @@ class PDFReconApp:
         
         # --- Manual Texts ---
         MANUAL_DA = f"""
-    # PDFRecon - Manual
+# PDFRecon - Manual
 
-    ## Introduktion
-    PDFRecon er et værktøj designet til at assistere i efterforskningen af PDF-filer. Programmet analyserer filer for en række tekniske indikatorer, der kan afsløre ændring, redigering eller skjult indhold. Resultaterne præsenteres i en overskuelig tabel, der kan eksporteres til Excel for videre dokumentation.
+## Introduktion
+PDFRecon er et værktøj designet til at assistere i efterforskningen af PDF-filer. Programmet analyserer filer for en række tekniske indikatorer, der kan afsløre ændring, redigering eller skjult indhold. Resultaterne præsenteres i en overskuelig tabel, der kan eksporteres til Excel for videre dokumentation.
 
-    ## Vigtig bemærkning om tidsstempler
-    Kolonnerne 'Fil oprettet' og 'Fil sidst ændret' viser tidsstempler fra computerens filsystem. Vær opmærksom på, at disse tidsstempler kan være upålidelige. En simpel handling som at kopiere en fil fra én placering til en anden vil typisk opdatere disse datoer til tidspunktet for kopieringen. For en mere pålidelig tidslinje, brug funktionen 'Vis Tidslinje', som er baseret på metadata inde i selve filen.
+## Vigtig bemærkning om tidsstempler
+Kolonnerne 'Fil oprettet' og 'Fil sidst ændret' viser tidsstempler fra computerens filsystem. Vær opmærksom på, at disse tidsstempler kan være upålidelige. En simpel handling som at kopiere en fil fra én placering til en anden vil typisk opdatere disse datoer til tidspunktet for kopieringen. For en mere pålidelig tidslinje, brug funktionen 'Vis Tidslinje', som er baseret på metadata inde i selve filen.
 
-    ## Klassificeringssystem
-    Programmet klassificerer hver fil baseret på de fundne indikatorer. Dette gøres for hurtigt at kunne prioritere, hvilke filer der kræver nærmere undersøgelse.
+## Klassificeringssystem
+Programmet klassificerer hver fil baseret på de fundne indikatorer. Dette gøres for hurtigt at kunne prioritere, hvilke filer der kræver nærmere undersøgelse.
 
-    <red><b>JA (Høj Risiko):</b></red> Tildeles filer, hvor der er fundet stærke beviser for ændring. Disse filer bør altid undersøges grundigt. Indikatorer, der udløser dette flag, er typisk svære at forfalske og peger direkte på en ændring i filens indhold eller struktur.
+<red><b>JA (Høj Risiko):</b></red> Tildeles filer, hvor der er fundet stærke beviser for ændring. Disse filer bør altid undersøges grundigt. Indikatorer, der udløser dette flag, er typisk svære at forfalske og peger direkte på en ændring i filens indhold eller struktur.
 
-    <yellow><b>Indikationer Fundet (Mellem Risiko):</b></yellow> Tildeles filer, hvor der er fundet en eller flere tekniske spor, der afviger fra en standard, 'ren' PDF. Disse spor er ikke i sig selv et endegyldigt bevis på ændring, men de viser, at filen har en historik eller struktur, der berettiger et nærmere kig.
+<yellow><b>Indikationer Fundet (Mellem Risiko):</b></yellow> Tildeles filer, hvor der er fundet en eller flere tekniske spor, der afviger fra en standard, 'ren' PDF. Disse spor er ikke i sig selv et endegyldigt bevis på ændring, men de viser, at filen har en historik eller struktur, der berettiger et nærmere kig.
 
-    <green><b>IKKE PÅVIST (Lav Risiko):</b></green> Tildeles filer, hvor programmet ikke har fundet nogen af de kendte indikatorer. Dette betyder ikke, at filen med 100% sikkerhed er uændret, men at den ikke udviser de typiske tegn på ændring, som værktøjet leder efter.
+<green><b>IKKE PÅVIST (Lav Risiko):</b></green> Tildeles filer, hvor programmet ikke har fundet nogen af de kendte indikatorer. Dette betyder ikke, at filen med 100% sikkerhed er uændret, men at den ikke udviser de typiske tegn på ændring, som værktøjet leder efter.
 
-    ## Forklaring af Indikatorer
-    Nedenfor er en detaljeret forklaring af hver indikator, som PDFRecon leder efter.
+## Forklaring af Indikatorer
+Nedenfor er en detaljeret forklaring af hver indikator, som PDFRecon leder efter.
 
-    <b>Has Revisions</b>
-    *<i>Ændret:</i>* <red>JA</red>
-    • Hvad det betyder: PDF-standarden tillader, at man gemmer ændringer oven i en eksisterende fil (inkrementel lagring). Dette efterlader den oprindelige version af dokumentet intakt inde i filen. PDFRecon har fundet og udtrukket en eller flere af disse tidligere versioner. Dette er et utvetydigt bevis på, at filen er blevet ændret efter sin oprindelige oprettelse.
+<b>Has Revisions</b>
+*<i>Ændret:</i>* <red>JA</red>
+• Hvad det betyder: PDF-standarden tillader, at man gemmer ændringer oven i en eksisterende fil (inkrementel lagring). Dette efterlader den oprindelige version af dokumentet intakt inde i filen. PDFRecon har fundet og udtrukket en eller flere af disse tidligere versioner. Dette er et utvetydigt bevis på, at filen er blevet ændret efter sin oprindelige oprettelse.
 
-    <b>TouchUp_TextEdit</b>
-    *<i>Ændret:</i>* <red>JA</red>
-    • Hvad det betyder: Dette er et specifikt metadata-flag, som Adobe Acrobat efterlader, når en bruger manuelt har redigeret tekst direkte i PDF-dokumentet. Det er et meget stærkt bevis på direkte ændring af indholdet.
+<b>TouchUp_TextEdit</b>
+*<i>Ændret:</i>* <red>JA</red>
+• Hvad det betyder: Dette er et specifikt metadata-flag, som Adobe Acrobat efterlader, når en bruger manuelt har redigeret tekst direkte i PDF-dokumentet. Det er et meget stærkt bevis på direkte ændring af indholdet.
 
-    <b>Multiple Font Subsets</b>
-    *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-    • Hvad det betyder: Når tekst tilføjes til en PDF, indlejres ofte kun de tegn fra en skrifttype, der rent faktisk bruges (et 'subset'). Hvis en fil redigeres med et andet program, der ikke har adgang til præcis samme skrifttype, kan der opstå et nyt subset af den samme grundlæggende skrifttype. At finde flere subsets (f.eks. Multiple Font Subsets: 'Arial':F1+ArialMT', 'F2+Arial-BoldMT er en stærk indikation på, at tekst er blevet tilføjet eller ændret på forskellige tidspunkter eller med forskellige værktøjer.
+<b>Multiple Font Subsets</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Når tekst tilføjes til en PDF, indlejres ofte kun de tegn fra en skrifttype, der rent faktisk bruges (et 'subset'). Hvis en fil redigeres med et andet program, der ikke har adgang til præcis samme skrifttype, kan der opstå et nyt subset af den samme grundlæggende skrifttype. At finde flere subsets (f.eks. Multiple Font Subsets: 'Arial':F1+ArialMT', 'F2+Arial-BoldMT er en stærk indikation på, at tekst er blevet tilføjet eller ændret på forskellige tidspunkter eller med forskellige værktøjer.
 
-    <b>Multiple Creators / Producers</b>
-    *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-    • Hvad det betyder: PDF-filer indeholder metadata om, hvilket program der har oprettet (/Creator) og genereret (/Producer) filen. Hvis der findes flere forskellige navne i disse felter (f.eks. Multiple Creators (Fundet 2): "Microsoft Word", "Adobe Acrobat Pro"), indikerer det, at filen er blevet behandlet af mere end ét program. Dette sker typisk, når en fil oprettes i ét program og derefter redigeres i et andet.
+<b>Multiple Creators / Producers</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: PDF-filer indeholder metadata om, hvilket program der har oprettet (/Creator) og genereret (/Producer) filen. Hvis der findes flere forskellige navne i disse felter (f.eks. Multiple Creators (Fundet 2): "Microsoft Word", "Adobe Acrobat Pro"), indikerer det, at filen er blevet behandlet af mere end ét program. Dette sker typisk, når en fil oprettes i ét program og derefter redigeres i et andet.
 
-    <b>xmpMM:History / DerivedFrom / DocumentAncestors</b>
-    *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-    • Hvad det betyder: Dette er forskellige typer af XMP-metadata, som gemmer information om filens historik. De kan indeholde tidsstempler for, hvornår filen er gemt, ID'er fra tidligere versioner, og hvilket software der er brugt. Fund af disse felter beviser, at filen har en redigeringshistorik.
+<b>xmpMM:History / DerivedFrom / DocumentAncestors</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Dette er forskellige typer af XMP-metadata, som gemmer information om filens historik. De kan indeholde tidsstempler for, hvornår filen er gemt, ID'er fra tidligere versioner, og hvilket software der er brugt. Fund af disse felter beviser, at filen har en redigeringshistorik.
 
-    <b>Multiple DocumentID / Different InstanceID</b>
-    *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-    • Hvad det betyder: Hver PDF har et unikt DocumentID, der ideelt set er det samme for alle versioner. InstanceID ændres derimod for hver gang, filen gemmes. Hvis der findes flere forskellige DocumentID'er (f.eks. Trailer ID Changed: Fra [ID1...] til [ID2...]), eller hvis der er et unormalt højt antal InstanceID'er, peger det på en kompleks redigeringshistorik, potentielt hvor dele fra forskellige dokumenter er blevet kombineret.
+<b>Multiple DocumentID / Different InstanceID</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Hver PDF har et unikt DocumentID, der ideelt set er det samme for alle versioner. InstanceID ændres derimod for hver gang, filen gemmes. Hvis der findes flere forskellige DocumentID'er (f.eks. Trailer ID Changed: Fra [ID1...] til [ID2...]), eller hvis der er et unormalt højt antal InstanceID'er, peger det på en kompleks redigeringshistorik, potentielt hvor dele fra forskellige dokumenter er blevet kombineret.
 
-    <b>Multiple startxref</b>
-    *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-    • Hvad det betyder: 'startxref' er et nøgleord, der fortæller en PDF-læser, hvor den skal begynde at læse filens struktur. En standard, uændret fil har kun ét. Hvis der er flere, er det et tegn på, at der er foretaget inkrementelle ændringer (se 'Has Revisions').
+<b>Multiple startxref</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: 'startxref' er et nøgleord, der fortæller en PDF-læser, hvor den skal begynde at læse filens struktur. En standard, uændret fil har kun ét. Hvis der er flere, er det et tegn på, at der er foretaget inkrementelle ændringer (se 'Has Revisions').
 
-    <b>Objekter med generation > 0</b>
-    *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-    • Hvad det betyder: Hvert objekt i en PDF-fil har et versionsnummer (generation). I en original, uændret fil er dette nummer typisk 0 for alle objekter. Hvis der findes objekter med et højere generationsnummer (f.eks. '12 1 obj'), er det et tegn på, at objektet er blevet overskrevet i en senere, inkrementel gemning. Dette indikerer, at filen er blevet opdateret.
+<b>Objekter med generation > 0</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Hvert objekt i en PDF-fil har et versionsnummer (generation). I en original, uændret fil er dette nummer typisk 0 for alle objekter. Hvis der findes objekter med et højere generationsnummer (f.eks. '12 1 obj'), er det et tegn på, at objektet er blevet overskrevet i en senere, inkrementel gemning. Dette indikerer, at filen er blevet opdateret.
 
-    <b>Flere Lag End Sider</b>
-    *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-    • Hvad det betyder: Dokumentets struktur indeholder flere lag (Optional Content Groups) end der er sider. Hvert lag er en container for indhold, som kan vises eller skjules. Selvom det er teknisk muligt, er det usædvanligt at have flere lag end sider. Det kan indikere et komplekst dokument, en fil der er blevet kraftigt redigeret, eller potentielt at information er skjult på lag, som ikke er knyttet til synligt indhold. Filer med denne indikation bør undersøges nærmere i en PDF-læser, der understøtter lag-funktionalitet.
+<b>Flere Lag End Sider</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Dokumentets struktur indeholder flere lag (Optional Content Groups) end der er sider. Hvert lag er en container for indhold, som kan vises eller skjules. Selvom det er teknisk muligt, er det usædvanligt at have flere lag end sider. Det kan indikere et komplekst dokument, en fil der er blevet kraftigt redigeret, eller potentielt at information er skjult på lag, som ikke er knyttet til synligt indhold. Filer med denne indikation bør undersøges nærmere i en PDF-læser, der understøtter lag-funktionalitet.
 
-    <b>Linearized / Linearized + updated</b>
-    *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-    • Hvad det betyder: En "linearized" PDF er optimeret til hurtig webvisning. Hvis en sådan fil efterfølgende er blevet ændret (updated), vil PDFRecon markere det. Det kan indikere, at et ellers færdigt dokument er blevet redigeret senere.
+<b>Linearized / Linearized + updated</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: En "linearized" PDF er optimeret til hurtig webvisning. Hvis en sådan fil efterfølgende er blevet ændret (updated), vil PDFRecon markere det. Det kan indikere, at et ellers færdigt dokument er blevet redigeret senere.
 
-    <b>Has PieceInfo</b>
-    *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-    • Hvad det betyder: Nogle programmer, især fra Adobe, gemmer ekstra tekniske spor (PieceInfo) om ændringer eller versioner. Det kan afsløre, at filen har været behandlet i bestemte værktøjer som f.eks. Illustrator.
+<b>Has PieceInfo</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Nogle programmer, især fra Adobe, gemmer ekstra tekniske spor (PieceInfo) om ændringer eller versioner. Det kan afsløre, at filen har været behandlet i bestemte værktøjer som f.eks. Illustrator.
 
-    <b>Has Redactions</b>
-    *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-    • Hvad det betyder: Dokumentet indeholder tekniske felter for sløring/sletning af indhold. I nogle tilfælde kan den skjulte tekst stadig findes i filen. Derfor bør redaktioner altid vurderes kritisk.
+<b>Has Redactions</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Dokumentet indeholder tekniske felter for sløring/sletning af indhold. I nogle tilfælde kan den skjulte tekst stadig findes i filen. Derfor bør redaktioner altid vurderes kritisk.
 
-    <b>Has Annotations</b>
-    *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-    • Hvad det betyder: Dokumentet rummer kommentarer, noter eller markeringer. De kan være tilføjet senere og kan indeholde oplysninger, der ikke fremgår af det viste indhold.
+<b>Has Annotations</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Dokumentet rummer kommentarer, noter eller markeringer. De kan være tilføjet senere og kan indeholde oplysninger, der ikke fremgår af det viste indhold.
 
-    <b>AcroForm NeedAppearances=true</b>
-    *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-    • Hvad det betyder: Formularfelter kan kræve, at visningen genskabes, når dokumentet åbnes. Felt-tekster kan derfor ændre udseende eller udfyldes automatisk. Det kan skjule eller forplumre det oprindelige indhold.
+<b>AcroForm NeedAppearances=true</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Formularfelter kan kræve, at visningen genskabes, når dokumentet åbnes. Felt-tekster kan derfor ændre udseende eller udfyldes automatisk. Det kan skjule eller forplumre det oprindelige indhold.
 
-    <b>Has Digital Signature</b>
-    *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-    • Hvad det betyder: Dokumentet indeholder en digital signatur. En gyldig signatur kan bekræfte, at dokumentet ikke er ændret siden signering. En ugyldig/brudt signatur kan være et stærkt tegn på efterfølgende ændring.
+<b>Has Digital Signature</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Dokumentet indeholder en digital signatur. En gyldig signatur kan bekræfte, at dokumentet ikke er ændret siden signering. En ugyldig/brudt signatur kan være et stærkt tegn på efterfølgende ændring.
 
-    <b>Dato-inkonsistens (Info vs. XMP)</b>
-    *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-    • Hvad det betyder: Oprettelses- og ændringsdatoer i PDF’ens Info-felt stemmer ikke overens med datoerne i XMP-metadata (f.eks. Creation Date Mismatch: Info='20230101...', XMP='2023-01-02...'). Sådanne uoverensstemmelser kan pege på skjulte eller uautoriserede ændringer.
-    """
+<b>Dato-inkonsistens (Info vs. XMP)</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Oprettelses- og ændringsdatoer i PDF’ens Info-felt stemmer ikke overens med datoerne i XMP-metadata (f.eks. Creation Date Mismatch: Info='20230101...', XMP='2023-01-02...'). Sådanne uoverensstemmelser kan pege på skjulte eller uautoriserede ændringer.
+"""
 
         MANUAL_EN = f"""
-    # PDFRecon - Manual
+# PDFRecon - Manual
 
-    ## Introduction
-    PDFRecon is a tool designed to assist in the investigation of PDF files. The program analyzes files for a range of technical indicators that can reveal alteration, editing, or hidden content. The results are presented in a clear table that can be exported to Excel for further documentation.
+## Introduction
+PDFRecon is a tool designed to assist in the investigation of PDF files. The program analyzes files for a range of technical indicators that can reveal alteration, editing, or hidden content. The results are presented in a clear table that can be exported to Excel for further documentation.
 
-    ## Important Note on Timestamps
-    The 'File Created' and 'File Modified' columns show timestamps from the computer's file system. Be aware that these timestamps can be unreliable. A simple action like copying a file from one location to another will typically update these dates to the time of the copy. For a more reliable timeline, use the 'Show Timeline' feature, which is based on metadata inside the file itself.
+## Important Note on Timestamps
+The 'File Created' and 'File Modified' columns show timestamps from the computer's file system. Be aware that these timestamps can be unreliable. A simple action like copying a file from one location to another will typically update these dates to the time of the copy. For a more reliable timeline, use the 'Show Timeline' feature, which is based on metadata inside the file itself.
 
-    ## Classification System
-    The program classifies each file based on the indicators found. This is done to quickly prioritize which files require closer examination.
+## Classification System
+The program classifies each file based on the indicators found. This is done to quickly prioritize which files require closer examination.
 
-    <red><b>YES (High Risk):</b></red> Assigned to files where strong evidence of alteration has been found. These files should always be thoroughly investigated. Indicators that trigger this flag are typically difficult to forge and point directly to a change in the file's content or structure.
+<red><b>YES (High Risk):</b></red> Assigned to files where strong evidence of alteration has been found. These files should always be thoroughly investigated. Indicators that trigger this flag are typically difficult to forge and point directly to a change in the file's content or structure.
 
-    <yellow><b>Indications Found (Medium Risk):</b></yellow> Assigned to files where one or more technical traces have been found that deviate from a standard, 'clean' PDF. These traces are not definitive proof of alteration in themselves, but they show that the file has a history or structure that warrants a closer look.
+<yellow><b>Indications Found (Medium Risk):</b></yellow> Assigned to files where one or more technical traces have been found that deviate from a standard, 'clean' PDF. These traces are not definitive proof of alteration in themselves, but they show that the file has a history or structure that warrants a closer look.
 
-    <green><b>NOT DETECTED (Low Risk):</b></green> Assigned to files where the program has not found any of the known indicators. This does not mean that the file is 100% unchanged, but that it does not exhibit the typical signs of alteration that the tool looks for.
+<green><b>NOT DETECTED (Low Risk):</b></green> Assigned to files where the program has not found any of the known indicators. This does not mean that the file is 100% unchanged, but that it does not exhibit the typical signs of alteration that the tool looks for.
 
-    ## Explanation of Indicators
-    Below is a detailed explanation of each indicator that PDFRecon looks for.
-     
-    <b>Has Revisions</b>
-    *<i>Changed:</i>* <red>YES</red>
-    • What it means: The PDF standard allows changes to be saved on top of an existing file (incremental saving). This leaves the original version of the document intact inside the file. PDFRecon has found and extracted one or more of these previous versions. This is unequivocal proof that the file has been changed after its original creation.
+## Explanation of Indicators
+Below is a detailed explanation of each indicator that PDFRecon looks for.
+ 
+<b>Has Revisions</b>
+*<i>Changed:</i>* <red>YES</red>
+• What it means: The PDF standard allows changes to be saved on top of an existing file (incremental saving). This leaves the original version of the document intact inside the file. PDFRecon has found and extracted one or more of these previous versions. This is unequivocal proof that the file has been changed after its original creation.
 
-    <b>TouchUp_TextEdit</b>
-    *<i>Changed:</i>* <red>YES</red>
-    • What it means: This is a specific metadata flag left by Adobe Acrobat when a user has manually edited text directly in the PDF document. It is very strong evidence of direct content alteration.
+<b>TouchUp_TextEdit</b>
+*<i>Changed:</i>* <red>YES</red>
+• What it means: This is a specific metadata flag left by Adobe Acrobat when a user has manually edited text directly in the PDF document. It is very strong evidence of direct content alteration.
 
-    <b>Multiple Font Subsets</b>
-    *<i>Changed:</i>* <yellow>Indications Found</yellow>
-    • What it means: When text is added to a PDF, often only the characters actually used from a font are embedded (a 'subset'). If a file is edited with another program that does not have access to the exact same font, a new subset of the same base font may be created. Finding multiple subsets (e.g., Multiple Font Subsets: 'Arial': F1+ArialMT', 'F2+Arial-BoldMT' is a strong indication that text has been added or changed at different times or with different tools.
+<b>Multiple Font Subsets</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: When text is added to a PDF, often only the characters actually used from a font are embedded (a 'subset'). If a file is edited with another program that does not have access to the exact same font, a new subset of the same base font may be created. Finding multiple subsets (e.g., Multiple Font Subsets: 'Arial': F1+ArialMT', 'F2+Arial-BoldMT' is a strong indication that text has been added or changed at different times or with different tools.
 
-    <b>Multiple Creators / Producers</b>
-    *<i>Changed:</i>* <yellow>Indikationer Fundet</yellow>
-    • Hvad det betyder: PDF-filer indeholder metadata om, hvilket program der har oprettet (/Creator) og genereret (/Producer) filen. Hvis der findes flere forskellige navne i disse felter (f.eks. Multiple Creators (Fundet 2): "Microsoft Word", "Adobe Acrobat Pro"), indikerer det, at filen er blevet behandlet af mere end ét program. Dette sker typisk, når en fil oprettes i ét program og derefter redigeres i et andet.
+<b>Multiple Creators / Producers</b>
+*<i>Changed:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: PDF-filer indeholder metadata om, hvilket program der har oprettet (/Creator) og genereret (/Producer) filen. Hvis der findes flere forskellige navne i disse felter (f.eks. Multiple Creators (Fundet 2): "Microsoft Word", "Adobe Acrobat Pro"), indikerer det, at filen er blevet behandlet af mere end ét program. Dette sker typisk, når en fil oprettes i ét program og derefter redigeres i et andet.
 
-    <b>xmpMM:History / DerivedFrom / DocumentAncestors</b>
-    *<i>Changed:</i>* <yellow>Indications Found</yellow>
-    • What it means: These are different types of XMP metadata that store information about the file's history. They can contain timestamps for when the file was saved, IDs from previous versions, and what software was used. The presence of these fields proves that the file has an editing history.
+<b>xmpMM:History / DerivedFrom / DocumentAncestors</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: These are different types of XMP metadata that store information about the file's history. They can contain timestamps for when the file was saved, IDs from previous versions, and what software was used. The presence of these fields proves that the file has an editing history.
 
-    <b>Multiple DocumentID / Different InstanceID</b>
-    *<i>Changed:</i>* <yellow>Indications Found</yellow>
-    • What it means: Each PDF has a unique DocumentID that should ideally be the same for all versions. The InstanceID, however, changes every time the file is saved. If multiple different DocumentIDs are found (e.g., Trailer ID Changed: From [ID1...] to [ID2...]), or if there is an abnormally high number of InstanceIDs, it points to a complex editing history, potentially where parts from different documents have been combined.
+<b>Multiple DocumentID / Different InstanceID</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: Each PDF has a unique DocumentID that should ideally be the same for all versions. The InstanceID, however, changes every time the file is saved. If multiple different DocumentIDs are found (e.g., Trailer ID Changed: From [ID1...] to [ID2...]), or if there is an abnormally high number of InstanceIDs, it points to a complex editing history, potentially where parts from different documents have been combined.
 
-    <b>Multiple startxref</b>
-    *<i>Changed:</i>* <yellow>Indications Found</yellow>
-    • What it means: 'startxref' is a keyword that tells a PDF reader where to start reading the file's structure. A standard, unchanged file has only one. If there are more, it is a sign that incremental changes have been made (see 'Has Revisions').
+<b>Multiple startxref</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: 'startxref' is a keyword that tells a PDF reader where to start reading the file's structure. A standard, unchanged file has only one. If there are more, it is a sign that incremental changes have been made (see 'Has Revisions').
 
-    <b>Objects with generation > 0</b>
-    *<i>Changed:</i>* <yellow>Indications Found</yellow>
-    • What it means: Each object in a PDF file has a version number (generation). In an original, unaltered file, this number is typically 0 for all objects. If objects are found with a higher generation number (e.g., '12 1 obj'), it is a sign that the object has been overwritten in a later, incremental save. This indicates that the file has been updated.
+<b>Objects with generation > 0</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: Each object in a PDF file has a version number (generation). In an original, unaltered file, this number is typically 0 for all objects. If objects are found with a higher generation number (e.g., '12 1 obj'), it is a sign that the object has been overwritten in a later, incremental save. This indicates that the file has been updated.
 
-    <b>More Layers Than Pages</b>
-    *<i>Changed:</i>* <yellow>Indications Found</yellow>
-    • What it means: The document's structure contains more layers (Optional Content Groups) than it has pages. Each layer is a container for content that can be shown or hidden. While technically possible, having more layers than pages is unusual. It might indicate a complex document, a file that has been heavily edited, or potentially that information is hidden in layers not associated with visible content. Files with this indicator should be examined more closely in a PDF reader that supports layer functionality.
+<b>More Layers Than Pages</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: The document's structure contains more layers (Optional Content Groups) than it has pages. Each layer is a container for content that can be shown or hidden. While technically possible, having more layers than pages is unusual. It might indicate a complex document, a file that has been heavily edited, or potentially that information is hidden in layers not associated with visible content. Files with this indicator should be examined more closely in a PDF reader that supports layer functionality.
 
-    <b>Linearized / Linearized + updated</b>
-    *<i>Changed:</i>* <yellow>Indications Found</yellow>
-    • What it means: A "linearized" PDF is optimized for fast web viewing. If such a file was later modified (updated), PDFRecon flags it. This may indicate that a supposedly final document was edited afterwards.
+<b>Linearized / Linearized + updated</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: A "linearized" PDF is optimized for fast web viewing. If such a file was later modified (updated), PDFRecon flags it. This may indicate that a supposedly final document was edited afterwards.
 
-    <b>Has PieceInfo</b>
-    *<i>Changed:</i>* <yellow>Indications Found</yellow>
-    • What it means: Some applications, particularly from Adobe, store extra technical traces (PieceInfo) about changes or versions. This can reveal that the file has been processed in specific tools like Illustrator.
+<b>Has PieceInfo</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: Some applications, particularly from Adobe, store extra technical traces (PieceInfo) about changes or versions. This can reveal that the file has been processed in specific tools like Illustrator.
 
-    <b>Has Redactions</b>
-    *<i>Changed:</i>* <yellow>Indications Found</yellow>
-    • What it means: The document contains technical fields for redaction (blackouts/removals). In some cases, hidden text may still be present. Redactions should always be assessed critically.
+<b>Has Redactions</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: The document contains technical fields for redaction (blackouts/removals). In some cases, hidden text may still be present. Redactions should always be assessed critically.
 
-    <b>Has Annotations</b>
-    *<i>Changed:</i>* <yellow>Indications Found</yellow>
-    • What it means: The document includes comments, notes, or highlights. They may have been added later and can contain information that is not visible in the main content.
+<b>Has Annotations</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: The document includes comments, notes, or highlights. They may have been added later and can contain information that is not visible in the main content.
 
-    <b>AcroForm NeedAppearances=true</b>
-    *<i>Changed:</i>* <yellow>Indications Found</yellow>
-    • What it means: Form fields may need their appearance regenerated when the document opens. Field text can change or be auto-filled, which may obscure the original content.
+<b>AcroForm NeedAppearances=true</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: Form fields may need their appearance regenerated when the document opens. Field text can change or be auto-filled, which may obscure the original content.
 
-    <b>Has Digital Signature</b>
-    *<i>Changed:</i>* <yellow>Indications Found</yellow>
-    • What it means: The document contains a digital signature. A valid signature confirms the file has not changed since signing. An invalid/broken signature can be a strong sign of later alteration.
+<b>Has Digital Signature</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: The document contains a digital signature. A valid signature confirms the file has not changed since signing. An invalid/broken signature can be a strong sign of later alteration.
 
-    <b>Date inconsistency (Info vs. XMP)</b>
-    *<i>Changed:</i>* <yellow>Indications Found</yellow>
-    • What it means: The creation/modification dates in the PDF Info dictionary do not match the dates in XMP metadata (e.g., Creation Date Mismatch: Info='20230101...', XMP='2023-01-02...'). Such discrepancies can indicate hidden or unauthorized changes.
-    """
+<b>Date inconsistency (Info vs. XMP)</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: The creation/modification dates in the PDF Info dictionary do not match the dates in XMP metadata (e.g., Creation Date Mismatch: Info='20230101...', XMP='2023-01-02...'). Such discrepancies can indicate hidden or unauthorized changes.
+"""
 
         # This dictionary holds all GUI text for easy language switching.
         return {
@@ -391,10 +402,11 @@ class PDFReconApp:
                 "choose_folder": "📁 Vælg mappe og scan",
                 "show_timeline": "Vis Tidslinje",
                 "status_initial": "Træk en mappe hertil, åbn en sag, eller brug knappen for at starte en analyse.",
+                "status_initial_reader": "Brug Fil -> Åbn Sag... for at se en gemt analyse.",
                 "col_id": "#", "col_name": "Navn", "col_changed": "Ændret", "col_path": "Sti", "col_md5": "MD5",
                 "col_created": "Fil oprettet", "col_modified": "Fil sidst ændret", "col_exif": "EXIFTool", "col_indicators": "Tegn på ændring",
                 "export_report": "💾 Eksporter rapport",
-                "menu_file": "Fil", "menu_open_case": "Åbn Sag...", "menu_save_case": "Gem Sag Som...", "menu_settings": "Indstillinger", "menu_exit": "Afslut",
+                "menu_file": "Fil", "menu_open_case": "Åbn Sag...", "menu_save_case": "Gem Sag Som...", "menu_export_reader": "Eksporter Reader med Sag...", "menu_settings": "Indstillinger", "menu_exit": "Afslut",
                 "menu_help": "Hjælp", "menu_manual": "Manual", "menu_about": "Om PDFRecon", "menu_license": "Vis Licens",
                 "menu_log": "Vis logfil", "menu_language": "Sprog / Language",
                 "preparing_analysis": "Forbereder analyse...", "analyzing_file": "🔍 Analyserer: {file}",
@@ -414,6 +426,12 @@ class PDFReconApp:
                 "excel_unexpected_error_title": "Uventet Fejl", "excel_unexpected_error_message": "En uventet fejl opstod under lagring.\n\nDetaljer: {e}",
                 "open_folder_error_title": "Fejl ved åbning", "open_folder_error_message": "Kunne ikke automatisk åbne mappen.",
                 "manual_title": "PDFRecon - Manual",
+                "verify_report_header": "RESULTAT AF INTEGRITETSTJEK",
+                "verify_report_verified": "Verificeret",
+                "verify_report_mismatched": "Uoverensstemmelser",
+                "verify_report_missing": "Manglende",
+                "verify_report_modified_header": "FØLGENDE FILER ER BLEVET ÆNDRET:",
+                "verify_report_missing_header": "FØLGENDE FILER MANGLER:",
                 "revision_of": "Revision af #{id}", "about_purpose_header": "Formål",
                 "about_purpose_text": "PDFRecon identificerer potentielt manipulerede PDF-filer ved at:\n• Udtrække og analysere XMP-metadata, streams og revisioner\n• Detektere tegn på ændringer (f.eks. /TouchUp_TextEdit, /Prev)\n• Udtrække komplette, tidligere versioner af dokumentet\n• Generere en overskuelig rapport i Excel-format\n\n",
                 "about_included_software_header": "Inkluderet Software", "about_included_software_text": "Dette værktøj benytter og inkluderer {tool} af Phil Harvey.\n{tool} er distribueret under Artistic/GPL-licens.\n\n",
@@ -432,6 +450,8 @@ class PDFReconApp:
                 "view_pdf": "Vis PDF", "pdf_viewer_title": "PDF Fremviser", "pdf_viewer_error_title": "Fremvisningsfejl",
                 "pdf_viewer_error_message": "Kunne ikke åbne eller vise PDF-filen.\n\nFejl: {e}",
                 "status_no": "NEJ",
+                "menu_verify_integrity": "Verificér Fil-integritet", "verify_title": "Verificerer Integritet", "verify_running": "Verificerer fil-integritet... Vent venligst.", "verify_success": "Alle filer er verificeret og uændrede.",
+                "verify_fail_title": "Resultat af Integritetstjek", "verify_fail_msg": "ADVARSEL: En eller flere filer er blevet ændret eller mangler.", "verify_no_hashes": "Denne sag indeholder ingen hash-information til verificering.",
                 "filter_label": "🔎 Filter:",
                 "settings_title": "Indstillinger", "settings_max_size": "Maks filstørrelse (MB):", "settings_timeout": "ExifTool Timeout (sek):",
                 "settings_threads": "Maks. analysetråde:", "settings_diff_pages": "Sider for visuel sammenligning:", "settings_save": "Gem", "settings_cancel": "Annuller",
@@ -440,15 +460,20 @@ class PDFReconApp:
                 "case_nothing_to_save_title": "Ingen Data at Gemme", "case_nothing_to_save_msg": "Der er ingen analyseresultater at gemme.",
                 "case_save_error_title": "Fejl ved Gem", "case_save_error_msg": "Sagen kunne ikke gemmes.\n\nFejl: {e}",
                 "case_open_error_title": "Fejl ved Åbning", "case_open_error_msg": "Sagen kunne ikke åbnes. Filen er muligvis korrupt eller ikke en gyldig sagfil.\n\nFejl: {e}",
+                "export_reader_title": "Vælg Mappe til Reader", "export_reader_success_title": "Reader Eksporteret",
+                "export_reader_success_msg": "En selvstændig Reader-pakke er blevet gemt i den valgte mappe.\n\nVil du åbne mappen?",
+                "export_reader_error_title": "Fejl ved Eksportering", "export_reader_error_msg": "Kunne ikke oprette Reader-pakken.\n\nFejl: {e}",
+                "export_reader_error_specific_msg": "Kunne ikke oprette Reader-pakken. Handlingen mislykkedes for filen: {filename}\n\nFejl: {e}",
             },
             "en": {
                 "full_manual": MANUAL_EN,
                 "choose_folder": "📁 Choose folder and scan", "show_timeline": "Show Timeline", "status_initial": "Drag a folder here, open a case, or use the button to start an analysis.",
+                "status_initial_reader": "Use File -> Open Case... to view a saved analysis.",
                 "obj_gen_gt_zero": "Object with generation > 0",
                 "col_id": "#", "col_name": "Name", "col_changed": "Changed", "col_path": "Path", "col_md5": "MD5",
                 "col_created": "File Created", "col_modified": "File Modified", "col_exif": "EXIFTool", "col_indicators": "Signs of Alteration",
                 "export_report": "💾 Export Report",
-                "menu_file": "File", "menu_open_case": "Open Case...", "menu_save_case": "Save Case As...", "menu_settings": "Settings", "menu_exit": "Exit",
+                "menu_file": "File", "menu_open_case": "Open Case...", "menu_save_case": "Save Case As...", "menu_export_reader": "Export Reader with Case...", "menu_settings": "Settings", "menu_exit": "Exit",
                 "menu_help": "Help", "menu_manual": "Manual", "menu_about": "About PDFRecon", "menu_license": "Show License",
                 "menu_log": "Show Log File", "menu_language": "Language / Sprog",
                 "preparing_analysis": "Preparing analysis...", "analyzing_file": "🔍 Analyzing: {file}",
@@ -485,6 +510,14 @@ class PDFReconApp:
                 "view_pdf": "View PDF", "pdf_viewer_title": "PDF Viewer", "pdf_viewer_error_title": "Viewer Error",
                 "pdf_viewer_error_message": "Could not open or display the PDF file.\n\nError: {e}",
                 "status_no": "NO",
+                "menu_verify_integrity": "Verify File Integrity", "verify_title": "Verifying Integrity", "verify_running": "Verifying file integrity... Please wait.", "verify_success": "All files have been verified and are unchanged.",
+                "verify_fail_title": "Integrity Check Result", "verify_fail_msg": "WARNING: One or more files have been modified or are missing.", "verify_no_hashes": "This case contains no hash information for verification.",
+                "verify_report_header": "INTEGRITY CHECK RESULT",
+                "verify_report_verified": "Verified",
+                "verify_report_mismatched": "Mismatched",
+                "verify_report_missing": "Missing",
+                "verify_report_modified_header": "THE FOLLOWING FILES HAVE BEEN MODIFIED:",
+                "verify_report_missing_header": "THE FOLLOWING FILES ARE MISSING:",
                 "filter_label": "🔎 Filter:",
                 "settings_title": "Settings", "settings_max_size": "Max file size (MB):", "settings_timeout": "ExifTool Timeout (sec):",
                 "settings_threads": "Max analysis threads:", "settings_diff_pages": "Pages for visual compare:", "settings_save": "Save", "settings_cancel": "Cancel",
@@ -493,9 +526,14 @@ class PDFReconApp:
                 "case_nothing_to_save_title": "No Data to Save", "case_nothing_to_save_msg": "There is no analysis data to save.",
                 "case_save_error_title": "Save Error", "case_save_error_msg": "Could not save the case file.\n\nError: {e}",
                 "case_open_error_title": "Open Error", "case_open_error_msg": "Could not open the case file. The file may be corrupt or not a valid case file.\n\nError: {e}",
+                "export_reader_title": "Select Folder for Reader", "export_reader_success_title": "Reader Exported",
+                "export_reader_success_msg": "A self-contained Reader package has been saved in the selected folder.\n\nDo you want to open the folder?",
+                "export_reader_error_title": "Export Error", "export_reader_error_msg": "Could not create the Reader package.\n\nError: {e}",
+                "export_reader_error_specific_msg": "Could not create the Reader package. Failed on file: {filename}\n\nError: {e}",
             }
-        }
-        
+        }    
+
+  
     def _load_or_create_config(self):
         """Loads configuration from config.ini or creates the file with default values."""
         parser = configparser.ConfigParser()
@@ -550,7 +588,31 @@ class PDFReconApp:
             logger.addHandler(fh)
         except Exception as e:
             messagebox.showerror("Log Error", f"Could not create the log file.\n\nDetails: {e}")
-
+    def _autoload_case_in_reader(self):
+        """If in reader mode, finds and opens a .prc file in the executable's directory."""
+        try:
+            exe_dir = Path(sys.executable).parent
+            case_files = list(exe_dir.glob('*.prc'))
+            
+            # Auto-load only if exactly one case file is found
+            if len(case_files) == 1:
+                logging.info(f"Reader mode: Found case file to auto-load: {case_files[0]}")
+                self._open_case(filepath=case_files[0])
+            elif len(case_files) > 1:
+                logging.warning("Reader mode: Found multiple .prc files. Aborting auto-load.")
+            else:
+                logging.info("Reader mode: No .prc file found for auto-loading.")
+        except Exception as e:
+            logging.error(f"Error during case auto-load: {e}")
+            
+    def _finalize_copy_operations(self):
+        """Waits for the copy executor to finish and updates the status bar."""
+        if self.copy_executor:
+            self.copy_executor.shutdown(wait=True)
+            self.copy_executor = None
+            logging.info("All background copy operations have finished.")
+            # Schedule the final status update on the main GUI thread
+            self.root.after(0, self._update_summary_status)
 
     def _setup_styles(self):
         """Initializes and configures the styles for ttk widgets."""
@@ -575,8 +637,19 @@ class PDFReconApp:
             "Sandsynligt": "yellow_row",
             "Possible": "yellow_row",
         }
-
-
+    
+    def _resolve_case_path(self, path_from_case):
+        """Resolves a path from a case file, handling both absolute and relative paths."""
+        if not path_from_case:
+            return None
+        p = Path(path_from_case)
+        if p.is_absolute():
+            return p
+        # If a case is loaded, resolve the path relative to the case's folder.
+        if self.case_root_path:
+            return self.case_root_path / p
+        # Fallback if no case root is set (should not happen in practice)
+        return p    
 
     def _setup_menu(self):
         """Creates the main menu bar for the application."""
@@ -586,13 +659,23 @@ class PDFReconApp:
         self.file_menu = tk.Menu(self.menubar, tearoff=0)
         self.menubar.add_cascade(label=self._("menu_file"), menu=self.file_menu)
         self.file_menu.add_command(label=self._("menu_open_case"), command=self._open_case)
-        self.file_menu.add_command(label=self._("menu_save_case"), command=self._save_case, state="disabled")
-        self.file_menu.add_separator()
-        self.file_menu.add_command(label=self._("menu_settings"), command=self.open_settings_popup)
+        self.file_menu.add_command(label=self._("menu_verify_integrity"), command=self._verify_integrity, state="disabled")
+        
+        # Add save/export options only if not in reader mode
+        if not self.is_reader_mode:
+            self.file_menu.add_command(label=self._("menu_save_case"), command=self._save_case, state="disabled")
+            
+            # The 'Export Reader' menu item is only created if the application is a frozen executable.
+            if getattr(sys, 'frozen', False):
+                self.file_menu.add_command(label=self._("menu_export_reader"), command=self._export_reader, state="disabled")
+            
+            self.file_menu.add_separator()
+            self.file_menu.add_command(label=self._("menu_settings"), command=self.open_settings_popup)
+        
         self.file_menu.add_separator()
         self.file_menu.add_command(label=self._("menu_exit"), command=self.root.quit)
 
-        # --- Help Menu ---
+        # --- Help Menu (unchanged) ---
         self.help_menu = tk.Menu(self.menubar, tearoff=0)
         self.lang_menu = tk.Menu(self.help_menu, tearoff=0) 
 
@@ -608,7 +691,7 @@ class PDFReconApp:
         self.help_menu.add_command(label=self._("menu_log"), command=self.show_log_file)
         
         self.root.config(menu=self.menubar)
-
+        
     def _update_summary_status(self):
         """Updates the status bar with a summary of the results from the full scan."""
         if not self.all_scan_data:
@@ -734,8 +817,6 @@ class PDFReconApp:
             logging.info(f"Language setting saved to {self.config_path}")
         except Exception as e:
             logging.error(f"Could not save language setting to config.ini: {e}")
-
-
     def _setup_main_frame(self):
         """Sets up the main user interface components within the root window."""
         # --- Main Container Frame ---
@@ -748,6 +829,8 @@ class PDFReconApp:
 
         self.scan_button = ttk.Button(top_controls_frame, text=self._("choose_folder"), width=25, command=self.choose_folder)
         self.scan_button.pack(side="left", padx=(0, 10))
+        if self.is_reader_mode:
+            self.scan_button.config(state="disabled")
 
         self.filter_label = ttk.Label(top_controls_frame, text=self._("filter_label"))
         self.filter_label.pack(side="left", padx=(5, 2))
@@ -755,9 +838,13 @@ class PDFReconApp:
         filter_entry = ttk.Entry(top_controls_frame, textvariable=self.filter_var)
         filter_entry.pack(side="left", fill="x", expand=True)
         self.filter_var.trace_add("write", self._apply_filter)
+        if self.is_reader_mode:
+            filter_entry.config(state="disabled")
+
 
         # --- Status Bar ---
-        self.status_var = tk.StringVar(value=self._("status_initial"))
+        initial_status = self._("status_initial_reader") if self.is_reader_mode else self._("status_initial")
+        self.status_var = tk.StringVar(value=initial_status)
         status_label = ttk.Label(frame, textvariable=self.status_var, foreground="darkgreen")
         status_label.pack(pady=(5, 10))
 
@@ -833,9 +920,12 @@ class PDFReconApp:
 
 
     def _setup_drag_and_drop(self):
-        """Enables drag and drop for the main window."""
+        """Enables drag and drop for the main window, unless in reader mode."""
+        if self.is_reader_mode:
+            return
         self.root.drop_target_register(DND_FILES)
         self.root.dnd_bind('<<Drop>>', self.handle_drop)
+
 
     def handle_drop(self, event):
         """Handles files that are dropped onto the window."""
@@ -942,7 +1032,12 @@ class PDFReconApp:
         """Opens the folder containing the selected file in the system's file explorer."""
         values = self.tree.item(item_id, "values")
         if values:
-            webbrowser.open(os.path.dirname(values[3]))
+            path_str = values[3]
+            resolved_path = self._resolve_case_path(path_str)
+            if resolved_path and resolved_path.exists():
+                webbrowser.open(os.path.dirname(resolved_path))
+            else:
+                messagebox.showwarning("File Not Found", f"The file could not be found at the path:\n{resolved_path}")
 
     def show_exif_popup_from_item(self, item_id):
         """Shows the EXIFTool popup for a given treeview item."""
@@ -1058,7 +1153,6 @@ class PDFReconApp:
         if page_count and layers_cnt > page_count:
             indicators['MoreLayersThanPages'] = {'layers': layers_cnt, 'pages': page_count}
 
-
     def show_pdf_viewer_popup(self, item_id):
         """Displays a simple PDF viewer for the selected file."""
         self.root.config(cursor="watch")
@@ -1067,6 +1161,7 @@ class PDFReconApp:
         try:
             path_str = self.tree.item(item_id, "values")[3]
             file_name = self.tree.item(item_id, "values")[1]
+            resolved_path = self._resolve_case_path(path_str)
         except (IndexError, TypeError):
             self.root.config(cursor="")
             return
@@ -1078,9 +1173,8 @@ class PDFReconApp:
             
             # --- PDF Loading ---
             popup.current_page = 0
-            popup.doc = fitz.open(path_str)
+            popup.doc = fitz.open(resolved_path) # Use resolved_path
             popup.total_pages = len(popup.doc)
-
             # --- Widget Layout ---
             main_frame = ttk.Frame(popup, padding=10)
             main_frame.pack(fill="both", expand=True)
@@ -1159,14 +1253,16 @@ class PDFReconApp:
         self.root.config(cursor="watch")
         self.root.update_idletasks()
 
-        # Get paths for the revision and its corresponding original file
         rev_path_str = self.tree.item(item_id, "values")[3]
-        original_path_str = next((str(d['original_path']) for d in self.all_scan_data if str(d['path']) == rev_path_str), None)
+        original_path_str = next((d['original_path'] for d in self.all_scan_data if str(d['path']) == rev_path_str), None)
 
         if not original_path_str:
             messagebox.showerror(self._("diff_error_title"), "Original file for revision not found.", parent=self.root)
             self.root.config(cursor="")
             return
+
+        resolved_rev_path = self._resolve_case_path(rev_path_str)
+        resolved_orig_path = self._resolve_case_path(original_path_str)
 
         try:
             # --- Popup Window Setup ---
@@ -1174,8 +1270,8 @@ class PDFReconApp:
             popup.title(self._("diff_popup_title"))
             
             popup.current_page = 0
-            popup.path_orig = original_path_str
-            popup.path_rev = rev_path_str
+            popup.path_orig = resolved_orig_path # Use resolved_orig_path
+            popup.path_rev = resolved_rev_path   # Use resolved_rev_path
             with fitz.open(popup.path_orig) as doc:
                 popup.total_pages = doc.page_count
 
@@ -1480,11 +1576,16 @@ class PDFReconApp:
         # --- Reset Application State ---
         self._reset_state()
         self.last_scan_folder = folder_path
+        self.case_root_path = folder_path # Set the root for the new scan
         
         # --- Update GUI for Scanning State ---
         self.scan_button.config(state="disabled")
         self.export_menubutton.config(state="disabled")
-        self.file_menu.entryconfig(self._("menu_save_case"), state="disabled") # Disable during scan
+        if not self.is_reader_mode:
+            self.file_menu.entryconfig(self._("menu_save_case"), state="disabled")
+            if getattr(sys, 'frozen', False):
+                 self.file_menu.entryconfig(self._("menu_export_reader"), state="disabled")
+
         self.status_var.set(self._("preparing_analysis"))
         self.progressbar.config(value=0)
 
@@ -1497,7 +1598,6 @@ class PDFReconApp:
         scan_thread.start()
 
         self._process_queue()
-
        
     def _reset_state(self):
         """Resets all data and GUI elements to their initial state."""
@@ -1507,6 +1607,7 @@ class PDFReconApp:
         self.exif_outputs.clear()
         self.timeline_data.clear()
         self.path_to_id.clear()
+        self.evidence_hashes.clear()
         self.revision_counter = 0
         self.scan_queue = queue.Queue()
         self.scan_start_time = time.time()
@@ -1516,16 +1617,18 @@ class PDFReconApp:
         self.detail_text.delete("1.0", tk.END)
         self.detail_text.config(state="disabled")
 
-    def _open_case(self):
-        """Opens a dialog to load a previously saved analysis case."""
-        if self.all_scan_data:
-            if not messagebox.askokcancel(self._("case_open_warning_title"), self._("case_open_warning_msg")):
-                return
+    def _open_case(self, filepath=None):
+        """Opens a dialog to load a case, or loads a case from a given filepath."""
+        if not filepath:
+            if self.all_scan_data:
+                if not messagebox.askokcancel(self._("case_open_warning_title"), self._("case_open_warning_msg")):
+                    return
+            
+            filepath = filedialog.askopenfilename(
+                title="Open PDFRecon Case",
+                filetypes=[("PDFRecon Case Files", "*.prc"), ("All files", "*.*")]
+            )
         
-        filepath = filedialog.askopenfilename(
-            title="Open PDFRecon Case",
-            filetypes=[("PDFRecon Case Files", "*.pdfreconcase"), ("All files", "*.*")]
-        )
         if not filepath:
             return
 
@@ -1535,10 +1638,12 @@ class PDFReconApp:
 
             # --- Restore State from Case File ---
             self._reset_state()
+            self.case_root_path = Path(filepath).parent 
             self.all_scan_data = case_data.get('all_scan_data', [])
             self.exif_outputs = case_data.get('exif_outputs', {})
             self.timeline_data = case_data.get('timeline_data', {})
             self.path_to_id = case_data.get('path_to_id', {})
+            self.evidence_hashes = case_data.get('evidence_hashes', {})
             self.revision_counter = case_data.get('revision_counter', 0)
             self.last_scan_folder = case_data.get('scan_folder', None)
             
@@ -1546,27 +1651,23 @@ class PDFReconApp:
             self._apply_filter()
             self._update_summary_status()
             self.export_menubutton.config(state="normal")
-            self.file_menu.entryconfig(self._("menu_save_case"), state="normal")
+            
+            if self.evidence_hashes:
+                self.file_menu.entryconfig(self._("menu_verify_integrity"), state="normal")
+
+            if not self.is_reader_mode:
+                self.file_menu.entryconfig(self._("menu_save_case"), state="normal")
+                if getattr(sys, 'frozen', False):
+                    self.file_menu.entryconfig(self._("menu_export_reader"), state="normal")
+
             logging.info(f"Successfully loaded case file: {filepath}")
 
         except Exception as e:
             logging.error(f"Failed to open case file '{filepath}': {e}")
             messagebox.showerror(self._("case_open_error_title"), self._("case_open_error_msg").format(e=e))
-
-    def _save_case(self):
-        """Saves the current analysis results to a case file."""
-        if not self.all_scan_data:
-            messagebox.showwarning(self._("case_nothing_to_save_title"), self._("case_nothing_to_save_msg"))
-            return
             
-        filepath = filedialog.asksaveasfilename(
-            title="Save PDFRecon Case As",
-            defaultextension=".pdfreconcase",
-            filetypes=[("PDFRecon Case Files", "*.pdfreconcase"), ("All files", "*.*")]
-        )
-        if not filepath:
-            return
-
+    def _write_case_to_file(self, filepath):
+        """Helper function to gather and write case data to a specific file path."""
         case_data = {
             'app_version': self.app_version,
             'scan_folder': self.last_scan_folder,
@@ -1576,15 +1677,248 @@ class PDFReconApp:
             'path_to_id': self.path_to_id,
             'revision_counter': self.revision_counter,
         }
+        with open(filepath, 'wb') as f:
+            pickle.dump(case_data, f)
+    
+    def _hash_file(self, filepath):
+        """Calculates the SHA-256 hash of a file."""
+        sha256_hash = hashlib.sha256()
+        try:
+            with open(filepath, "rb") as f:
+                for byte_block in iter(lambda: f.read(4096), b""):
+                    sha256_hash.update(byte_block)
+            return sha256_hash.hexdigest()
+        except FileNotFoundError:
+            logging.error(f"Could not hash file, not found: {filepath}")
+            return None
+        except Exception as e:
+            logging.error(f"Error hashing file {filepath}: {e}")
+            return None
+
+    def _calculate_hashes(self, data_to_hash):
+        """Calculates hashes for all files listed in the data and returns a dictionary."""
+        hashes = {}
+        for item in data_to_hash:
+            path_str = item.get('path')
+            if path_str:
+                full_path = self._resolve_case_path(path_str)
+                file_hash = self._hash_file(full_path)
+                if file_hash:
+                    hashes[str(path_str)] = file_hash
+        return hashes
+
+    def _verify_integrity(self):
+        """Verifies the integrity of all evidence files against the stored hashes and logs the result."""
+        if not self.evidence_hashes:
+            messagebox.showinfo(self._("verify_title"), self._("verify_no_hashes"))
+            return
+
+        self.status_var.set(self._("verify_running"))
+        self.root.update_idletasks()
+
+        mismatched_files = []
+        missing_files = []
+        
+        total_files = len(self.evidence_hashes)
+        verified_count = 0
+
+        for path_str, original_hash in self.evidence_hashes.items():
+            full_path = self._resolve_case_path(path_str)
+            if not full_path or not full_path.exists():
+                missing_files.append(str(path_str))
+                continue
+            
+            current_hash = self._hash_file(full_path)
+            if current_hash != original_hash:
+                mismatched_files.append(str(path_str))
+            
+            verified_count += 1
+
+        self._update_summary_status() # Reset status bar
+
+        # --- Log the results ---
+        log_header = "Integrity check result:"
+        if not mismatched_files and not missing_files:
+            logging.info(f"{log_header} Success. All {verified_count}/{total_files} files are valid.")
+            messagebox.showinfo(self._("verify_fail_title"), self._("verify_success"))
+        else:
+            log_summary = (f"{log_header} FAILURE. "
+                           f"Verified: {verified_count}/{total_files}, "
+                           f"Mismatched: {len(mismatched_files)}, "
+                           f"Missing: {len(missing_files)}")
+            logging.warning(log_summary)
+
+            report_lines = []
+            report_popup = Toplevel(self.root)
+            report_popup.title(self._("verify_fail_title"))
+            report_popup.geometry("700x450")
+            
+            text_frame = ttk.Frame(report_popup, padding=10)
+            text_frame.pack(fill="both", expand=True)
+            text_widget = tk.Text(text_frame, wrap="word", font=("Courier New", 9))
+            text_widget.pack(fill="both", expand=True)
+
+            def add_line(text):
+                report_lines.append(text)
+                text_widget.insert(tk.END, text + "\n")
+
+            add_line(f"{self._('verify_report_header')}")
+            add_line("-----------------------------")
+            add_line(f"{self._('verify_report_verified')}: {verified_count}/{total_files}")
+            add_line(f"{self._('verify_report_mismatched')}: {len(mismatched_files)}")
+            add_line(f"{self._('verify_report_missing')}: {len(missing_files)}\n")
+
+            if mismatched_files:
+                add_line(f"{self._('verify_report_modified_header')}")
+                logging.warning("Mismatched files:")
+                for f in mismatched_files:
+                    add_line(f"- {f}")
+                    logging.warning(f"- {f}")
+                add_line("")
+            
+            if missing_files:
+                add_line(f"{self._('verify_report_missing_header')}")
+                logging.warning("Missing files:")
+                for f in missing_files:
+                    add_line(f"- {f}")
+                    logging.warning(f"- {f}")
+
+            text_widget.config(state="disabled")
+            messagebox.showwarning(self._("verify_fail_title"), self._("verify_fail_msg"), parent=report_popup)
+            
+    def _save_case(self):
+        """Saves the current analysis results to a case file."""
+        if not self.all_scan_data:
+            messagebox.showwarning(self._("case_nothing_to_save_title"), self._("case_nothing_to_save_msg"))
+            return
+            
+        filepath = filedialog.asksaveasfilename(
+            title="Save PDFRecon Case As",
+            defaultextension=".prc",
+            filetypes=[("PDFRecon Case Files", "*.prc"), ("All files", "*.*")]
+        )
+        if not filepath:
+            return
         
         try:
-            with open(filepath, 'wb') as f:
-                pickle.dump(case_data, f)
+            self._write_case_to_file(filepath)
             logging.info(f"Successfully saved case to: {filepath}")
         except Exception as e:
             logging.error(f"Failed to save case file '{filepath}': {e}")
             messagebox.showerror(self._("case_save_error_title"), self._("case_save_error_msg").format(e=e))
+            
+    def _export_reader(self):
+        """
+        Exports a fully self-contained Reader package, preserving the relative
+        folder structure of the original scan inside the 'Evidence' folder.
+        """
+        if not self.all_scan_data or not self.last_scan_folder:
+            messagebox.showwarning(self._("case_nothing_to_save_title"), self._("case_nothing_to_save_msg"))
+            return
+        
+        base_path_str = filedialog.askdirectory(title=self._("export_reader_title"))
+        if not base_path_str:
+            return
+        
+        failed_file = ""
+        dest_folder = Path(base_path_str) / "Export"
 
+        try:
+            # Clean and create the 'Export' folder
+            if dest_folder.exists():
+                shutil.rmtree(dest_folder)
+            dest_folder.mkdir(exist_ok=True)
+
+            evidence_folder = dest_folder / "Evidence"
+            evidence_folder.mkdir(exist_ok=True)
+
+            data_for_export = copy.deepcopy(self.all_scan_data)
+            new_exif, new_timeline, new_hashes, path_map = {}, {}, {}, {}
+
+            # --- NY LOGIK: Find den fælles base-sti for scanningen ---
+            scan_base_path = self._resolve_case_path(self.last_scan_folder)
+
+            for item in data_for_export:
+                original_path_str = str(item['path'])
+                original_abs_path = self._resolve_case_path(original_path_str)
+                
+                if not original_abs_path or not original_abs_path.exists():
+                    logging.warning(f"Skipping missing file for export: {original_abs_path}")
+                    continue
+
+                # --- NY LOGIK: Beregn relativ sti og opret undermapper ---
+                try:
+                    relative_sub_path = original_abs_path.relative_to(scan_base_path)
+                except ValueError:
+                    # Fallback if a file is outside the main scan folder (e.g., a revision was saved elsewhere)
+                    relative_sub_path = Path(original_abs_path.name)
+                
+                dest_file_path = evidence_folder / relative_sub_path
+                dest_file_path.parent.mkdir(parents=True, exist_ok=True) # Ensure subfolder exists
+
+                failed_file = original_abs_path.name
+                shutil.copy2(original_abs_path, dest_file_path)
+                os.chmod(dest_file_path, stat.S_IREAD | stat.S_IRGRP | stat.S_IROTH)
+
+                new_relative_path_str = str(Path("Evidence") / relative_sub_path)
+                
+                # Populate new dictionaries with the full relative path as the key
+                new_hashes[new_relative_path_str] = self._hash_file(dest_file_path)
+                if original_path_str in self.exif_outputs:
+                    new_exif[new_relative_path_str] = self.exif_outputs[original_path_str]
+                if original_path_str in self.timeline_data:
+                    new_timeline[new_relative_path_str] = self.timeline_data[original_path_str]
+
+                path_map[original_path_str] = new_relative_path_str
+                item['path'] = new_relative_path_str
+
+            for item in data_for_export:
+                if item.get('is_revision'):
+                    original_parent_path = str(item.get('original_path'))
+                    if original_parent_path in path_map:
+                        item['original_path'] = path_map[original_parent_path]
+
+            case_filename = f"case_{datetime.now().strftime('%Y%m%d_%H%M%S')}.prc"
+            dest_case_file = dest_folder / case_filename
+            failed_file = case_filename
+            
+            case_payload = {
+                'app_version': self.app_version,
+                'scan_folder': self.last_scan_folder,
+                'all_scan_data': data_for_export,
+                'exif_outputs': new_exif,
+                'timeline_data': new_timeline,
+                'path_to_id': self.path_to_id,
+                'revision_counter': self.revision_counter,
+                'evidence_hashes': new_hashes,
+            }
+            with open(dest_case_file, 'wb') as f:
+                pickle.dump(case_payload, f)
+
+            source_exe = Path(sys.executable)
+            reader_exe_name = f"{source_exe.stem}_Reader{source_exe.suffix}"
+            dest_exe = dest_folder / reader_exe_name
+            failed_file = reader_exe_name
+            shutil.copy2(source_exe, dest_exe)
+
+            dependencies = ["license.txt", "config.ini", "icon.ico"]
+            for dep_name in dependencies:
+                source_dep = self._resolve_path(dep_name, base_is_parent=True)
+                if source_dep.exists():
+                    failed_file = dep_name
+                    shutil.copy2(source_dep, dest_folder / dep_name)
+
+            logging.info(f"Reader exported successfully to {dest_folder}")
+            if messagebox.askyesno(self._("export_reader_success_title"), self._("export_reader_success_msg")):
+                webbrowser.open(dest_folder)
+
+        except Exception as e:
+            logging.error(f"Failed to export Reader during operation on '{failed_file}': {e}")
+            messagebox.showerror(
+                self._("export_reader_error_title"),
+                self._("export_reader_error_specific_msg").format(filename=failed_file, e=e)
+            )
+           
     def _find_pdf_files_generator(self, folder):
         """A generator that 'yields' PDF files as soon as they are found."""
         for base, _, files in os.walk(folder):
@@ -1734,39 +2068,33 @@ class PDFReconApp:
 
         return out
     
-    def start_scan_thread(self, folder_path):
-        """Initializes and starts the background scanning process."""
-        logging.info(f"Starting scan of folder: {folder_path}")
-        
-        # --- Reset Application State ---
-        self.tree.delete(*self.tree.get_children())
-        self.report_data.clear()
-        self.all_scan_data.clear()
-        self.exif_outputs.clear()
-        self.timeline_data.clear()
-        self.path_to_id.clear()
-        self.revision_counter = 0
-        self.scan_queue = queue.Queue()
-        self.scan_start_time = time.time()
-        self.filter_var.set("")
-        
-        # --- Update GUI for Scanning State ---
-        self.scan_button.config(state="disabled")
-        self.export_menubutton.config(state="disabled")
-        self.status_var.set(self._("preparing_analysis"))
-        self.progressbar.config(value=0)
+        def start_scan_thread(self, folder_path):
+            """Initializes and starts the background scanning process."""
+            logging.info(f"Starting scan of folder: {folder_path}")
+            
+            # --- Reset Application State ---
+            self._reset_state()
+            self.last_scan_folder = folder_path
+            
+            # --- Update GUI for Scanning State ---
+            self.scan_button.config(state="disabled")
+            self.export_menubutton.config(state="disabled")
+            if not self.is_reader_mode:
+                self.file_menu.entryconfig(self._("menu_save_case"), state="disabled")
+                self.file_menu.entryconfig(self._("menu_export_reader"), state="disabled")
+            self.status_var.set(self._("preparing_analysis"))
+            self.progressbar.config(value=0)
 
-        # --- NEW: Create a dedicated thread pool for copy operations ---
-        # A small number of threads is best for I/O to avoid disk thrashing.
-        self.copy_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix='CopyWorker')
+            # --- Create a dedicated thread pool for copy operations ---
+            self.copy_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix='CopyWorker')
 
-        # --- Start Main Worker Thread ---
-        scan_thread = threading.Thread(target=self._scan_worker_parallel, args=(folder_path, self.scan_queue))
-        scan_thread.daemon = True
-        scan_thread.start()
+            # --- Start Main Worker Thread ---
+            scan_thread = threading.Thread(target=self._scan_worker_parallel, args=(folder_path, self.scan_queue))
+            scan_thread.daemon = True
+            scan_thread.start()
 
-        self._process_queue()
-   
+            self._process_queue()
+    
     def _scan_worker_parallel(self, folder, q):
         """
         Finds PDF files and processes them in parallel using a ThreadPoolExecutor.
@@ -1848,36 +2176,31 @@ class PDFReconApp:
             pass
         # Schedule the next check
         self.root.after(100, self._process_queue)
-
+    
     def _finalize_scan(self):
-        """Performs final actions after the scan is complete."""
-        # --- Wait for all background copy operations to complete ---
-        if self.copy_executor:
-            logging.info("Waiting for background copy operations to finish...")
-            self.copy_executor.shutdown(wait=True)
-            self.copy_executor = None
-            logging.info("All copy operations finished.")
-
-        # --- Build path-to-ID map ---
-        self.path_to_id.clear()
-        temp_counter = 0
-        for data in self.all_scan_data:
-            if not data.get("is_revision"):
-                temp_counter += 1
-                self.path_to_id[str(data["path"])] = temp_counter
-
+        """Performs final actions, making the GUI responsive immediately."""
+        # ... (behold starten af funktionen indtil self._apply_filter()) ...
         self._apply_filter()
         
         # --- Update GUI to 'finished' state ---
         self.scan_button.config(state="normal")
         self.export_menubutton.config(state="normal")
-        self.file_menu.entryconfig(self._("menu_save_case"), state="normal") # Enable saving
+
+        self.evidence_hashes = self._calculate_hashes(self.all_scan_data)
+        if self.evidence_hashes:
+             self.file_menu.entryconfig(self._("menu_verify_integrity"), state="normal")
+
+        if not self.is_reader_mode:
+            self.file_menu.entryconfig(self._("menu_save_case"), state="normal")
+            # Safely enable export menu only if it exists (i.e., we are running as an exe)
+            if getattr(sys, 'frozen', False):
+                 self.file_menu.entryconfig(self._("menu_export_reader"), state="normal")
+        
         if self.progressbar['value'] < self.progressbar['maximum']:
              self.progressbar['value'] = self.progressbar['maximum']
         
-        self._update_summary_status()
-        logging.info(f"Analysis complete. {self.status_var.get()}")
-    
+        # ... (resten af funktionen er uændret) ...    
+        
     def _apply_filter(self, *args):
             """Filters the displayed results based on the search term."""
             search_term = self.filter_var.get().lower()
@@ -1941,15 +2264,12 @@ class PDFReconApp:
             
             # Repopulate the treeview with the filtered results
             self._populate_tree_from_data(items_to_show)
-
+            
     def _populate_tree_from_data(self, data_list):
+        tree = self.tree
         """
-        Repopulate the treeview from a (filtered) list of rows.
-
-        Performance: two-pass build (O(n)) with minimal attribute lookups.
-        Correctness: 'Revision of #N' uses the ORIGINAL's displayed ID within
-        the *current view*. If the original is filtered out, we fall back to
-        self.path_to_id (original-only index) so the text is still meaningful.
+        Repopulate the treeview from a (filtered) list of rows, now robustly
+        handling paths that can be either Path objects or strings.
         """
         tree = self.tree
         _ = self._
@@ -1957,12 +2277,9 @@ class PDFReconApp:
         tree_tags = self.tree_tags
         report_data = self.report_data
 
-        # Clear visible table + export buffer
         tree.delete(*tree.get_children())
         report_data.clear()
 
-        # -------- Pass 1: compute displayed IDs for ORIGINALS in the current view --------
-        # Key: str(Path to original) -> displayed ID (as shown in the first column)
         parent_display_id = {}
         counter = 0
         for d in data_list:
@@ -1972,96 +2289,79 @@ class PDFReconApp:
             if not d.get("is_revision"):
                 parent_display_id[str(d["path"])] = counter
 
-        # -------- Pass 2: build rows and insert (fast path, minimal work per row) --------
         insert = tree.insert
         append = report_data.append
         counter = 0
 
         for d in data_list:
             counter += 1
+            
+            # --- Convert path to Path object for consistent handling ---
+            path = d["path"]
+            path_obj = Path(path)
 
-            # --- Error rows ---
             if d.get("status") == "error":
-                path = d["path"]
                 error_type_key = d.get("error_type", "unknown_error")
                 error_display_name = _(error_type_key)
-
                 row_values = [
-                    counter,                 # ID (GUI)
-                    path.name,               # Name
-                    error_display_name,      # Altered
-                    str(path),               # Path
-                    "N/A",                   # MD5
-                    "",                      # File Created
-                    "",                      # File Modified
-                    _("exif_error"),         # EXIFTool
-                    d.get("error_message", "Unknown error")  # Signs of Alteration
+                    counter,
+                    path_obj.name, # Use .name from the Path object
+                    error_display_name,
+                    str(path), # Store the original path string/object
+                    "N/A", "", "", _("exif_error"),
+                    d.get("error_message", "Unknown error")
                 ]
                 append(row_values)
                 insert("", "end", values=row_values, tags=("red_row",))
                 continue
 
-            # --- Normal rows (originals + revisions) ---
-            path = d["path"]
             is_rev = d.get("is_revision", False)
-
-            # EXIF column text (cheap checks only)
             exif_val = d.get("exif")
             if exif_val:
                 is_exif_err = (
-                    exif_val == _("exif_err_notfound")
-                    or exif_val.startswith(_("exif_err_prefix"))
-                    or exif_val.startswith(_("exif_err_run").split("{")[0])
+                    exif_val == _("exif_err_notfound") or
+                    exif_val.startswith(_("exif_err_prefix")) or
+                    exif_val.startswith(_("exif_err_run").split("{")[0])
                 )
                 exif_text = _("exif_error") if is_exif_err else _("exif_view_output")
             else:
                 exif_text = _("exif_no_output")
 
             if is_rev:
-                # Parent ID from current view if available; otherwise fall back
-                # to your original-only map so we never show "None".
                 parent_id = parent_display_id.get(str(d.get("original_path")))
                 if parent_id is None:
                     parent_id = self.path_to_id.get(str(d.get("original_path")))
-
-                if d.get("is_identical"):
-                    flag = _("status_identical").format(pages=PDFReconConfig.VISUAL_DIFF_PAGE_LIMIT)
-                else:
-                    flag = get_flag({}, True, parent_id)
-                created_time = ""
-                modified_time = ""
-                indicators_str = ""
+                
+                flag = _("status_identical").format(pages=PDFReconConfig.VISUAL_DIFF_PAGE_LIMIT) if d.get("is_identical") else get_flag({}, True, parent_id)
+                created_time, modified_time, indicators_str = "", "", ""
                 tag = "gray_row" if d.get("is_identical") else "blue_row"
-
             else:
-                # ORIGINAL row: only stat() here, but catch failures fast
                 try:
-                    st = path.stat()
+                    # Resolve path before statting, as it might be relative
+                    full_path = self._resolve_case_path(path_obj)
+                    st = full_path.stat()
                     created_time = datetime.fromtimestamp(st.st_ctime).strftime("%d-%m-%Y %H:%M:%S")
                     modified_time = datetime.fromtimestamp(st.st_mtime).strftime("%d-%m-%Y %H:%M:%S")
                 except Exception:
-                    created_time = ""
-                    modified_time = ""
+                    created_time, modified_time = "", ""
 
                 flag = get_flag(d.get("indicator_keys", {}), False)
                 indicators_str = _("indicators_view_output") if d.get("indicator_keys") else _("status_no")
                 tag = tree_tags.get(flag, "")
 
             row_values = [
-                counter,                 # ID (GUI)
-                path.name,               # Name
-                flag,                    # Altered
-                str(path),               # Path
-                d.get("md5", ""),        # MD5
-                created_time,            # File Created
-                modified_time,           # File Modified
-                exif_text,               # EXIFTool
-                indicators_str           # Signs of Alteration
+                counter,
+                path_obj.name, # Use .name from the Path object
+                flag,
+                str(path), # Store the original path string/object
+                d.get("md5", ""),
+                created_time,
+                modified_time,
+                exif_text,
+                indicators_str
             ]
-
             append(row_values)
             insert("", "end", values=row_values, tags=(tag,))
-
 
 
     def on_select_item(self, event):
@@ -3500,24 +3800,31 @@ class PDFReconApp:
                 logging.warning(f"Could not process object {xref} for TouchUp text: {e}")
                 continue
         return found_text
-        
+    
     def _get_text_for_comparison(self, source):
         """
         Performs a robust, layout-preserving text extraction on a PDF.
-        This corresponds to Tier 2 in the analysis document.
+        Source can be bytes, a string path, or a Path object.
         """
         full_text = []
+        doc = None
         try:
-            # Open the PDF from a file path or from raw bytes in memory
-            doc = fitz.open(stream=source, filetype="pdf") if isinstance(source, bytes) else fitz.open(source)
+            if isinstance(source, bytes):
+                doc = fitz.open(stream=source, filetype="pdf")
+            else:
+                resolved_path = self._resolve_case_path(source) # Resolve the path
+                doc = fitz.open(resolved_path)
+
             for page in doc:
-                # Use sort=True to preserve the reading order of the page layout
                 full_text.append(page.get_text("text", sort=True))
-            doc.close()
             return "\n".join(full_text)
         except Exception as e:
             logging.error(f"Robust text extraction failed: {e}")
-            return "" # Return empty string on failure
+            return ""
+        finally:
+            if doc:
+                doc.close()    
+        
             
     def show_text_diff_popup(self, item_id):
         """Displays a popup showing the text differences between a file and its revision."""
