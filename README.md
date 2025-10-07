@@ -52,6 +52,8 @@ PDFRecon combines deep forensic analysis with a user-friendly interface to deliv
 
 PDFRecon requires Python 3.6+ and a few external libraries.
 
+For the 'Export Reader' function to be activated, the script needs to be compiled to .exe
+
 ### 1. Clone the Repository
 git clone https://github.com/Rasmus-Riis/PDFRecon.git
 
