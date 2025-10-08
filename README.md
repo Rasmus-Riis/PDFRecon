@@ -46,6 +46,13 @@ PDFRecon combines deep forensic analysis with a user-friendly interface to deliv
 
 * **Multiple Export Formats**: Export the complete analysis to a formatted report, ready for documentation. Supported formats include `Excel (.xlsx)`, `CSV`, `JSON`, and `HTML`.
 
+* **Save case**: After parsing the analysis can be saved into a case, so work can continue later without having to wait for the program to finish. 
+
+* **Notes**: You can add notes to each file, making analysis easier on large volumes of PDF files
+
+* **Export reader**: You can export the case to a portable reader that lack the possibility of parsing/adding new files
+
+* **Verify file integrety**: The files will have their MD5 saved, so the program can easily check if the files have been altered during your examination
 ---
 
 ## 🚀 Installation & Setup
