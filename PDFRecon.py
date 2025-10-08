@@ -53,7 +53,12 @@ except ImportError:
     messagebox.showerror("Missing Library", "The openpyxl library is not installed.\n\nPlease run 'pip install openpyxl' in your terminal to use this program.")
     sys.exit(1)
 
-
+try:
+    import requests
+except ImportError:
+    messagebox.showerror("Missing Library", "The requests library is not installed.\n\nPlease run 'pip install requests' in your terminal to use the update checker.")
+    sys.exit(1)
+    
 # --- OCG (layers) detection helpers ---
 _LAYER_OCGS_BLOCK_RE = re.compile(rb"/OCGs\s*\[(.*?)\]", re.S)
 _OBJ_REF_RE          = re.compile(rb"(\d+)\s+(\d+)\s+R")
@@ -225,340 +230,48 @@ class PDFReconApp:
         return self.translations[self.language.get()].get(key, key)
 
     def get_translations(self):
-        """Contains all translations for the application."""
+        """Loads all translations for the application from external files."""
+        # Define paths to the language files relative to the script
+        base_path = Path(__file__).parent
+        json_path = base_path / "lang" / "translations.json"
+        manual_da_path = base_path / "lang" / "manual_da.md"
+        manual_en_path = base_path / "lang" / "manual_en.md"
+
+        translations = {}
+
+        # Load the main UI translations from the JSON file
+        try:
+            with open(json_path, 'r', encoding='utf-8') as f:
+                translations = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            logging.error(f"Could not load or parse translations.json: {e}")
+            # Create a fallback structure to prevent crashes
+            translations = {"da": {}, "en": {}}
+
+        # Load the Danish manual and inject it into the translations dictionary
+        try:
+            with open(manual_da_path, 'r', encoding='utf-8') as f:
+                translations.get("da", {})["full_manual"] = f.read()
+        except FileNotFoundError:
+            logging.error(f"Danish manual not found at {manual_da_path}")
+            translations.get("da", {})["full_manual"] = "Manual not found."
+
+        # Load the English manual and inject it into the translations dictionary
+        try:
+            with open(manual_en_path, 'r', encoding='utf-8') as f:
+                translations.get("en", {})["full_manual"] = f.read()
+        except FileNotFoundError:
+            logging.error(f"English manual not found at {manual_en_path}")
+            translations.get("en", {})["full_manual"] = "Manual not found."
+            
+        # Ensure 'about_version' is dynamically inserted
         version_string = f"PDFRecon v{self.app_version}"
-        
-        # --- Manual Texts ---
-        MANUAL_DA = f"""
-# PDFRecon - Manual
+        if "da" in translations:
+            translations["da"]["about_version"] = version_string
+        if "en" in translations:
+            translations["en"]["about_version"] = version_string
 
-## Introduktion
-PDFRecon er et værktøj designet til at assistere i efterforskningen af PDF-filer. Programmet analyserer filer for en række tekniske indikatorer, der kan afsløre ændring, redigering eller skjult indhold. Resultaterne præsenteres i en overskuelig tabel, der kan eksporteres til Excel for videre dokumentation.
-
-## Vigtig bemærkning om tidsstempler
-Kolonnerne 'Fil oprettet' og 'Fil sidst ændret' viser tidsstempler fra computerens filsystem. Vær opmærksom på, at disse tidsstempler kan være upålidelige. En simpel handling som at kopiere en fil fra én placering til en anden vil typisk opdatere disse datoer til tidspunktet for kopieringen. For en mere pålidelig tidslinje, brug funktionen 'Vis Tidslinje', som er baseret på metadata inde i selve filen.
-
-## Klassificeringssystem
-Programmet klassificerer hver fil baseret på de fundne indikatorer. Dette gøres for hurtigt at kunne prioritere, hvilke filer der kræver nærmere undersøgelse.
-
-<red><b>JA (Høj Risiko):</b></red> Tildeles filer, hvor der er fundet stærke beviser for ændring. Disse filer bør altid undersøges grundigt. Indikatorer, der udløser dette flag, er typisk svære at forfalske og peger direkte på en ændring i filens indhold eller struktur.
-
-<yellow><b>Indikationer Fundet (Mellem Risiko):</b></yellow> Tildeles filer, hvor der er fundet en eller flere tekniske spor, der afviger fra en standard, 'ren' PDF. Disse spor er ikke i sig selv et endegyldigt bevis på ændring, men de viser, at filen har en historik eller struktur, der berettiger et nærmere kig.
-
-<green><b>IKKE PÅVIST (Lav Risiko):</b></green> Tildeles filer, hvor programmet ikke har fundet nogen af de kendte indikatorer. Dette betyder ikke, at filen med 100% sikkerhed er uændret, men at den ikke udviser de typiske tegn på ændring, som værktøjet leder efter.
-
-## Forklaring af Indikatorer
-Nedenfor er en detaljeret forklaring af hver indikator, som PDFRecon leder efter.
-
-<b>Has Revisions</b>
-*<i>Ændret:</i>* <red>JA</red>
-• Hvad det betyder: PDF-standarden tillader, at man gemmer ændringer oven i en eksisterende fil (inkrementel lagring). Dette efterlader den oprindelige version af dokumentet intakt inde i filen. PDFRecon har fundet og udtrukket en eller flere af disse tidligere versioner. Dette er et utvetydigt bevis på, at filen er blevet ændret efter sin oprindelige oprettelse.
-
-<b>TouchUp_TextEdit</b>
-*<i>Ændret:</i>* <red>JA</red>
-• Hvad det betyder: Dette er et specifikt metadata-flag, som Adobe Acrobat efterlader, når en bruger manuelt har redigeret tekst direkte i PDF-dokumentet. Det er et meget stærkt bevis på direkte ændring af indholdet.
-
-<b>Multiple Font Subsets</b>
-*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: Når tekst tilføjes til en PDF, indlejres ofte kun de tegn fra en skrifttype, der rent faktisk bruges (et 'subset'). Hvis en fil redigeres med et andet program, der ikke har adgang til præcis samme skrifttype, kan der opstå et nyt subset af den samme grundlæggende skrifttype. At finde flere subsets (f.eks. Multiple Font Subsets: 'Arial':F1+ArialMT', 'F2+Arial-BoldMT er en stærk indikation på, at tekst er blevet tilføjet eller ændret på forskellige tidspunkter eller med forskellige værktøjer.
-
-<b>Multiple Creators / Producers</b>
-*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: PDF-filer indeholder metadata om, hvilket program der har oprettet (/Creator) og genereret (/Producer) filen. Hvis der findes flere forskellige navne i disse felter (f.eks. Multiple Creators (Fundet 2): "Microsoft Word", "Adobe Acrobat Pro"), indikerer det, at filen er blevet behandlet af mere end ét program. Dette sker typisk, når en fil oprettes i ét program og derefter redigeres i et andet.
-
-<b>xmpMM:History / DerivedFrom / DocumentAncestors</b>
-*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: Dette er forskellige typer af XMP-metadata, som gemmer information om filens historik. De kan indeholde tidsstempler for, hvornår filen er gemt, ID'er fra tidligere versioner, og hvilket software der er brugt. Fund af disse felter beviser, at filen har en redigeringshistorik.
-
-<b>Multiple DocumentID / Different InstanceID</b>
-*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: Hver PDF har et unikt DocumentID, der ideelt set er det samme for alle versioner. InstanceID ændres derimod for hver gang, filen gemmes. Hvis der findes flere forskellige DocumentID'er (f.eks. Trailer ID Changed: Fra [ID1...] til [ID2...]), eller hvis der er et unormalt højt antal InstanceID'er, peger det på en kompleks redigeringshistorik, potentielt hvor dele fra forskellige dokumenter er blevet kombineret.
-
-<b>Multiple startxref</b>
-*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: 'startxref' er et nøgleord, der fortæller en PDF-læser, hvor den skal begynde at læse filens struktur. En standard, uændret fil har kun ét. Hvis der er flere, er det et tegn på, at der er foretaget inkrementelle ændringer (se 'Has Revisions').
-
-<b>Objekter med generation > 0</b>
-*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: Hvert objekt i en PDF-fil har et versionsnummer (generation). I en original, uændret fil er dette nummer typisk 0 for alle objekter. Hvis der findes objekter med et højere generationsnummer (f.eks. '12 1 obj'), er det et tegn på, at objektet er blevet overskrevet i en senere, inkrementel gemning. Dette indikerer, at filen er blevet opdateret.
-
-<b>Flere Lag End Sider</b>
-*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: Dokumentets struktur indeholder flere lag (Optional Content Groups) end der er sider. Hvert lag er en container for indhold, som kan vises eller skjules. Selvom det er teknisk muligt, er det usædvanligt at have flere lag end sider. Det kan indikere et komplekst dokument, en fil der er blevet kraftigt redigeret, eller potentielt at information er skjult på lag, som ikke er knyttet til synligt indhold. Filer med denne indikation bør undersøges nærmere i en PDF-læser, der understøtter lag-funktionalitet.
-
-<b>Linearized / Linearized + updated</b>
-*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: En "linearized" PDF er optimeret til hurtig webvisning. Hvis en sådan fil efterfølgende er blevet ændret (updated), vil PDFRecon markere det. Det kan indikere, at et ellers færdigt dokument er blevet redigeret senere.
-
-<b>Has PieceInfo</b>
-*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: Nogle programmer, især fra Adobe, gemmer ekstra tekniske spor (PieceInfo) om ændringer eller versioner. Det kan afsløre, at filen har været behandlet i bestemte værktøjer som f.eks. Illustrator.
-
-<b>Has Redactions</b>
-*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: Dokumentet indeholder tekniske felter for sløring/sletning af indhold. I nogle tilfælde kan den skjulte tekst stadig findes i filen. Derfor bør redaktioner altid vurderes kritisk.
-
-<b>Has Annotations</b>
-*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: Dokumentet rummer kommentarer, noter eller markeringer. De kan være tilføjet senere og kan indeholde oplysninger, der ikke fremgår af det viste indhold.
-
-<b>AcroForm NeedAppearances=true</b>
-*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: Formularfelter kan kræve, at visningen genskabes, når dokumentet åbnes. Felt-tekster kan derfor ændre udseende eller udfyldes automatisk. Det kan skjule eller forplumre det oprindelige indhold.
-
-<b>Has Digital Signature</b>
-*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: Dokumentet indeholder en digital signatur. En gyldig signatur kan bekræfte, at dokumentet ikke er ændret siden signering. En ugyldig/brudt signatur kan være et stærkt tegn på efterfølgende ændring.
-
-<b>Dato-inkonsistens (Info vs. XMP)</b>
-*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: Oprettelses- og ændringsdatoer i PDF’ens Info-felt stemmer ikke overens med datoerne i XMP-metadata (f.eks. Creation Date Mismatch: Info='20230101...', XMP='2023-01-02...'). Sådanne uoverensstemmelser kan pege på skjulte eller uautoriserede ændringer.
-"""
-
-        MANUAL_EN = f"""
-# PDFRecon - Manual
-
-## Introduction
-PDFRecon is a tool designed to assist in the investigation of PDF files. The program analyzes files for a range of technical indicators that can reveal alteration, editing, or hidden content. The results are presented in a clear table that can be exported to Excel for further documentation.
-
-## Important Note on Timestamps
-The 'File Created' and 'File Modified' columns show timestamps from the computer's file system. Be aware that these timestamps can be unreliable. A simple action like copying a file from one location to another will typically update these dates to the time of the copy. For a more reliable timeline, use the 'Show Timeline' feature, which is based on metadata inside the file itself.
-
-## Classification System
-The program classifies each file based on the indicators found. This is done to quickly prioritize which files require closer examination.
-
-<red><b>YES (High Risk):</b></red> Assigned to files where strong evidence of alteration has been found. These files should always be thoroughly investigated. Indicators that trigger this flag are typically difficult to forge and point directly to a change in the file's content or structure.
-
-<yellow><b>Indications Found (Medium Risk):</b></yellow> Assigned to files where one or more technical traces have been found that deviate from a standard, 'clean' PDF. These traces are not definitive proof of alteration in themselves, but they show that the file has a history or structure that warrants a closer look.
-
-<green><b>NOT DETECTED (Low Risk):</b></green> Assigned to files where the program has not found any of the known indicators. This does not mean that the file is 100% unchanged, but that it does not exhibit the typical signs of alteration that the tool looks for.
-
-## Explanation of Indicators
-Below is a detailed explanation of each indicator that PDFRecon looks for.
- 
-<b>Has Revisions</b>
-*<i>Changed:</i>* <red>YES</red>
-• What it means: The PDF standard allows changes to be saved on top of an existing file (incremental saving). This leaves the original version of the document intact inside the file. PDFRecon has found and extracted one or more of these previous versions. This is unequivocal proof that the file has been changed after its original creation.
-
-<b>TouchUp_TextEdit</b>
-*<i>Changed:</i>* <red>YES</red>
-• What it means: This is a specific metadata flag left by Adobe Acrobat when a user has manually edited text directly in the PDF document. It is very strong evidence of direct content alteration.
-
-<b>Multiple Font Subsets</b>
-*<i>Changed:</i>* <yellow>Indications Found</yellow>
-• What it means: When text is added to a PDF, often only the characters actually used from a font are embedded (a 'subset'). If a file is edited with another program that does not have access to the exact same font, a new subset of the same base font may be created. Finding multiple subsets (e.g., Multiple Font Subsets: 'Arial': F1+ArialMT', 'F2+Arial-BoldMT' is a strong indication that text has been added or changed at different times or with different tools.
-
-<b>Multiple Creators / Producers</b>
-*<i>Changed:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: PDF-filer indeholder metadata om, hvilket program der har oprettet (/Creator) og genereret (/Producer) filen. Hvis der findes flere forskellige navne i disse felter (f.eks. Multiple Creators (Fundet 2): "Microsoft Word", "Adobe Acrobat Pro"), indikerer det, at filen er blevet behandlet af mere end ét program. Dette sker typisk, når en fil oprettes i ét program og derefter redigeres i et andet.
-
-<b>xmpMM:History / DerivedFrom / DocumentAncestors</b>
-*<i>Changed:</i>* <yellow>Indications Found</yellow>
-• What it means: These are different types of XMP metadata that store information about the file's history. They can contain timestamps for when the file was saved, IDs from previous versions, and what software was used. The presence of these fields proves that the file has an editing history.
-
-<b>Multiple DocumentID / Different InstanceID</b>
-*<i>Changed:</i>* <yellow>Indications Found</yellow>
-• What it means: Each PDF has a unique DocumentID that should ideally be the same for all versions. The InstanceID, however, changes every time the file is saved. If multiple different DocumentIDs are found (e.g., Trailer ID Changed: From [ID1...] to [ID2...]), or if there is an abnormally high number of InstanceIDs, it points to a complex editing history, potentially where parts from different documents have been combined.
-
-<b>Multiple startxref</b>
-*<i>Changed:</i>* <yellow>Indications Found</yellow>
-• What it means: 'startxref' is a keyword that tells a PDF reader where to start reading the file's structure. A standard, unchanged file has only one. If there are more, it is a sign that incremental changes have been made (see 'Has Revisions').
-
-<b>Objects with generation > 0</b>
-*<i>Changed:</i>* <yellow>Indications Found</yellow>
-• What it means: Each object in a PDF file has a version number (generation). In an original, unaltered file, this number is typically 0 for all objects. If objects are found with a higher generation number (e.g., '12 1 obj'), it is a sign that the object has been overwritten in a later, incremental save. This indicates that the file has been updated.
-
-<b>More Layers Than Pages</b>
-*<i>Changed:</i>* <yellow>Indications Found</yellow>
-• What it means: The document's structure contains more layers (Optional Content Groups) than it has pages. Each layer is a container for content that can be shown or hidden. While technically possible, having more layers than pages is unusual. It might indicate a complex document, a file that has been heavily edited, or potentially that information is hidden in layers not associated with visible content. Files with this indicator should be examined more closely in a PDF reader that supports layer functionality.
-
-<b>Linearized / Linearized + updated</b>
-*<i>Changed:</i>* <yellow>Indications Found</yellow>
-• What it means: A "linearized" PDF is optimized for fast web viewing. If such a file was later modified (updated), PDFRecon flags it. This may indicate that a supposedly final document was edited afterwards.
-
-<b>Has PieceInfo</b>
-*<i>Changed:</i>* <yellow>Indications Found</yellow>
-• What it means: Some applications, particularly from Adobe, store extra technical traces (PieceInfo) about changes or versions. This can reveal that the file has been processed in specific tools like Illustrator.
-
-<b>Has Redactions</b>
-*<i>Changed:</i>* <yellow>Indications Found</yellow>
-• What it means: The document contains technical fields for redaction (blackouts/removals). In some cases, hidden text may still be present. Redactions should always be assessed critically.
-
-<b>Has Annotations</b>
-*<i>Changed:</i>* <yellow>Indications Found</yellow>
-• What it means: The document includes comments, notes, or highlights. They may have been added later and can contain information that is not visible in the main content.
-
-<b>AcroForm NeedAppearances=true</b>
-*<i>Changed:</i>* <yellow>Indications Found</yellow>
-• What it means: Form fields may need their appearance regenerated when the document opens. Field text can change or be auto-filled, which may obscure the original content.
-
-<b>Has Digital Signature</b>
-*<i>Changed:</i>* <yellow>Indications Found</yellow>
-• What it means: The document contains a digital signature. A valid signature confirms the file has not changed since signing. An invalid/broken signature can be a strong sign of later alteration.
-
-<b>Date inconsistency (Info vs. XMP)</b>
-*<i>Changed:</i>* <yellow>Indications Found</yellow>
-• What it means: The creation/modification dates in the PDF Info dictionary do not match the dates in XMP metadata (e.g., Creation Date Mismatch: Info='20230101...', XMP='2023-01-02...'). Such discrepancies can indicate hidden or unauthorized changes.
-"""
-
-        # This dictionary holds all GUI text for easy language switching.
-        return {
-            "da": {
-                "full_manual": MANUAL_DA,
-                "choose_folder": "📁 Vælg mappe og scan",
-                "show_timeline": "Vis Tidslinje",
-                "status_initial": "Træk en mappe hertil, åbn en sag, eller brug knappen for at starte en analyse.",
-                "status_initial_reader": "Brug Fil -> Åbn Sag... for at se en gemt analyse.",
-                "col_id": "#", "col_name": "Navn", "col_changed": "Ændret", "col_path": "Sti", "col_md5": "MD5",
-                "col_created": "Fil oprettet", "col_modified": "Fil sidst ændret", "col_exif": "EXIFTool", "col_indicators": "Tegn på ændring",
-                "export_report": "💾 Eksporter rapport",
-                "menu_file": "Fil", "menu_open_case": "Åbn Sag...", "menu_save_case": "Gem Sag Som...", "menu_export_reader": "Eksporter Reader med Sag...", "menu_settings": "Indstillinger", "menu_exit": "Afslut",
-                "menu_help": "Hjælp", "menu_manual": "Manual", "menu_about": "Om PDFRecon", "menu_license": "Vis Licens",
-                "menu_log": "Vis logfil", "menu_language": "Sprog / Language",
-                "preparing_analysis": "Forbereder analyse...", "analyzing_file": "🔍 Analyserer: {file}",
-                "scan_progress_eta": "🔍 {file} | {fps:.1f} filer/s | ETA: {eta}",
-                "scan_complete_summary": "✔ Færdig: {total} Dok. | Totalt ændrede {total_altered} | {changed_count} med {revs} revisioner | {indications_found_count} med indikationer | {clean} ikke påvist",
-                "scan_complete_summary_with_errors": "✔ Færdig: {total} Dok. | Totalt ændrede {total_altered} | {changed_count} med {revs} revisioner | {indications_found_count} med indikationer | {clean} ikke påvist | {errors} fejl",
-                "no_exif_output_title": "Ingen EXIFTool-output", "no_exif_output_message": "Der er enten ingen EXIFTool-output for denne fil, eller også opstod der en fejl under kørsel.",
-                "exif_popup_title": "EXIFTool Output", "exif_no_output": "Intet output", "exif_error": "Fejl. Læs exiftool i samme mappe", "exif_view_output": "Klik for at se output ➡",
-                "indicators_popup_title": "Fundne Indikatorer", "indicators_view_output": "Klik for at se detaljer ➡", "no_indicators_message": "Der er ingen indikatorer for denne fil.",
-                "license_error_title": "Fejl", "license_error_message": "Licensfilen 'license.txt' kunne ikke findes.\n\nSørg for, at filen hedder 'license.txt' og er inkluderet korrekt, når programmet pakkes.",
-                "license_popup_title": "Licensinformation",
-                "obj_gen_gt_zero": "Objekt med generation > 0",
-                "log_not_found_title": "Logfil ikke fundet", "log_not_found_message": "Logfilen er endnu ikke oprettet. Den oprettes første gang programmet logger en handling.",
-                "no_data_to_save_title": "Ingen data", "no_data_to_save_message": "Der er ingen data at gemme.",
-                "excel_saved_title": "Handling fuldført", "excel_saved_message": "Rapporten er gemt.\n\nVil du åbne mappen, hvor filen ligger?",
-                "excel_save_error_title": "Fejl ved lagring", "excel_save_error_message": "Filen kunne ikke gemmes. Den er muligvis i brug af et andet program.\n\nDetaljer: {e}",
-                "excel_unexpected_error_title": "Uventet Fejl", "excel_unexpected_error_message": "En uventet fejl opstod under lagring.\n\nDetaljer: {e}",
-                "open_folder_error_title": "Fejl ved åbning", "open_folder_error_message": "Kunne ikke automatisk åbne mappen.",
-                "manual_title": "PDFRecon - Manual",
-                "verify_report_header": "RESULTAT AF INTEGRITETSTJEK",
-                "verify_report_verified": "Verificeret",
-                "verify_report_mismatched": "Uoverensstemmelser",
-                "verify_report_missing": "Manglende",
-                "verify_report_modified_header": "FØLGENDE FILER ER BLEVET ÆNDRET:",
-                "verify_report_missing_header": "FØLGENDE FILER MANGLER:",
-                "revision_of": "Revision af #{id}", "about_purpose_header": "Formål",
-                "about_purpose_text": "PDFRecon identificerer potentielt manipulerede PDF-filer ved at:\n• Udtrække og analysere XMP-metadata, streams og revisioner\n• Detektere tegn på ændringer (f.eks. /TouchUp_TextEdit, /Prev)\n• Udtrække komplette, tidligere versioner af dokumentet\n• Generere en overskuelig rapport i Excel-format\n\n",
-                "about_included_software_header": "Inkluderet Software", "about_included_software_text": "Dette værktøj benytter og inkluderer {tool} af Phil Harvey.\n{tool} er distribueret under Artistic/GPL-licens.\n\n",
-                "about_project_website": "Projektets kildekode: ", 
-                "about_website": "Officiel {tool} Hjemmeside: ", "about_source": "{tool} Kildekode: ", "about_developer_info": "\nUdvikler: Rasmus Riis\nE-mail: riisras@gmail.com\n",
-                "about_version": version_string, "copy": "Kopiér", "close_button_text": "Luk", "excel_indicators_overview": "(Oversigt)",
-                "exif_err_notfound": "(exiftool ikke fundet i programmets mappe)", "exif_err_prefix": "ExifTool Fejl:", "exif_err_run": "(fejl ved kørsel af exiftool: {e})",
-                "drop_error_title": "Fejl", "drop_error_message": "Træk venligst en mappe, ikke en fil.",
-                "timeline_no_data": "Der blev ikke fundet tidsstempeldata for denne fil.", "choose_folder_title": "Vælg mappe til analyse",
-                "visual_diff": "Visuel sammenligning af revision", "diff_error_title": "Fejl ved sammenligning", "diff_error_msg": "Kunne ikke sammenligne filerne. En af filerne er muligvis korrupt eller tom.\n\nFejl: {e}",
-                "diff_popup_title": "Visuel Sammenligning", "diff_original_label": "Seneste version", "diff_revision_label": "Tidligere version", "diff_differences_label": "Forskelle (markeret med rød)",
-                "status_identical": "Visuelt Identisk (op til {pages} sider)", "diff_page_label": "Viser side {current} af {total}", "diff_prev_page": "Forrige Side", "diff_next_page": "Næste Side",
-                "file_too_large": "Fil er for stor", "file_corrupt": "Korrupt fil", "file_encrypted": "Krypteret fil", "validation_error": "Valideringsfejl",
-                "processing_error": "Processeringsfejl", "unknown_error": "Ukendt fejl",
-                "Has XFA Form": "Har XFA Formular", "Has Digital Signature": "Har Digital Signatur", "Signature: Valid": "Signatur: Gyldig", "Signature: Invalid": "Signatur: Ugyldig", "More Layers Than Pages": "Flere Lag End Sider",
-                "view_pdf": "Vis PDF", "pdf_viewer_title": "PDF Fremviser", "pdf_viewer_error_title": "Fremvisningsfejl",
-                "pdf_viewer_error_message": "Kunne ikke åbne eller vise PDF-filen.\n\nFejl: {e}",
-                "status_no": "NEJ",
-                "menu_verify_integrity": "Verificér Fil-integritet", "verify_title": "Verificerer Integritet", "verify_running": "Verificerer fil-integritet... Vent venligst.", "verify_success": "Alle filer er verificeret og uændrede.",
-                "verify_fail_title": "Resultat af Integritetstjek", "verify_fail_msg": "ADVARSEL: En eller flere filer er blevet ændret eller mangler.", "verify_no_hashes": "Denne sag indeholder ingen hash-information til verificering.",
-                "filter_label": "🔎 Filter:",
-                "settings_title": "Indstillinger", "settings_max_size": "Maks filstørrelse (MB):", "settings_timeout": "ExifTool Timeout (sek):",
-                "settings_threads": "Maks. analysetråde:", "settings_diff_pages": "Sider for visuel sammenligning:", "settings_save": "Gem", "settings_cancel": "Annuller",
-                "settings_saved_title": "Indstillinger Gemt", "settings_saved_msg": "Indstillingerne er blevet gemt.", "settings_invalid_input": "Ugyldigt input. Indtast venligst kun heltal.",
-                "case_open_warning_title": "Advarsel", "case_open_warning_msg": "Åbning af en ny sag vil rydde de nuværende resultater. Vil du fortsætte?",
-                "case_nothing_to_save_title": "Ingen Data at Gemme", "case_nothing_to_save_msg": "Der er ingen analyseresultater at gemme.",
-                "case_save_error_title": "Fejl ved Gem", "case_save_error_msg": "Sagen kunne ikke gemmes.\n\nFejl: {e}",
-                "case_open_error_title": "Fejl ved Åbning", "case_open_error_msg": "Sagen kunne ikke åbnes. Filen er muligvis korrupt eller ikke en gyldig sagfil.\n\nFejl: {e}",
-                "export_reader_title": "Vælg Mappe til Reader", "export_reader_success_title": "Reader Eksporteret",
-                "export_reader_success_msg": "En selvstændig Reader-pakke er blevet gemt i den valgte mappe.\n\nVil du åbne mappen?",
-                "export_reader_error_title": "Fejl ved Eksportering", "export_reader_error_msg": "Kunne ikke oprette Reader-pakken.\n\nFejl: {e}",
-                "export_reader_error_specific_msg": "Kunne ikke oprette Reader-pakken. Handlingen mislykkedes for filen: {filename}\n\nFejl: {e}",
-                "settings_threads": "Maks. analysetråde:", "settings_diff_pages": "Sider for visuel sammenligning:", "settings_save": "Gem", "settings_cancel": "Annuller",
-                "settings_export_invalid_xref": "Eksporter filer med ugyldig XREF",
-                "settings_saved_title": "Indstillinger Gemt", "settings_saved_msg": "Indstillingerne er blevet gemt.", "settings_invalid_input": "Ugyldigt input. Indtast venligst kun heltal.",
-                "col_exif": "EXIFTool", "col_indicators": "Tegn på ændring", "col_note": "Note",
-                "menu_save_case": "Gem Sag Som...", "menu_save_case_simple": "Gem Sag", "menu_add_note": "Tilføj/Rediger Note...",
-                "note_popup_title": "Note for Fil", "note_label": "Note:",
-                "note_popup_title": "Note for Fil", "note_label": "Note:",
-                "menu_view_exif": "Vis EXIFTool Output", "menu_view_timeline": "Vis Tidslinje",
-                "col_changed": "Ændret", "col_path": "Sti", "col_md5": "MD5", "col_revisions": "Revisioner",
-                "inspector_details_tab": "Detaljer",
-            },
-            "en": {
-                "full_manual": MANUAL_EN,
-                "choose_folder": "📁 Choose folder and scan", "show_timeline": "Show Timeline", "status_initial": "Drag a folder here, open a case, or use the button to start an analysis.",
-                "status_initial_reader": "Use File -> Open Case... to view a saved analysis.",
-                "obj_gen_gt_zero": "Object with generation > 0",
-                "col_id": "#", "col_name": "Name", "col_changed": "Changed", "col_path": "Path", "col_md5": "MD5",
-                "col_created": "File Created", "col_modified": "File Modified", "col_exif": "EXIFTool", "col_indicators": "Signs of Alteration",
-                "export_report": "💾 Export Report",
-                "menu_file": "File", "menu_open_case": "Open Case...", "menu_save_case": "Save Case As...", "menu_export_reader": "Export Reader with Case...", "menu_settings": "Settings", "menu_exit": "Exit",
-                "menu_help": "Help", "menu_manual": "Manual", "menu_about": "About PDFRecon", "menu_license": "Show License",
-                "menu_log": "Show Log File", "menu_language": "Language / Sprog",
-                "preparing_analysis": "Preparing analysis...", "analyzing_file": "🔍 Analyzing: {file}",
-                "scan_progress_eta": "🔍 {file} | {fps:.1f} files/s | ETA: {eta}",
-               "scan_complete_summary": "✔ Finished: {total} Documents | Total {total_altered} altered | {changed_count} files with {revs} revisions | {indications_found_count} with indications | {clean} not detected",
-                "scan_complete_summary_with_errors": "✔ Finished: {total} Documents | Total {total_altered} altered | {changed_count} files with {revs} revisions | {indications_found_count} with indications | {clean} not detected | {errors} errors",
-                "no_exif_output_title": "No EXIFTool Output", "no_exif_output_message": "There is either no EXIFTool output for this file, or an error occurred during execution.",
-                "exif_popup_title": "EXIFTool Output", "exif_no_output": "No output", "exif_error": "Error. Missing Exiftool", "exif_view_output": "Click to view output ➡",
-                "indicators_popup_title": "Indicators Found", "indicators_view_output": "Click to view details ➡", "no_indicators_message": "No indicators found for this file.",
-                "license_error_title": "Error", "license_error_message": "The license file 'license.txt' could not be found.\n\nPlease ensure the file is named 'license.txt' and is included correctly when packaging the application.",
-                "license_popup_title": "License Information",
-                "log_not_found_title": "Log File Not Found", "log_not_found_message": "The log file has not been created yet. It is created the first time the program logs an action.",
-                "no_data_to_save_title": "No Data", "no_data_to_save_message": "There is no data to save.",
-                "excel_saved_title": "Action Completed", "excel_saved_message": "The report has been saved.\n\nDo you want to open the folder where the file is located?",
-                "excel_save_error_title": "Save Error", "excel_save_error_message": "The file could not be saved. It might be in use by another program.\n\nDetails: {e}",
-                "excel_unexpected_error_title": "Unexpected Error", "excel_unexpected_error_message": "An unexpected error occurred during saving.\n\nDetails: {e}",
-                "open_folder_error_title": "Error Opening Folder", "open_folder_error_message": "Could not automatically open the folder.",
-                "manual_title": "PDFRecon - Manual",
-                "revision_of": "Revision of #{id}", "about_purpose_header": "Purpose",
-                "about_purpose_text": "PDFRecon identifies potentially manipulated PDF files by:\n• Extracting and analyzing XMP metadata, streams, and revisions\n• Detecting signs of alteration (e.g., /TouchUp_TextEdit, /Prev)\n• Extracting complete, previous versions of the document\n• Generating a clear report in Excel format\n\n",
-                "about_included_software_header": "Included Software", "about_included_software_text": "This tool utilizes and includes {tool} by Phil Harvey.\n{tool} is distributed under the Artistic/GPL license.\n\n",
-                "about_website": "Official {tool} Website: ", "about_source": "Source Code: ", "about_developer_info": "\nDeveloper: Rasmus Riis\nE-mail: riisras@gmail.com\n",
-                "about_project_website": "Project Sourcecode: ",
-                "about_version": version_string, "copy": "Copy", "close_button_text": "Close", "excel_indicators_overview": "(Overview)",
-                "exif_err_notfound": "(exiftool not found in program directory)", "exif_err_prefix": "ExifTool Error:", "exif_err_run": "(error running exiftool: {e})",
-                "drop_error_title": "Error", "drop_error_message": "Please drag a folder, not a file.",
-                "timeline_no_data": "No timestamp data was found for this file.", "choose_folder_title": "Select folder for analysis",
-                "visual_diff": "Visually Compare Revision", "diff_error_title": "Comparison Error", "diff_error_msg": "Could not compare the files. One of the files might be corrupt or empty.\n\nError: {e}",
-                "diff_popup_title": "Visual Comparison", "diff_original_label": "Latest version", "diff_revision_label": "Previous version", "diff_differences_label": "Differences (highlighted in red)",
-                "status_identical": "Visually Identical (up to {pages} pages)", "diff_page_label": "Showing page {current} of {total}", "diff_prev_page": "Previous Page", "diff_next_page": "Next Page",
-                "file_too_large": "File is too large", "file_corrupt": "Corrupt file", "file_encrypted": "Encrypted file", "validation_error": "Validation Error",
-                "processing_error": "Processing Error", "unknown_error": "Unknown Error",
-                "Has XFA Form": "Has XFA Form", "Has Digital Signature": "Has Digital Signature", "Signature: Valid": "Signature: Valid", "Signature: Invalid": "Signature: Invalid", "More Layers Than Pages": "More Layers Than Pages",
-                "view_pdf": "View PDF", "pdf_viewer_title": "PDF Viewer", "pdf_viewer_error_title": "Viewer Error",
-                "pdf_viewer_error_message": "Could not open or display the PDF file.\n\nError: {e}",
-                "status_no": "NO",
-                "menu_verify_integrity": "Verify File Integrity", "verify_title": "Verifying Integrity", "verify_running": "Verifying file integrity... Please wait.", "verify_success": "All files have been verified and are unchanged.",
-                "verify_fail_title": "Integrity Check Result", "verify_fail_msg": "WARNING: One or more files have been modified or are missing.", "verify_no_hashes": "This case contains no hash information for verification.",
-                "verify_report_header": "INTEGRITY CHECK RESULT",
-                "verify_report_verified": "Verified",
-                "verify_report_mismatched": "Mismatched",
-                "verify_report_missing": "Missing",
-                "verify_report_modified_header": "THE FOLLOWING FILES HAVE BEEN MODIFIED:",
-                "verify_report_missing_header": "THE FOLLOWING FILES ARE MISSING:",
-                "filter_label": "🔎 Filter:",
-                "settings_title": "Settings", "settings_max_size": "Max file size (MB):", "settings_timeout": "ExifTool Timeout (sec):",
-                "settings_threads": "Max analysis threads:", "settings_diff_pages": "Pages for visual compare:", "settings_save": "Save", "settings_cancel": "Cancel",
-                "settings_saved_title": "Settings Saved", "settings_saved_msg": "Your settings have been saved.", "settings_invalid_input": "Invalid input. Please enter only integers.",
-                "case_open_warning_title": "Warning", "case_open_warning_msg": "Opening a new case will clear the current results. Do you want to continue?",
-                "case_nothing_to_save_title": "No Data to Save", "case_nothing_to_save_msg": "There is no analysis data to save.",
-                "case_save_error_title": "Save Error", "case_save_error_msg": "Could not save the case file.\n\nError: {e}",
-                "case_open_error_title": "Open Error", "case_open_error_msg": "Could not open the case file. The file may be corrupt or not a valid case file.\n\nError: {e}",
-                "export_reader_title": "Select Folder for Reader", "export_reader_success_title": "Reader Exported",
-                "export_reader_success_msg": "A self-contained Reader package has been saved in the selected folder.\n\nDo you want to open the folder?",
-                "export_reader_error_title": "Export Error", "export_reader_error_msg": "Could not create the Reader package.\n\nError: {e}",
-                "export_reader_error_specific_msg": "Could not create the Reader package. Failed on file: {filename}\n\nError: {e}",
-                "settings_threads": "Max analysis threads:", "settings_diff_pages": "Pages for visual compare:", "settings_save": "Save", "settings_cancel": "Cancel",
-                "settings_export_invalid_xref": "Export files with invalid XREF",
-                "settings_saved_title": "Settings Saved", "settings_saved_msg": "Your settings have been saved.", "settings_invalid_input": "Invalid input. Please enter only integers.",
-                "col_exif": "EXIFTool", "col_indicators": "Signs of Alteration", "col_note": "Note",
-                "menu_save_case": "Save Case As...", "menu_save_case_simple": "Save Case", "menu_add_note": "Add/Edit Note...",
-                "note_popup_title": "Note for File", "note_label": "Note:",
-                "note_popup_title": "Note for File", "note_label": "Note:",
-                "menu_view_exif": "View EXIFTool Output", "menu_view_timeline": "View Timeline",
-                "col_changed": "Changed", "col_path": "Path", "col_md5": "MD5", "col_revisions": "Revisions",
-                "inspector_details_tab": "Details",
-            }
-        }    
-
+        return translations
   
     def _load_or_create_config(self):
         """Loads configuration from config.ini or creates the file with default values."""
@@ -724,6 +437,9 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         self.help_menu.add_command(label=self._("menu_manual"), command=self.show_manual)
         self.help_menu.add_command(label=self._("menu_about"), command=self.show_about)
         self.help_menu.add_separator()
+        # Add the update check command here
+        self.help_menu.add_command(label=self._("menu_check_for_updates"), command=self._check_for_updates)
+        self.help_menu.add_separator()
         self.help_menu.add_cascade(label=self._("menu_language"), menu=self.lang_menu)
         self.lang_menu.add_radiobutton(label="Dansk", variable=self.language, value="da", command=self.switch_language)
         self.lang_menu.add_radiobutton(label="English", variable=self.language, value="en", command=self.switch_language)
@@ -732,7 +448,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         self.help_menu.add_command(label=self._("menu_log"), command=self.show_log_file)
         
         self.root.config(menu=self.menubar)
-        
+       
     def _update_summary_status(self):
         """Updates the status bar with a summary of the results from the full scan."""
         if not self.all_scan_data:
@@ -3268,7 +2984,50 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         # --- Close Button ---
         close_button = ttk.Button(outer_frame, text=self._("close_button_text"), command=about_popup.destroy)
         close_button.grid(row=1, column=0, pady=(10, 0))
+    
+    def _check_for_updates(self):
+        """Checks for a new version of the application on GitHub."""
+        # Run the network request in a separate thread to not freeze the GUI
+        threading.Thread(target=self._perform_update_check, daemon=True).start()
 
+    def _perform_update_check(self):
+        """The actual logic for the update check, meant to be run in a thread."""
+        # --- IMPORTANT ---
+        # Change this to your GitHub repository in the format "owner/repo"
+        GITHUB_REPO = "Rasmus-Riis/PDFRecon"
+        
+        api_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+        
+        try:
+            response = requests.get(api_url, timeout=10)
+            response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
+            
+            latest_release = response.json()
+            latest_version_str = latest_release.get("tag_name", "").lstrip('v')
+            
+            if not latest_version_str:
+                self.root.after(0, lambda: messagebox.showwarning(self._("update_error_title"), self._("update_parse_error_msg")))
+                return
+
+            # Compare versions. Converts "16.9.0" to (16, 9, 0) for proper comparison.
+            current_version_tuple = tuple(map(int, self.app_version.split('.')))
+            latest_version_tuple = tuple(map(int, latest_version_str.split('.')))
+
+            if latest_version_tuple > current_version_tuple:
+                release_url = latest_release.get("html_url")
+                message = self._("update_available_msg").format(
+                    new_version=latest_version_str,
+                    current_version=self.app_version
+                )
+                if messagebox.askyesno(self._("update_available_title"), message):
+                    webbrowser.open(release_url)
+            else:
+                self.root.after(0, lambda: messagebox.showinfo(self._("update_no_new_title"), self._("update_no_new_msg")))
+
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Update check failed: {e}")
+            self.root.after(0, lambda: messagebox.showerror(self._("update_error_title"), self._("update_net_error_msg")))
+    
     def show_manual(self):
         """Displays a pop-up window with the program manual."""
         manual_popup = Toplevel(self.root)
@@ -3334,6 +3093,69 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         close_button.grid(row=1, column=0, pady=(10, 0))
         
     
+    def _process_and_validate_revisions(self, potential_revisions, original_fp, scan_root_folder):
+        """
+        Processes, validates, and compares a list of potential PDF revisions.
+        Returns a list of dictionaries for valid revisions that should be reported.
+        """
+        valid_revision_results = []
+        invalid_xref_dir = scan_root_folder / "Invalid XREF"
+
+        for rev_path, basefile, rev_raw in potential_revisions:
+            tmp_path = None
+            try:
+                # Use a temporary file to run ExifTool without writing to the final destination first
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+                    tmp_file.write(rev_raw)
+                    tmp_path = Path(tmp_file.name)
+                
+                rev_exif = self.exiftool_output(tmp_path, detailed=True)
+
+                # Conditionally copy revisions with invalid XREF tables if the setting is enabled
+                if PDFReconConfig.EXPORT_INVALID_XREF and "Warning" in rev_exif and "Invalid xref table" in rev_exif:
+                    logging.info(f"Submitting invalid XREF revision for {basefile} to be copied.")
+                    dest_path = invalid_xref_dir / rev_path.name
+                    if self.copy_executor:
+                        self.copy_executor.submit(self._perform_copy, rev_raw, dest_path)
+                    continue  # Skip adding this invalid revision to the results
+
+                # If valid, write the revision to its final destination
+                rev_path.parent.mkdir(exist_ok=True)
+                rev_path.write_bytes(rev_raw)
+                
+                rev_md5 = hashlib.md5(rev_raw).hexdigest()
+                rev_txt = self.extract_text(rev_raw)
+                revision_timeline = self.generate_comprehensive_timeline(rev_path, rev_txt, rev_exif)
+
+                # Perform a visual comparison to see if the revision is identical to the original
+                is_identical = False
+                try:
+                    with fitz.open(original_fp) as doc_orig, fitz.open(rev_path) as doc_rev:
+                        pages_to_compare = min(doc_orig.page_count, doc_rev.page_count, PDFReconConfig.VISUAL_DIFF_PAGE_LIMIT)
+                        if pages_to_compare > 0:
+                            is_identical = True
+                            for i in range(pages_to_compare):
+                                page_orig, page_rev = doc_orig.load_page(i), doc_rev.load_page(i)
+                                if page_orig.rect != page_rev.rect: is_identical = False; break
+                                pix_orig, pix_rev = page_orig.get_pixmap(dpi=96), page_rev.get_pixmap(dpi=96)
+                                img_orig = Image.frombytes("RGB", [pix_orig.width, pix_orig.height], pix_orig.samples)
+                                img_rev = Image.frombytes("RGB", [pix_rev.width, pix_rev.height], pix_rev.samples)
+                                if ImageChops.difference(img_orig, img_rev).getbbox() is not None: is_identical = False; break
+                except Exception as e:
+                    logging.warning(f"Could not visually compare {rev_path.name}, keeping it. Error: {e}")
+                
+                revision_row_data = { 
+                    "path": rev_path, "indicator_keys": {"Revision": {}}, "md5": rev_md5, "exif": rev_exif, 
+                    "is_revision": True, "timeline": revision_timeline, "original_path": original_fp, 
+                    "is_identical": is_identical, "status": "success"
+                }
+                valid_revision_results.append(revision_row_data)
+            finally:
+                if tmp_path and tmp_path.exists():
+                    os.remove(tmp_path)
+        
+        return valid_revision_results
+
     def _process_single_file(self, fp, scan_root_folder):
         """
         Processes a single PDF file, submitting copy jobs to a dedicated thread pool.
@@ -3348,75 +3170,24 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
             md5_hash = md5_file(fp)
             exif = self.exiftool_output(fp, detailed=True)
 
-
-            # --- Conditionally submit invalid XREF originals to the copy pool ---
+            # Conditionally submit invalid XREF originals to the copy pool if setting is enabled
             if PDFReconConfig.EXPORT_INVALID_XREF and "Warning" in exif and "Invalid xref table" in exif:
                 invalid_xref_dir = scan_root_folder / "Invalid XREF"
                 dest_path = invalid_xref_dir / fp.name
                 if self.copy_executor:
                     self.copy_executor.submit(self._perform_copy, fp, dest_path)
 
-
             tool_change_info = self._detect_tool_change_from_exif(exif)
             if tool_change_info.get("changed"):
                 indicators['ToolChange'] = {}
             original_timeline = self.generate_comprehensive_timeline(fp, txt, exif)
             potential_revisions = self.extract_revisions(raw, fp)
-
             doc.close()
+            
             self._add_layer_indicators(raw, fp, indicators)
 
-            valid_revision_results = []
-            for rev_path, basefile, rev_raw in potential_revisions:
-                tmp_path = None
-                try:
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-                        tmp_file.write(rev_raw)
-                        tmp_path = Path(tmp_file.name)
-                    
-                    rev_exif = self.exiftool_output(tmp_path, detailed=True)
-
-                    # --- Submit invalid XREF revisions to the copy pool ---
-                    if "Warning" in rev_exif and "Invalid xref table" in rev_exif:
-                        logging.info(f"Submitting invalid XREF revision for {basefile} to be copied.")
-                        dest_path = invalid_xref_dir / rev_path.name
-                        rev_bytes_from_temp = tmp_path.read_bytes()
-                        if self.copy_executor:
-                           self.copy_executor.submit(self._perform_copy, rev_bytes_from_temp, dest_path)
-                        continue 
-
-                    rev_path.parent.mkdir(exist_ok=True)
-                    rev_path.write_bytes(rev_raw)
-                    
-                    rev_md5 = hashlib.md5(rev_raw).hexdigest()
-                    rev_txt = self.extract_text(rev_raw)
-                    revision_timeline = self.generate_comprehensive_timeline(rev_path, rev_txt, rev_exif)
-
-                    is_identical = False
-                    try:
-                        with fitz.open(fp) as doc_orig, fitz.open(rev_path) as doc_rev:
-                            pages_to_compare = min(doc_orig.page_count, doc_rev.page_count, PDFReconConfig.VISUAL_DIFF_PAGE_LIMIT)
-                            if pages_to_compare > 0:
-                                is_identical = True
-                                for i in range(pages_to_compare):
-                                    page_orig, page_rev = doc_orig.load_page(i), doc_rev.load_page(i)
-                                    if page_orig.rect != page_rev.rect: is_identical = False; break
-                                    pix_orig, pix_rev = page_orig.get_pixmap(dpi=96), page_rev.get_pixmap(dpi=96)
-                                    img_orig = Image.frombytes("RGB", [pix_orig.width, pix_orig.height], pix_orig.samples)
-                                    img_rev = Image.frombytes("RGB", [pix_rev.width, pix_rev.height], pix_rev.samples)
-                                    if ImageChops.difference(img_orig, img_rev).getbbox() is not None: is_identical = False; break
-                    except Exception as e:
-                        logging.warning(f"Could not visually compare {rev_path.name}, keeping it. Error: {e}")
-                    
-                    revision_row_data = { 
-                        "path": rev_path, "indicator_keys": {"Revision": {}}, "md5": rev_md5, "exif": rev_exif, 
-                        "is_revision": True, "timeline": revision_timeline, "original_path": fp, 
-                        "is_identical": is_identical, "status": "success"
-                    }
-                    valid_revision_results.append(revision_row_data)
-                finally:
-                    if tmp_path and tmp_path.exists():
-                        os.remove(tmp_path)
+            # Delegate all revision processing to the new helper method
+            valid_revision_results = self._process_and_validate_revisions(potential_revisions, fp, scan_root_folder)
 
             if valid_revision_results:
                 indicators['HasRevisions'] = {'count': len(valid_revision_results)}
@@ -3440,8 +3211,7 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
             return [{"path": fp, "status": "error", "error_type": "file_corrupt", "error_message": str(e)}]
         except Exception as e:
             logging.exception(f"Unexpected error processing file {fp.name}")
-            return [{"path": fp, "status": "error", "error_type": "processing_error", "error_message": str(e)}]
-            
+            return [{"path": fp, "status": "error", "error_type": "processing_error", "error_message": str(e)}]        
     def _prompt_and_export(self, file_format):
         """Prompts the user for a file path and calls the relevant export function."""
         if not self.report_data:
@@ -3494,13 +3264,18 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
         
         ws.freeze_panes = 'A2'
 
-        def _indicators_for_path(path_str: str) -> str:
-            rec = next((d for d in getattr(self, "all_scan_data", []) if str(d.get("path")) == str(path_str)), None)
-            if not rec: return ""
-            indicator_dict = rec.get("indicator_keys") or {}
-            if not indicator_dict: return ""
-            lines = [self._format_indicator_details(key, details) for key, details in indicator_dict.items()]
-            return "• " + "\n• ".join(lines)
+        # --- OPTIMIZATION ---
+        # Create a lookup dictionary once to avoid repeated searches in the main loop.
+        # This significantly improves performance for large datasets.
+        indicators_by_path = {}
+        for item in getattr(self, "all_scan_data", []):
+            path_str = str(item.get("path"))
+            indicator_dict = item.get("indicator_keys") or {}
+            if indicator_dict:
+                lines = [self._format_indicator_details(key, details) for key, details in indicator_dict.items()]
+                indicators_by_path[path_str] = "• " + "\n• ".join(lines)
+            else:
+                indicators_by_path[path_str] = ""
 
         for row_idx, row_data in enumerate(getattr(self, "report_data", []), start=2):
             try:
@@ -3509,7 +3284,8 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
                 path = ""
 
             exif_text = self.exif_outputs.get(path, "")
-            indicators_full = _indicators_for_path(path)
+            # Use the fast lookup dictionary instead of the slow nested function
+            indicators_full = indicators_by_path.get(path, "")
             note_text = self.file_annotations.get(path, "")
 
             row_out = list(row_data)

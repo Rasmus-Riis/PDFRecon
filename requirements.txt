@@ -2,3 +2,4 @@ PyMuPDF
 openpyxl
 tkinterdnd2
 pillow
+requests
