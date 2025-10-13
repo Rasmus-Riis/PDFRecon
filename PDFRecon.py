@@ -145,7 +145,7 @@ class PDFReconApp:
 
     def __init__(self, root):
         # --- Application Configuration ---
-        self.app_version = "16.9.0"
+        self.app_version = "16.11.1"
         self.config_path = self._resolve_path("config.ini", base_is_parent=True)
         self._load_or_create_config()
         
@@ -175,7 +175,7 @@ class PDFReconApp:
 
         # --- Application Data ---
         self.report_data = [] 
-        self.all_scan_data = []
+        self.all_scan_data = {}
         self.last_scan_folder = None 
         self.case_root_path = None
         self.current_case_filepath = None
@@ -358,20 +358,22 @@ class PDFReconApp:
     def _setup_styles(self):
         """Initializes and configures the styles for ttk widgets."""
         self.style = ttk.Style()
-        # Use your theme as before (adjust if you had another one)
         try:
             self.style.theme_use("clam")
         except Exception:
             pass
 
-        # Highlight on selection (keep as you had it)
+        # Highlight on selection
         self.style.map('Treeview', background=[('selected', '#0078D7')])
 
-        # Define the actual colors for tags
-        self.style.configure("red_row", background="#FFD6D6")     # reddish background
-        self.style.configure("yellow_row", background="#FFF4CC")  # yellow background
+        # Define colors for Treeview rows
+        self.style.configure("red_row", background="#FFD6D6")
+        self.style.configure("yellow_row", background="#FFF4CC")
 
-        # Map only these statuses now
+        # Define a custom style for the progress bar to ensure it's blue
+        self.style.configure("blue.Horizontal.TProgressbar", background='#0078D7')
+
+        # Map statuses to row styles
         self.tree_tags = {
             "JA": "red_row",
             "YES": "red_row",
@@ -457,7 +459,7 @@ class PDFReconApp:
 
         # Build a temporary list of flags for all scanned files
         all_flags = []
-        for data in self.all_scan_data:
+        for data in self.all_scan_data.values():
             if data.get("status") == "error":
                 error_type_key = data.get("error_type", "unknown_error")
                 all_flags.append(self._(error_type_key))
@@ -476,7 +478,7 @@ class PDFReconApp:
                            
         error_count = sum(1 for flag in all_flags if flag in error_statuses)
         
-        original_files_count = len([d for d in self.all_scan_data if not d.get('is_revision')])
+        original_files_count = len([d for d in self.all_scan_data.values() if not d.get('is_revision')])
         # Correctly calculate clean files
         not_flagged_count = original_files_count - changed_count - indications_found_count - error_count
 
@@ -804,10 +806,11 @@ class PDFReconApp:
             self.tree.config(cursor="")
             return
 
-        path_str = self.tree.item(row_id, "values")[3]
+        # Path is in column 5 (index 4)
+        path_str = self.tree.item(row_id, "values")[4]
         
-        # Check for EXIFTool column (index 8)
-        if col_id == '#8':
+        # Check for EXIFTool column (column 9)
+        if col_id == '#9':
             if path_str in self.exif_outputs and self.exif_outputs[path_str]:
                 exif_output = self.exif_outputs[path_str]
                 # Check if the output is an error message
@@ -818,9 +821,10 @@ class PDFReconApp:
                     self.tree.config(cursor="hand2")
                     return
         
-        # Check for Indicators column (index 9)
-        if col_id == '#9':
-            data_item = next((d for d in self.all_scan_data if str(d.get('path')) == path_str), None)
+        # Check for Indicators column (column 10)
+        if col_id == '#10':
+            # Fast O(1) lookup instead of O(n) search
+            data_item = self.all_scan_data.get(path_str)
             if data_item and data_item.get("indicator_keys"):
                 self.tree.config(cursor="hand2")
                 return
@@ -851,7 +855,8 @@ class PDFReconApp:
         path_str = values[4] 
         file_name = values[1]
         resolved_path = self._resolve_case_path(path_str)
-        file_data = next((d for d in self.all_scan_data if str(d.get('path')) == path_str), None)
+        # Fast O(1) lookup instead of O(n) search
+        file_data = self.all_scan_data.get(path_str)
         if not file_data:
             return
 
@@ -981,7 +986,9 @@ class PDFReconApp:
             total_pages = len(self.inspector_doc)
 
             def update_page(page_num):
-                if not (0 <= page_num < total_pages): return
+                # BUGFIX: Add a guard clause to prevent crash if doc is None
+                if not self.inspector_doc or not (0 <= page_num < total_pages):
+                    return
                 current_page_ref['page'] = page_num
                 
                 try:
@@ -1032,7 +1039,8 @@ class PDFReconApp:
         self.tree.selection_set(item_id)
         values = self.tree.item(item_id, "values")
         path_str = values[4] if values else None
-        file_data = next((d for d in self.all_scan_data if str(d.get('path')) == path_str), None)
+        # Fast O(1) lookup instead of O(n) search
+        file_data = self.all_scan_data.get(path_str)
 
         context_menu = tk.Menu(self.root, tearoff=0)
         
@@ -1058,8 +1066,13 @@ class PDFReconApp:
     def show_text_diff_popup(self, item_id):
         """Displays a popup showing the text differences between a file and its revision."""
         path_str = self.tree.item(item_id, "values")[4]
-        file_data = next((d for d in self.all_scan_data if str(d.get('path')) == path_str), None)
+        # Fast O(1) lookup instead of O(n) search
+        file_data = self.all_scan_data.get(path_str)
         
+        if not file_data:
+            messagebox.showinfo("Error", "Could not find data for the selected file.", parent=self.root)
+            return
+
         text_diff_data = file_data.get("indicator_keys", {}).get("TouchUp_TextEdit", {}).get("text_diff")
         if not text_diff_data:
             messagebox.showinfo("No Diff", "No text comparison data is available for this file.", parent=self.root)
@@ -1127,7 +1140,6 @@ class PDFReconApp:
 
         context_menu.add_command(label=self._("copy"), command=copy_selection)
         
-
         def show_context_menu(event):
             """Shows the context menu if text is selected."""
             if text_widget.tag_ranges(tk.SEL):
@@ -1165,14 +1177,87 @@ class PDFReconApp:
 
         if page_count and layers_cnt > page_count:
             indicators['MoreLayersThanPages'] = {'layers': layers_cnt, 'pages': page_count}
+    def _populate_timeline_widget(self, text_widget, path_str):
+        """Helper function to populate a text widget with formatted timeline data."""
+        timeline_data = self.timeline_data.get(path_str)
+        
+        if not timeline_data or (not timeline_data.get("aware") and not timeline_data.get("naive")):
+            text_widget.insert("1.0", self._("timeline_no_data"))
+            return
 
+        # Configure tags on the provided text_widget
+        text_widget.tag_configure("date_header", font=("Courier New", 11, "bold", "underline"), spacing1=10, spacing3=5)
+        text_widget.tag_configure("time", font=("Courier New", 10, "bold"))
+        text_widget.tag_configure("delta", foreground="#0078D7")
+        text_widget.tag_configure("section_header", font=("Courier New", 12, "bold"), spacing1=15, spacing3=10, justify='center')
+        text_widget.tag_configure("source_fs", foreground="#008000")
+        text_widget.tag_configure("source_exif", foreground="#555555")
+        text_widget.tag_configure("source_raw", foreground="#800080")
+        text_widget.tag_configure("source_xmp", foreground="#C00000")
+
+        aware_events = timeline_data.get("aware", [])
+        naive_events = timeline_data.get("naive", [])
+        
+        if aware_events:
+            header_text = ("\n--- Tider med tidszoneinformation ---\n" if self.language.get() == "da" 
+                           else "\n--- Times with timezone information ---\n")
+            text_widget.insert("end", header_text, "section_header")
+
+            last_date = None
+            last_dt_obj = None
+            for dt_obj, description in aware_events:
+                local_dt = dt_obj.astimezone()
+                if local_dt.date() != last_date:
+                    if last_date is not None: text_widget.insert("end", "\n")
+                    text_widget.insert("end", f"--- {local_dt.strftime('%d-%m-%Y')} ---\n", "date_header")
+                    last_date = local_dt.date()
+                delta_str = ""
+                if last_dt_obj:
+                    delta = local_dt - last_dt_obj
+                    delta_str = self._format_timedelta(delta)
+                source_tag = "source_exif"
+                if description.startswith("File System"): source_tag = "source_fs"
+                time_str = local_dt.strftime('%H:%M:%S %z')
+                text_widget.insert("end", f"{time_str:<15}", "time")
+                text_widget.insert("end", f" | {description:<60}", source_tag)
+                text_widget.insert("end", f" | {delta_str}\n", "delta")
+                last_dt_obj = local_dt
+
+        if naive_events:
+            header_text = ("\n--- Tider uden tidszoneinformation ---\n" if self.language.get() == "da" 
+                           else "\n--- Times without timezone information ---\n")
+            text_widget.insert("end", header_text, "section_header")
+            
+            last_date = None
+            last_dt_obj = None # BUGFIX: Reset last_dt_obj for the naive section
+            for dt_obj, description in naive_events:
+                if dt_obj.date() != last_date:
+                    if last_date is not None: text_widget.insert("end", "\n")
+                    text_widget.insert("end", f"--- {dt_obj.strftime('%d-%m-%Y')} ---\n", "date_header")
+                    last_date = dt_obj.date()
+                delta_str = ""
+                if last_dt_obj:
+                    delta = dt_obj - last_dt_obj
+                    delta_str = self._format_timedelta(delta)
+                source_tag = "source_exif"
+                if description.startswith("File System"): source_tag = "source_fs"
+                elif description.startswith("Raw File"): source_tag = "source_raw"
+                elif description.startswith("XMP History"): source_tag = "source_xmp"
+                time_str = dt_obj.strftime('%H:%M:%S')
+                text_widget.insert("end", f"{time_str:<15}", "time")
+                text_widget.insert("end", f" | {description:<60}", source_tag)
+                text_widget.insert("end", f" | {delta_str}\n", "delta")
+                last_dt_obj = dt_obj
+                
     def show_visual_diff_popup(self, item_id):
         """Shows a side-by-side visual comparison of a revision and its original."""
         self.root.config(cursor="watch")
         self.root.update_idletasks()
 
         rev_path_str = self.tree.item(item_id, "values")[4]
-        original_path_str = next((d['original_path'] for d in self.all_scan_data if str(d['path']) == rev_path_str), None)
+        # Fast O(1) lookup instead of O(n) search
+        rev_data = self.all_scan_data.get(rev_path_str)
+        original_path_str = rev_data.get('original_path') if rev_data else None
 
         if not original_path_str:
             messagebox.showerror(self._("diff_error_title"), "Original file for revision not found.", parent=self.root)
@@ -1528,7 +1613,14 @@ class PDFReconApp:
             self.case_is_dirty = False
             self._update_title() # Update title
             self.case_root_path = Path(filepath).parent 
-            self.all_scan_data = case_data.get('all_scan_data', [])
+            
+            # Load scan data, converting from list to dict for backward compatibility
+            loaded_data = case_data.get('all_scan_data', [])
+            if isinstance(loaded_data, list):
+                self.all_scan_data = {str(item.get('path')): item for item in loaded_data}
+            else:
+                self.all_scan_data = loaded_data
+
             self.file_annotations = case_data.get('file_annotations', {})
             self.exif_outputs = case_data.get('exif_outputs', {})
             self.dirty_notes.clear()
@@ -1735,12 +1827,13 @@ class PDFReconApp:
             evidence_folder = dest_folder / "Evidence"
             evidence_folder.mkdir(exist_ok=True)
 
-            data_for_export = copy.deepcopy(self.all_scan_data)
+            new_scan_data = {}
             new_exif, new_timeline, new_hashes, path_map = {}, {}, {}, {}
 
             scan_base_path = self._resolve_case_path(self.last_scan_folder)
 
-            for item in data_for_export:
+            for original_item in self.all_scan_data.values():
+                item = copy.deepcopy(original_item)
                 original_path_str = str(item['path'])
                 original_abs_path = self._resolve_case_path(original_path_str)
                 
@@ -1770,8 +1863,9 @@ class PDFReconApp:
 
                 path_map[original_path_str] = new_relative_path_str
                 item['path'] = new_relative_path_str
+                new_scan_data[new_relative_path_str] = item
 
-            for item in data_for_export:
+            for item in new_scan_data.values():
                 if item.get('is_revision'):
                     original_parent_path = str(item.get('original_path'))
                     if original_parent_path in path_map:
@@ -1790,7 +1884,7 @@ class PDFReconApp:
             case_payload = {
                 'app_version': self.app_version,
                 'scan_folder': self.last_scan_folder,
-                'all_scan_data': data_for_export,
+                'all_scan_data': new_scan_data,
                 'file_annotations': new_annotations, # Use the remapped dictionary
                 'exif_outputs': new_exif,
                 'timeline_data': new_timeline,
@@ -2033,8 +2127,8 @@ class PDFReconApp:
                 elif msg_type == "scan_status": 
                     self.status_var.set(data)
                 elif msg_type == "file_row":
-                    # Store all scan data, including revisions and errors
-                    self.all_scan_data.append(data)
+                    # Store all scan data in a dictionary keyed by path for fast lookups.
+                    self.all_scan_data[str(data["path"])] = data
                     # Store EXIF and timeline data in separate dicts for quick lookup
                     if not data.get("is_revision"):
                         self.exif_outputs[str(data["path"])] = data.get("exif")
@@ -2066,7 +2160,7 @@ class PDFReconApp:
         self.export_menubutton.config(state="normal")
 
         # Calculate hashes for the evidence files for integrity verification
-        self.evidence_hashes = self._calculate_hashes(self.all_scan_data)
+        self.evidence_hashes = self._calculate_hashes(self.all_scan_data.values())
         if self.evidence_hashes:
              self.file_menu.entryconfig(self._("menu_verify_integrity"), state="normal")
 
@@ -2090,10 +2184,12 @@ class PDFReconApp:
             search_term = self.filter_var.get().lower()
             
             items_to_show = []
+            scan_data_iterable = self.all_scan_data.values()
+
             if not search_term:
-                items_to_show = self.all_scan_data
+                items_to_show = list(scan_data_iterable)
             else:
-                for data in self.all_scan_data:
+                for data in scan_data_iterable:
                     searchable_items = []
 
                     path_str = str(data.get('path', ''))
@@ -2154,7 +2250,7 @@ class PDFReconApp:
         # Pre-calculate the display IDs for parent files, used for "Revision of #X" text
         parent_display_ids = {}
         parent_counter = 0
-        for d in self.all_scan_data: # Use all_scan_data for stable IDs
+        for d in self.all_scan_data.values(): # Use .values() to iterate over the dictionary
             if not d.get("is_revision") and d.get("status") != "error":
                 parent_counter += 1
                 parent_display_ids[str(d["path"])] = parent_counter
@@ -2223,7 +2319,8 @@ class PDFReconApp:
         self.detail_text.config(state="normal")
         self.detail_text.delete("1.0", tk.END)
         
-        original_data = next((d for d in self.all_scan_data if str(d.get('path')) == path_str), None)
+        # Fast O(1) lookup instead of O(n) search
+        original_data = self.all_scan_data.get(path_str)
 
         for i, val in enumerate(values):
             col_name = self.tree.heading(self.columns[i], "text")
@@ -2344,14 +2441,16 @@ class PDFReconApp:
             events = []
             try:
                 stat = filepath.stat()
-                mtime = datetime.fromtimestamp(stat.st_mtime)
+                # Make the datetime object timezone-aware using the system's local timezone
+                mtime = datetime.fromtimestamp(stat.st_mtime).astimezone()
                 events.append((mtime, f"File System: {self._('col_modified')}"))
-                ctime = datetime.fromtimestamp(stat.st_ctime)
+                # Make the datetime object timezone-aware using the system's local timezone
+                ctime = datetime.fromtimestamp(stat.st_ctime).astimezone()
                 events.append((ctime, f"File System: {self._('col_created')}"))
             except FileNotFoundError:
                 pass
             return events
-
+            
     def _parse_exif_data(self, exiftool_output: str):
         """
         Parses EXIFTool output into a structured dictionary for reuse.
@@ -2365,7 +2464,8 @@ class PDFReconApp:
 
         # --- Regex Patterns ---
         kv_re = re.compile(r'^\[(?P<group>[^\]]+)\]\s*(?P<tag>[\w\-/ ]+?)\s*:\s*(?P<value>.+)$')
-        date_re = re.compile(r'^(?P<date>\d{4}:\d{2}:\d{2}\s\d{2}:\d{2}:\d{2}(?:[+\-]\d{2}:\d{2}|Z)?)')
+        # Regex to find a date and an optional timezone part (Z or +/-HH:MM) that handles different separators
+        date_tz_re = re.compile(r'^(?P<date>\d{4}[-:]\d{2}[-:]\d{2}[ T]\d{2}:\d{2}:\d{2})(?:\.\d+)?(?P<tz>[+\-]\d{2}:\d{2}|Z)?')
         history_full_pattern = re.compile(r"\[XMP-xmpMM\]\s+History\s+:\s+(.*)")
 
         def looks_like_software(s: str) -> bool:
@@ -2405,7 +2505,8 @@ class PDFReconApp:
                     details = {k.strip(): v.strip() for k, v in (pair.split('=', 1) for pair in block.split(',') if '=' in pair)}
                     if 'When' in details:
                         try:
-                            dt_obj = datetime.strptime(details['When'].replace("Z", "+00:00").split('+')[0].split('.')[0], "%Y:%m:%d %H:%M:%S")
+                            # fromisoformat correctly handles ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)
+                            dt_obj = datetime.fromisoformat(details['When'].replace('Z', '+00:00'))
                             data["history_events"].append((dt_obj, details))
                         except (ValueError, IndexError):
                             pass
@@ -2416,16 +2517,24 @@ class PDFReconApp:
             if not kv_match: continue
 
             val_str = kv_match.group("value").strip()
-            date_match = date_re.match(val_str)
-            if date_match:
+            match = date_tz_re.match(val_str)
+            
+            if match:
+                parts = match.groupdict()
+                # Massage date into ISO format: YYYY-MM-DDTHH:MM:SS
+                date_part = parts.get("date").replace(":", "-", 2).replace(" ", "T")
+                tz_part = parts.get("tz")
+                
                 try:
-                    date_str = date_match.group("date")
-                    base_date = date_str.replace("Z", "+00:00").split('+')[0].split('-')[0]
-                    dt = datetime.strptime(base_date, "%Y:%m:%d %H:%M:%S")
+                    full_date_str = date_part
+                    if tz_part:
+                        full_date_str += tz_part.replace('Z', '+00:00')
+                    
+                    dt = datetime.fromisoformat(full_date_str)
                     
                     tag = kv_match.group("tag").strip().lower().replace(" ", "")
                     group = kv_match.group("group").strip()
-                    data["all_dates"].append({"dt": dt, "tag": tag, "group": group, "full_str": date_str})
+                    data["all_dates"].append({"dt": dt, "tag": tag, "group": group, "full_str": val_str})
 
                 except ValueError:
                     continue
@@ -2440,7 +2549,7 @@ class PDFReconApp:
                     data["modify_dt"] = d["dt"]
         
         return data
-
+        
     def _detect_tool_change_from_exif(self, exiftool_output: str):
         """
         Determines if the primary tool changed between creation and last modification.
@@ -2632,74 +2741,37 @@ class PDFReconApp:
 
         return {"aware": aware_events, "naive": naive_events}
     
-    def _populate_timeline_widget(self, text_widget, path_str):
-        """Helper function to populate a text widget with formatted timeline data."""
-        timeline_data = self.timeline_data.get(path_str)
+    def _parse_raw_content_timeline(self, file_content_string):
+        """Helper function to parse timestamps directly from the file's raw content."""
+        events = []
         
-        if not timeline_data or (not timeline_data.get("aware") and not timeline_data.get("naive")):
-            text_widget.insert("1.0", self._("timeline_no_data"))
-            return
+        # PDF-style dates: /CreationDate (D:20230101120000...). These are naive.
+        pdf_date_pattern = re.compile(r"\/([A-Z][a-zA-Z0-9_]+)\s*\(\s*D:(\d{14})")
+        for match in pdf_date_pattern.finditer(file_content_string):
+            label, date_str = match.groups()
+            try:
+                dt_obj = datetime.strptime(date_str, "%Y%m%d%H%M%S")
+                display_line = f"Raw File: /{label}: {dt_obj.strftime('%Y-%m-%d %H:%M:%S')}"
+                events.append((dt_obj, display_line))
+            except ValueError:
+                continue
 
-        # Configure tags on the provided text_widget
-        text_widget.tag_configure("date_header", font=("Courier New", 11, "bold", "underline"), spacing1=10, spacing3=5)
-        text_widget.tag_configure("time", font=("Courier New", 10, "bold"))
-        text_widget.tag_configure("delta", foreground="#0078D7")
-        text_widget.tag_configure("section_header", font=("Courier New", 12, "bold"), spacing1=15, spacing3=10, justify='center')
-        text_widget.tag_configure("source_fs", foreground="#008000")
-        text_widget.tag_configure("source_exif", foreground="#555555")
-        text_widget.tag_configure("source_raw", foreground="#800080")
-        text_widget.tag_configure("source_xmp", foreground="#C00000")
-
-        aware_events = timeline_data.get("aware", [])
-        naive_events = timeline_data.get("naive", [])
-        
-        if aware_events:
-            last_date = None
-            last_dt_obj = None
-            for dt_obj, description in aware_events:
-                local_dt = dt_obj.astimezone()
-                if local_dt.date() != last_date:
-                    if last_date is not None: text_widget.insert("end", "\n")
-                    text_widget.insert("end", f"--- {local_dt.strftime('%d-%m-%Y')} ---\n", "date_header")
-                    last_date = local_dt.date()
-                delta_str = ""
-                if last_dt_obj:
-                    delta = local_dt - last_dt_obj
-                    delta_str = self._format_timedelta(delta)
-                source_tag = "source_exif"
-                if description.startswith("FS"): source_tag = "source_fs"
-                time_str = local_dt.strftime('%H:%M:%S %z')
-                text_widget.insert("end", f"{time_str:<15}", "time")
-                text_widget.insert("end", f" | {description:<60}", source_tag)
-                text_widget.insert("end", f" | {delta_str}\n", "delta")
-                last_dt_obj = local_dt
-
-        if naive_events:
-            header_text = ("\n--- Tider uden tidszoneinformation ---\n" if self.language.get() == "da" 
-                           else "\n--- Times without timezone information ---\n")
-            text_widget.insert("end", header_text, "section_header")
-            
-            last_date = None
-            last_dt_obj = None
-            for dt_obj, description in naive_events:
-                if dt_obj.date() != last_date:
-                    if last_date is not None: text_widget.insert("end", "\n")
-                    text_widget.insert("end", f"--- {dt_obj.strftime('%d-%m-%Y')} ---\n", "date_header")
-                    last_date = dt_obj.date()
-                delta_str = ""
-                if last_dt_obj:
-                    delta = dt_obj - last_dt_obj
-                    delta_str = self._format_timedelta(delta)
-                source_tag = "source_exif"
-                if description.startswith("File System"): source_tag = "source_fs"
-                elif description.startswith("Raw File"): source_tag = "source_raw"
-                elif description.startswith("XMP History"): source_tag = "source_xmp"
-                time_str = dt_obj.strftime('%H:%M:%S')
-                text_widget.insert("end", f"{time_str:<15}", "time")
-                text_widget.insert("end", f" | {description:<60}", source_tag)
-                text_widget.insert("end", f" | {delta_str}\n", "delta")
-                last_dt_obj = dt_obj
-                
+        # XMP-style dates: <xmp:CreateDate>2023-01-01T12:00:00Z</xmp:CreateDate>. These can be aware.
+        xmp_date_pattern = re.compile(r"<([a-zA-Z0-9:]+)[^>]*?>\s*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.*?)\s*<\/([a-zA-Z0-9:]+)>")
+        for match in xmp_date_pattern.finditer(file_content_string):
+            label, date_str, closing_label = match.groups()
+            if label != closing_label: continue
+            try:
+                # Replace 'Z' for UTC with the equivalent offset for fromisoformat
+                iso_date_str = date_str.replace('Z', '+00:00')
+                # fromisoformat will create an aware datetime if an offset is present,
+                # and a naive one otherwise.
+                dt_obj = datetime.fromisoformat(iso_date_str)
+                display_line = f"Raw File: <{label}>: {date_str}"
+                events.append((dt_obj, display_line))
+            except (ValueError, IndexError):
+                continue
+        return events       
     @staticmethod
     def decompress_stream(b):
         """Attempts to decompress a PDF stream using common filters."""
@@ -3268,7 +3340,7 @@ class PDFReconApp:
         # Create a lookup dictionary once to avoid repeated searches in the main loop.
         # This significantly improves performance for large datasets.
         indicators_by_path = {}
-        for item in getattr(self, "all_scan_data", []):
+        for item in getattr(self, "all_scan_data", {}).values():
             path_str = str(item.get("path"))
             indicator_dict = item.get("indicator_keys") or {}
             if indicator_dict:
@@ -3317,7 +3389,8 @@ class PDFReconApp:
         
         def _indicators_for_path(path_str: str) -> str:
             """Helper function to get a semicolon-separated string of indicators."""
-            rec = next((d for d in self.all_scan_data if str(d.get('path')) == path_str), None)
+            # Fast O(1) lookup instead of O(n) search
+            rec = self.all_scan_data.get(path_str)
             if not rec: return ""
             indicator_dict = rec.get('indicator_keys') or {}
             if not indicator_dict: return ""
@@ -3328,17 +3401,19 @@ class PDFReconApp:
         # Prepare data with full EXIF output + full indicators
         data_for_export = []
         for row_data in self.report_data:
-            new_row = row_data[:]
-            path = new_row[3]
+            new_row = list(row_data)
+            path = new_row[4] # Path is at index 4
             exif_output = self.exif_outputs.get(path, "")
-            new_row[7] = exif_output  # Replace "Click to view." with actual output
             indicators_full = _indicators_for_path(path)
-            if indicators_full:
-                new_row[8] = indicators_full
             note_text = self.file_annotations.get(path, "")
+            
             while len(new_row) < len(headers):
                 new_row.append("")
-            new_row[9] = note_text
+
+            new_row[8] = exif_output      # EXIF is at index 8
+            if indicators_full:
+                new_row[9] = indicators_full # Indicators is at index 9
+            new_row[10] = note_text      # Note is at index 10
   
             data_for_export.append(new_row)
 
@@ -3351,7 +3426,7 @@ class PDFReconApp:
     def _export_to_json(self, file_path):
         """Exports a more detailed report of all scanned data and notes to a JSON file."""
         scan_data_export = []
-        for item in self.all_scan_data:
+        for item in self.all_scan_data.values():
             path_str = str(item['path'])
             item_copy = item.copy()
             item_copy['path'] = path_str # Convert Path object to string
@@ -3418,7 +3493,7 @@ class PDFReconApp:
         for i, values in enumerate(self.report_data):
             tag_class = ""
             try:
-                matching_id = next((item_id for item_id in self.tree.get_children() if self.tree.item(item_id, "values")[3] == values[3]), None)
+                matching_id = next((item_id for item_id in self.tree.get_children() if self.tree.item(item_id, "values")[4] == values[4]), None)
                 if matching_id:
                     tags = self.tree.item(matching_id, "tags")
                     if tags:
@@ -3426,13 +3501,13 @@ class PDFReconApp:
             except (IndexError, StopIteration):
                  pass
             
-            path_str = values[3]
+            path_str = values[4]
             note_text = html.escape(self.file_annotations.get(path_str, "")).replace('\n', '<br>')
             
             row_values = [html.escape(str(v)) for v in values]
             while len(row_values) < len(self.columns_keys):
                 row_values.append("")
-            row_values[9] = note_text
+            row_values[10] = note_text
 
             rows += f'<tr class="{tag_class}">' + "".join(f"<td>{v}</td>" for v in row_values) + "</tr>"
 
@@ -3665,4 +3740,3 @@ if __name__ == "__main__":
     app = PDFReconApp(root)
     # Start the application's main event loop
     root.mainloop()
-
