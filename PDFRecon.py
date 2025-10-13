@@ -145,7 +145,7 @@ class PDFReconApp:
 
     def __init__(self, root):
         # --- Application Configuration ---
-        self.app_version = "16.9.0"
+        self.app_version = "16.10.0"
         self.config_path = self._resolve_path("config.ini", base_is_parent=True)
         self._load_or_create_config()
         
