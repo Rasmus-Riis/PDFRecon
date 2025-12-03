@@ -79,7 +79,9 @@
     "update_no_new_msg": "Du bruger den seneste version af PDFRecon.",
     "update_error_title": "Fejl ved Opdatering",
     "update_net_error_msg": "Kunne ikke søge efter opdateringer. Tjek venligst din internetforbindelse.",
-    "update_parse_error_msg": "Kunne ikke læse versionsinformationen fra serveren."
+    "update_parse_error_msg": "Kunne ikke læse versionsinformationen fra serveren.",
+    "exiftool_warning_title": "ExifTool Ikke Fundet",
+    "exiftool_warning_message": "ExifTool-komponenter mangler for de bedste resultater:\n\n{items}\n\nSørg venligst for, at exiftool.exe og exiftool_files mappen er i samme mappe som PDFRecon.exe.\n\nBemærk: Når du downloader ExifTool, skal du omdøbe filen til exiftool.exe."
   },
   "en": {
     "choose_folder": "📁 Choose folder and scan", "show_timeline": "Show Timeline", "status_initial": "Click the 'Choose folder and scan' button to start an analysis.",
@@ -156,9 +158,11 @@
     "update_available_title": "Update Available",
     "update_available_msg": "A new version ({new_version}) is available!\n\nYou are currently using version {current_version}.\n\nWould you like to open the download page?",
     "update_no_new_title": "Up to Date",
-    "update_no_new_msg": "You are running the latest version of PDFRecon.",
+    "update_no_new_msg": "You are using the latest version of PDFRecon.",
     "update_error_title": "Update Error",
     "update_net_error_msg": "Could not check for updates. Please check your internet connection.",
-    "update_parse_error_msg": "Could not read the version information from the server."
+    "update_parse_error_msg": "Could not parse version information from server.",
+    "exiftool_warning_title": "ExifTool Not Found",
+    "exiftool_warning_message": "ExifTool components are missing for best results:\n\n{items}\n\nPlease ensure exiftool.exe and the exiftool_files directory are in the same folder as PDFRecon.exe.\n\nNote: When you download ExifTool, you need to rename it to exiftool.exe."
   }
 }

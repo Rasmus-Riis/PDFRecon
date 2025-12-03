@@ -186,9 +186,35 @@ class PDFReconApp:
         
         logging.info(f"PDFRecon v{self.app_version} started in {'Reader' if self.is_reader_mode else 'Full'} mode.")
 
+        # --- Check for ExifTool ---
+        self._check_exiftool_availability()
+
         # --- Auto-load case in Reader mode ---
         if self.is_reader_mode:
             self.root.after(100, self._autoload_case_in_reader)
+
+    def _check_exiftool_availability(self):
+        """Check if exiftool.exe and exiftool_files directory exist and show warning if missing."""
+        exiftool_exe = Path("exiftool.exe")
+        exiftool_dir = Path("exiftool_files")
+        
+        missing_items = []
+        if not exiftool_exe.exists():
+            missing_items.append("exiftool.exe")
+        if not exiftool_dir.exists() or not exiftool_dir.is_dir():
+            missing_items.append("exiftool_files directory")
+        
+        if missing_items:
+            lang = self.language.get() if hasattr(self, 'language') else self.default_language
+            trans = self.translations.get(lang, self.translations.get('en', {}))
+            
+            title = trans.get("exiftool_warning_title", "ExifTool Not Found")
+            message = trans.get("exiftool_warning_message", 
+                "ExifTool components are missing for best results:\n\n{items}\n\nPlease ensure exiftool.exe and the exiftool_files directory are in the same folder as PDFRecon.exe.")
+            
+            missing_text = "\n".join([f"• {item}" for item in missing_items])
+            messagebox.showwarning(title, message.format(items=missing_text))
+            logging.warning(f"ExifTool components missing: {', '.join(missing_items)}")
 
     def _setup_window(self):
         """Configure the main window."""
