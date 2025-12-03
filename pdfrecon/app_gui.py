@@ -1865,6 +1865,230 @@ class PDFReconApp:
         scan_thread.start()
 
         self._process_queue()
+
+    def _find_pdf_files_generator(self, folder):
+        """Generator that yields PDF files as soon as they are found."""
+        for base, _, files in os.walk(folder):
+            for fn in files:
+                if fn.lower().endswith(".pdf"):
+                    yield Path(base) / fn
+
+    def _process_single_file(self, fp):
+        """
+        Processes a single PDF file - analyzes it and extracts metadata.
+        Returns a list of dictionaries (one for original, one per revision).
+        """
+        try:
+            # Validate the file first
+            file_size = fp.stat().st_size
+            if file_size > PDFReconConfig.MAX_FILE_SIZE:
+                raise PDFTooLargeError(f"File size {file_size / (1024**2):.1f}MB exceeds limit")
+            
+            # Read file and open PDF
+            raw = fp.read_bytes()
+            doc = self._safe_pdf_open(fp, raw_bytes=raw)
+            
+            # Extract text for indicator detection
+            txt = self.extract_text(raw)
+            
+            # === CRITICAL: Run ExifTool HERE ===
+            exif = self.exiftool_output(fp, detailed=True)
+            
+            # Detect indicators
+            indicator_keys = self.detect_indicators(fp, txt, doc)
+            
+            # Calculate MD5
+            md5_hash = hashlib.md5(raw).hexdigest()
+            
+            # Generate timeline
+            original_timeline = self.generate_comprehensive_timeline(fp, txt, exif)
+            
+            # Extract revisions
+            revisions = self.extract_revisions(raw, fp)
+            
+            # Close the document
+            doc.close()
+            
+            # Add "HasRevisions" indicator if revisions were found
+            final_indicator_keys = indicator_keys.copy()
+            if revisions:
+                final_indicator_keys['HasRevisions'] = {'count': len(revisions)}
+            
+            # Prepare result for original file
+            results = []
+            original_row_data = {
+                "path": fp,
+                "indicator_keys": final_indicator_keys,
+                "md5": md5_hash,
+                "exif": exif,
+                "is_revision": False,
+                "timeline": original_timeline,
+                "status": "success"
+            }
+            results.append(original_row_data)
+            
+            # Process each revision
+            for rev_path, basefile, rev_raw in revisions:
+                try:
+                    rev_md5 = hashlib.md5(rev_raw).hexdigest()
+                    rev_exif = self.exiftool_output(rev_path, detailed=True)
+                    rev_txt = self.extract_text(rev_raw)
+                    revision_timeline = self.generate_comprehensive_timeline(rev_path, rev_txt, rev_exif)
+                    
+                    revision_row_data = {
+                        "path": rev_path,
+                        "indicator_keys": {"Revision": {}},
+                        "md5": rev_md5,
+                        "exif": rev_exif,
+                        "is_revision": True,
+                        "timeline": revision_timeline,
+                        "original_path": fp,
+                        "is_identical": False,
+                        "status": "success"
+                    }
+                    results.append(revision_row_data)
+                except Exception as e:
+                    logging.warning(f"Error processing revision {rev_path.name}: {e}")
+            
+            return results
+            
+        except PDFTooLargeError as e:
+            logging.warning(f"Skipping large file {fp.name}: {e}")
+            return [{"path": fp, "status": "error", "error_type": "file_too_large", "error_message": str(e)}]
+        except PDFEncryptedError as e:
+            logging.warning(f"Skipping encrypted file {fp.name}: {e}")
+            return [{"path": fp, "status": "error", "error_type": "file_encrypted", "error_message": str(e)}]
+        except PDFCorruptionError as e:
+            logging.warning(f"Skipping corrupt file {fp.name}: {e}")
+            return [{"path": fp, "status": "error", "error_type": "file_corrupt", "error_message": str(e)}]
+        except Exception as e:
+            logging.exception(f"Unexpected error processing file {fp.name}")
+            return [{"path": fp, "status": "error", "error_type": "processing_error", "error_message": str(e)}]
+
+    def _scan_worker_parallel(self, folder, q):
+        """
+        Worker thread that finds and processes PDF files in parallel.
+        Sends results to the queue for UI updates.
+        """
+        try:
+            q.put(("scan_status", self._("preparing_analysis")))
+            
+            # Find all PDF files
+            pdf_files = list(self._find_pdf_files_generator(folder))
+            if not pdf_files:
+                q.put(("finished", None))
+                return
+            
+            q.put(("progress_mode_determinate", len(pdf_files)))
+            files_processed = 0
+            
+            # Process files in parallel using ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=PDFReconConfig.MAX_WORKER_THREADS) as executor:
+                future_to_path = {executor.submit(self._process_single_file, fp): fp for fp in pdf_files}
+                
+                for future in as_completed(future_to_path):
+                    path = future_to_path[future]
+                    files_processed += 1
+                    
+                    try:
+                        results = future.result()
+                        for result_data in results:
+                            q.put(("file_row", result_data))
+                    except Exception as e:
+                        logging.error(f"Unexpected error from thread pool for file {path.name}: {e}")
+                        q.put(("file_row", {"path": path, "status": "error", "error_type": "unknown_error", "error_message": str(e)}))
+                    
+                    # Calculate progress stats
+                    elapsed_time = time.time() - self.scan_start_time
+                    fps = files_processed / elapsed_time if elapsed_time > 0 else 0
+                    eta_seconds = (len(pdf_files) - files_processed) / fps if fps > 0 else 0
+                    q.put(("detailed_progress", {"file": path.name, "fps": fps, "eta": time.strftime('%M:%S', time.gmtime(eta_seconds))}))
+        
+        except Exception as e:
+            logging.error(f"Error in scan worker: {e}")
+            q.put(("error", f"A critical error occurred: {e}"))
+        finally:
+            q.put(("finished", None))
+
+    def _process_queue(self):
+        """
+        Processes messages from the scan queue and updates the UI.
+        Called repeatedly via root.after() to check for new scan results.
+        """
+        try:
+            while True:
+                msg_type, data = self.scan_queue.get_nowait()
+                
+                if msg_type == "progress_mode_determinate":
+                    self._progress_max = data if data > 0 else 1
+                    self._progress_current = 0
+                    self.progressbar.set(0)
+                    
+                elif msg_type == "detailed_progress":
+                    self._progress_current += 1
+                    progress = self._progress_current / self._progress_max
+                    self.progressbar.set(progress)
+                    self.status_var.set(self._("scan_progress_eta").format(**data))
+                    
+                elif msg_type == "scan_status":
+                    self.status_var.set(data)
+                    
+                elif msg_type == "file_row":
+                    # Store the data
+                    path_str = str(data["path"])
+                    self.all_scan_data[path_str] = data
+                    
+                    # Store ExifTool output
+                    if data.get("exif"):
+                        self.exif_outputs[path_str] = data["exif"]
+                    
+                    # Store timeline
+                    if data.get("timeline"):
+                        self.timeline_data[path_str] = data["timeline"]
+                    
+                    # Count revisions
+                    if data.get("is_revision"):
+                        self.revision_counter += 1
+                    
+                elif msg_type == "error":
+                    logging.warning(data)
+                    messagebox.showerror("Critical Error", data)
+                    
+                elif msg_type == "finished":
+                    self._finalize_scan()
+                    return
+                    
+        except queue.Empty:
+            pass
+        
+        # Schedule next check
+        self.root.after(100, self._process_queue)
+
+    def _finalize_scan(self):
+        """Called when scanning is complete - updates UI and enables controls."""
+        self.scan_button.configure(state="normal")
+        
+        # Enable menu items
+        if not self.is_reader_mode:
+            self.file_menu.entryconfig(2, state="normal")  # Save Case
+            if getattr(sys, 'frozen', False):
+                self.file_menu.entryconfig(3, state="normal")  # Export Reader
+        
+        # Hide progress bar
+        self.progressbar.grid_remove()
+        
+        # Update the results table
+        self._apply_filter()
+        
+        # Update status bar with summary
+        self._update_summary_status()
+        
+        # Calculate evidence hashes for integrity verification
+        self.evidence_hashes = self._calculate_hashes(list(self.all_scan_data.values()))
+        if self.evidence_hashes:
+            self.file_menu.entryconfig(1, state="normal")  # Enable Verify Integrity
+        
+        logging.info(f"Scan completed. {self.status_var.get()}")
        
     def _reset_state(self):
         """Resets all data and GUI elements to their initial state."""
