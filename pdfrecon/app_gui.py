@@ -195,8 +195,16 @@ class PDFReconApp:
 
     def _check_exiftool_availability(self):
         """Check if exiftool.exe and exiftool_files directory exist and show warning if missing."""
-        exiftool_exe = Path("exiftool.exe")
-        exiftool_dir = Path("exiftool_files")
+        # Determine the base directory (where the exe or script is located)
+        if getattr(sys, 'frozen', False):
+            # Running as compiled executable
+            base_dir = Path(sys.executable).parent
+        else:
+            # Running as script
+            base_dir = Path(__file__).parent.parent
+        
+        exiftool_exe = base_dir / "exiftool.exe"
+        exiftool_dir = base_dir / "exiftool_files"
         
         missing_items = []
         if not exiftool_exe.exists():
