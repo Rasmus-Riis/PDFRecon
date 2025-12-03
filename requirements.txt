@@ -3,3 +3,4 @@ openpyxl
 tkinterdnd2
 pillow
 requests
+customtkinter

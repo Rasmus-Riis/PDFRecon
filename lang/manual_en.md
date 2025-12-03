@@ -81,3 +81,65 @@ Below is a detailed explanation of each indicator that PDFRecon looks for.
 <b>Date inconsistency (Info vs. XMP)</b>
 *<i>Changed:</i>* <yellow>Indications Found</yellow>
 • What it means: The creation/modification dates in the PDF Info dictionary do not match the dates in XMP metadata (e.g., Creation Date Mismatch: Info='20230101...', XMP='2023-01-02...'). Such discrepancies can indicate hidden or unauthorized changes.
+
+### Advanced Detection Methods (New)
+
+<b>Metadata Version Mismatch</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: The metadata claims the PDF was created with old software (e.g., Acrobat 4 or PDF 1.3), but the file actually uses modern PDF features (PDF 1.7+). This inconsistency suggests the metadata may have been manipulated or the file was edited with different software than claimed.
+
+<b>Suspicious Text Positioning</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: The PDF contains an unusually high number of text positioning commands (Tm/Td operators) in sequence. This pattern often appears when text is being overlaid on existing content to hide or replace original text.
+
+<b>White Rectangle Overlay</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: Multiple white rectangles have been drawn in the document. This is a common technique for hiding content by drawing white shapes over text or images to make them invisible while still present in the file.
+
+<b>Excessive Drawing Operations</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: A page contains an abnormally high number of drawing commands (>50). This may indicate complex editing operations or attempts to obscure content through layering.
+
+<b>Orphaned Objects</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: The PDF contains objects that are defined but never referenced. A small number is normal, but many orphaned objects suggest editing where content was removed but not fully cleaned up.
+
+<b>Missing Objects</b>
+*<i>Changed:</i>* <red>YES</red>
+• What it means: The PDF references objects that are not defined in the file. This is a serious structural anomaly that typically indicates corruption or improper editing.
+
+<b>Large Object Number Gaps</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: There are significant gaps in the object numbering sequence (>30% missing). This suggests extensive editing where objects were deleted or replaced.
+
+<b>Contains JavaScript</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: The PDF contains JavaScript code. While legitimate in some cases, JavaScript can be used to hide alterations or dynamically modify content when the document is opened.
+
+<b>JavaScript Auto-Execute / Additional Actions</b>
+*<i>Changed:</i>* <red>YES</red>
+• What it means: The PDF is configured to automatically execute JavaScript when opened (OpenAction) or has additional actions (AA) attached. This is highly suspicious and could indicate attempts to modify or hide content dynamically.
+
+<b>Duplicate Images With Different Xrefs</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: The same image (identified by hash) appears multiple times with different object references. This may indicate the image was added, removed, and re-added during editing.
+
+<b>Images With EXIF</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: Embedded images contain EXIF metadata. This metadata can reveal when and with what device the image was created, which may not match the PDF's claimed creation date.
+
+<b>CropBox/MediaBox Mismatch</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: The visible area (CropBox) is significantly smaller than the full page size (MediaBox). This suggests content may be hidden outside the visible area.
+
+<b>Excessive Form Fields</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: The document contains an unusually high number of form fields (>50). This could indicate a complex form or potential tampering with field values.
+
+<b>Duplicate Bookmarks</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: Multiple bookmarks have identical titles. This may indicate the document structure was modified or bookmarks were improperly copied during editing.
+
+<b>Invalid Bookmark Destinations</b>
+*<i>Changed:</i>* <yellow>Indications Found</yellow>
+• What it means: Bookmarks point to pages that don't exist in the document. This typically occurs when pages are deleted after bookmarks were created, indicating structural changes.

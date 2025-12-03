@@ -2,7 +2,7 @@
   "da": {
     "choose_folder": "📁 Vælg mappe og scan",
     "show_timeline": "Vis Tidslinje",
-    "status_initial": "Træk en mappe hertil, åbn en sag, eller brug knappen for at starte en analyse.",
+    "status_initial": "Klik på 'Vælg mappe og scan' knappen for at starte en analyse.",
     "status_initial_reader": "Brug Fil -> Åbn Sag... for at se en gemt analyse.",
     "col_id": "#", "col_name": "Navn", "col_changed": "Ændret", "col_path": "Sti", "col_md5": "MD5",
     "col_created": "Fil oprettet", "col_modified": "Fil sidst ændret", "col_exif": "EXIFTool", "col_indicators": "Tegn på ændring",
@@ -40,7 +40,7 @@
     "about_website": "Officiel {tool} Hjemmeside: ", "about_source": "{tool} Kildekode: ", "about_developer_info": "\nUdvikler: Rasmus Riis\nE-mail: riisras@gmail.com\n",
     "copy": "Kopiér", "close_button_text": "Luk", "excel_indicators_overview": "(Oversigt)",
     "exif_err_notfound": "(exiftool ikke fundet i programmets mappe)", "exif_err_prefix": "ExifTool Fejl:", "exif_err_run": "(fejl ved kørsel af exiftool: {e})",
-    "drop_error_title": "Fejl", "drop_error_message": "Træk venligst en mappe, ikke en fil.",
+    "drop_error_title": "Fejl", "drop_error_message": "Brug venligst knappen 'Vælg mappe og scan'.",
     "timeline_no_data": "Der blev ikke fundet tidsstempeldata for denne fil.", "choose_folder_title": "Vælg mappe til analyse",
     "visual_diff": "Visuel sammenligning af revision", "diff_error_title": "Fejl ved sammenligning", "diff_error_msg": "Kunne ikke sammenligne filerne. En af filerne er muligvis korrupt eller tom.\n\nFejl: {e}",
     "diff_popup_title": "Visuel Sammenligning", "diff_original_label": "Seneste version", "diff_revision_label": "Tidligere version", "diff_differences_label": "Forskelle (markeret med rød)",
@@ -82,7 +82,7 @@
     "update_parse_error_msg": "Kunne ikke læse versionsinformationen fra serveren."
   },
   "en": {
-    "choose_folder": "📁 Choose folder and scan", "show_timeline": "Show Timeline", "status_initial": "Drag a folder here, open a case, or use the button to start an analysis.",
+    "choose_folder": "📁 Choose folder and scan", "show_timeline": "Show Timeline", "status_initial": "Click the 'Choose folder and scan' button to start an analysis.",
     "status_initial_reader": "Use File -> Open Case... to view a saved analysis.",
     "obj_gen_gt_zero": "Object with generation > 0",
     "col_id": "#", "col_name": "Name", "col_changed": "Changed", "col_path": "Path", "col_md5": "MD5",

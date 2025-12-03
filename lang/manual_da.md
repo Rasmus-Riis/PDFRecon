@@ -80,4 +80,66 @@ Nedenfor er en detaljeret forklaring af hver indikator, som PDFRecon leder efter
 
 <b>Dato-inkonsistens (Info vs. XMP)</b>
 *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: Oprettelses- og ændringsdatoer i PDF’ens Info-felt stemmer ikke overens med datoerne i XMP-metadata (f.eks. Creation Date Mismatch: Info='20230101...', XMP='2023-01-02...'). Sådanne uoverensstemmelser kan pege på skjulte eller uautoriserede ændringer.
+• Hvad det betyder: Oprettelses- og ændringsdatoer i PDF'ens Info-felt stemmer ikke overens med datoerne i XMP-metadata (f.eks. Creation Date Mismatch: Info='20230101...', XMP='2023-01-02...'). Sådanne uoverensstemmelser kan pege på skjulte eller uautoriserede ændringer.
+
+### Avancerede Detektionsmetoder (Nye)
+
+<b>Metadata Version Mismatch</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Metadata påstår, at PDF'en blev oprettet med gammelt software (f.eks. Acrobat 4 eller PDF 1.3), men filen bruger moderne PDF-funktioner (PDF 1.7+). Denne uoverensstemmelse antyder, at metadata kan være manipuleret, eller at filen er blevet redigeret med andet software end påstået.
+
+<b>Suspicious Text Positioning</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: PDF'en indeholder et usædvanligt højt antal tekstpositioneringskommandoer (Tm/Td operatører) i sekvens. Dette mønster opstår ofte, når tekst overlægges på eksisterende indhold for at skjule eller erstatte original tekst.
+
+<b>White Rectangle Overlay</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Flere hvide rektangler er blevet tegnet i dokumentet. Dette er en almindelig teknik til at skjule indhold ved at tegne hvide former over tekst eller billeder for at gøre dem usynlige, selvom de stadig er til stede i filen.
+
+<b>Excessive Drawing Operations</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: En side indeholder et unormalt højt antal tegnekommandoer (>50). Dette kan indikere komplekse redigeringsoperationer eller forsøg på at skjule indhold gennem lagdeling.
+
+<b>Orphaned Objects</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: PDF'en indeholder objekter, der er defineret, men aldrig refereret. Et lille antal er normalt, men mange forældreløse objekter antyder redigering, hvor indhold blev fjernet, men ikke helt opryddet.
+
+<b>Missing Objects</b>
+*<i>Ændret:</i>* <red>JA</red>
+• Hvad det betyder: PDF'en refererer til objekter, der ikke er defineret i filen. Dette er en alvorlig strukturel anomali, der typisk indikerer korruption eller ukorrekt redigering.
+
+<b>Large Object Number Gaps</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Der er betydelige huller i objektnummersekvensen (>30% mangler). Dette antyder omfattende redigering, hvor objekter blev slettet eller erstattet.
+
+<b>Contains JavaScript</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: PDF'en indeholder JavaScript-kode. Selvom det er legitimt i nogle tilfælde, kan JavaScript bruges til at skjule ændringer eller dynamisk modificere indhold, når dokumentet åbnes.
+
+<b>JavaScript Auto-Execute / Additional Actions</b>
+*<i>Ændret:</i>* <red>JA</red>
+• Hvad det betyder: PDF'en er konfigureret til automatisk at udføre JavaScript ved åbning (OpenAction) eller har yderligere handlinger (AA) tilknyttet. Dette er meget mistænkeligt og kan indikere forsøg på at modificere eller skjule indhold dynamisk.
+
+<b>Duplicate Images With Different Xrefs</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Det samme billede (identificeret ved hash) forekommer flere gange med forskellige objektreferencer. Dette kan indikere, at billedet blev tilføjet, fjernet og genindsat under redigering.
+
+<b>Images With EXIF</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Indlejrede billeder indeholder EXIF-metadata. Disse metadata kan afsløre, hvornår og med hvilken enhed billedet blev oprettet, hvilket muligvis ikke matcher PDF'ens påståede oprettelsesdato.
+
+<b>CropBox/MediaBox Mismatch</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Det synlige område (CropBox) er betydeligt mindre end den fulde sidestørrelse (MediaBox). Dette antyder, at indhold kan være skjult uden for det synlige område.
+
+<b>Excessive Form Fields</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Dokumentet indeholder et usædvanligt højt antal formularfelter (>50). Dette kunne indikere en kompleks formular eller potentiel manipulation af feltværdier.
+
+<b>Duplicate Bookmarks</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Flere bogmærker har identiske titler. Dette kan indikere, at dokumentstrukturen blev ændret, eller at bogmærker blev kopieret forkert under redigering.
+
+<b>Invalid Bookmark Destinations</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Bogmærker peger på sider, der ikke eksisterer i dokumentet. Dette opstår typisk, når sider slettes efter bogmærker blev oprettet, hvilket indikerer strukturelle ændringer.

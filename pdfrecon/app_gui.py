@@ -1,5 +1,7 @@
+import customtkinter as ctk
+from tkinter import filedialog, messagebox, Menu
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, Toplevel
+from tkinter import ttk, Toplevel
 import hashlib
 import os
 import re
@@ -27,42 +29,42 @@ import csv
 import json
 import time
 
+# --- Helper function for safe dependency imports ---
+def _import_with_fallback(module_name, import_name, install_cmd):
+    """Safely import optional dependencies with user-friendly error messages."""
+    try:
+        return __import__(module_name, fromlist=[import_name])
+    except ImportError:
+        error_msg = f"The {import_name} library is not installed.\n\nPlease run 'pip install {install_cmd}' in your terminal to use this program."
+        messagebox.showerror("Missing Library", error_msg)
+        sys.exit(1)
+
 # --- Optional library imports with error handling ---
-try:
-    from PIL import Image, ImageTk, ImageChops, ImageOps
-except ImportError:
-    messagebox.showerror("Missing Library", "The Pillow library is not installed.\n\nPlease run 'pip install Pillow' in your terminal to use this program.")
-    sys.exit(1)
+PIL = _import_with_fallback('PIL', 'Image', 'Pillow')
+from PIL import Image, ImageTk, ImageChops, ImageOps
 
-try:
-    import fitz  # PyMuPDF
-except ImportError:
-    messagebox.showerror("Missing Library", "PyMuPDF is not installed.\n\nPlease run 'pip install PyMuPDF' in your terminal to use this program.")
-    sys.exit(1)
+fitz = _import_with_fallback('fitz', 'fitz', 'PyMuPDF')
 
-try:
-    from tkinterdnd2 import DND_FILES, TkinterDnD
-except ImportError:
-    messagebox.showerror("Missing Library", "tkinterdnd2 is not installed.\n\nPlease run 'pip install tkinterdnd2' in your terminal to use this program.")
-    sys.exit(1)
+TkinterDnD = _import_with_fallback('tkinterdnd2', 'TkinterDnD', 'tkinterdnd2')
+from tkinterdnd2 import DND_FILES, TkinterDnD
 
-try:
-    from openpyxl import Workbook
-    from openpyxl.styles import Font, Alignment, PatternFill
-except ImportError:
-    messagebox.showerror("Missing Library", "The openpyxl library is not installed.\n\nPlease run 'pip install openpyxl' in your terminal to use this program.")
-    sys.exit(1)
+openpyxl = _import_with_fallback('openpyxl', 'Workbook', 'openpyxl')
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment, PatternFill
 
-try:
-    import requests
-except ImportError:
-    messagebox.showerror("Missing Library", "The requests library is not installed.\n\nPlease run 'pip install requests' in your terminal to use the update checker.")
-    sys.exit(1)
-    
+requests = _import_with_fallback('requests', 'requests', 'requests')
+
+# --- Import configuration and version ---
+from .config import PDFReconConfig, PDFProcessingError, PDFCorruptionError, \
+    PDFTooLargeError, PDFEncryptedError, APP_VERSION, UI_COLORS, UI_FONTS, UI_DIMENSIONS
+
 # --- OCG (layers) detection helpers ---
 _LAYER_OCGS_BLOCK_RE = re.compile(rb"/OCGs\s*\[(.*?)\]", re.S)
 _OBJ_REF_RE          = re.compile(rb"(\d+)\s+(\d+)\s+R")
 _LAYER_OC_REF_RE     = re.compile(rb"/OC\s+(\d+)\s+(\d+)\s+R")
+_PDF_DATE_PATTERN    = re.compile(r"\/([A-Z][a-zA-Z0-9_]+)\s*\(\s*D:(\d{14})")
+_KV_PATTERN          = re.compile(r'^\[(?P<group>[^\]]+)\]\s*(?P<tag>[\w\-/ ]+?)\s*:\s*(?P<value>.+)$')
+_DATE_TZ_PATTERN     = re.compile(r"^(?P<date>\d{4}[-:]\d{2}[-:]\d{2}[ T]\d{2}:\d{2}:\d{2})(?:\.\d+)?(?P<tz>[+\-]\d{2}:\d{2}|Z)?")
 
 def count_layers(pdf_bytes: bytes) -> int:
     """
@@ -144,25 +146,60 @@ def safe_stat_times(path: Path):
 class PDFReconApp:
 
     def __init__(self, root):
-        # --- Application Configuration ---
-
-        self.app_version = "16.11.0"
-
+        """Initialize the PDFRecon application."""
+        # Set customtkinter appearance and theme before any widget creation
+        ctk.set_appearance_mode("Dark")
+        ctk.set_default_color_theme("blue")
+        
+        self.app_version = APP_VERSION
+        self.root = root
+        
+        # --- Application Mode Detection ---
+        self.is_reader_mode = "reader" in Path(sys.executable).stem.lower()
+        
+        # --- Configuration Setup ---
         self.config_path = self._resolve_path("config.ini", base_is_parent=True)
         self._load_or_create_config()
         
-        # --- Root Window Setup ---
-        self.root = root
+        # --- Window Configuration ---
+        self._setup_window()
         
-        self.is_reader_mode = "reader" in Path(sys.executable).stem.lower()
+        # --- Application Data Initialization ---
+        self._initialize_data()
+        
+        # --- State Variables Initialization ---
+        self._initialize_state()
+        
+        # --- Language and Regex Setup ---
+        self.language = tk.StringVar(value=self.default_language)
+        self.filter_var = tk.StringVar()
+        self.search_var = tk.StringVar()  # For sidebar search
+        self.software_tokens = self._compile_software_regex()
+        
+        # --- GUI Setup ---
+        self._setup_logging()
+        self.translations = self.get_translations() 
+        self._setup_styles()
+        self._setup_menu()
+        self._setup_main_frame()
+        self._setup_drag_and_drop()
+        
+        logging.info(f"PDFRecon v{self.app_version} started in {'Reader' if self.is_reader_mode else 'Full'} mode.")
+
+        # --- Auto-load case in Reader mode ---
+        if self.is_reader_mode:
+            self.root.after(100, self._autoload_case_in_reader)
+
+    def _setup_window(self):
+        """Configure the main window."""
         title = f"PDFRecon Reader v{self.app_version}" if self.is_reader_mode else f"PDFRecon v{self.app_version}"
         self.base_title = title
         self.root.title(title)
-        self.root.geometry("1200x700")
+        self.root.geometry("1600x900")  # Match OfficeRecon's window size
         self.inspector_window = None
         self.inspector_doc = None
         self.inspector_pdf_update_job = None
-
+        
         # --- Set Application Icon ---
         try:
             icon_path = self._resolve_path('icon.ico')
@@ -175,7 +212,8 @@ class PDFReconApp:
         except Exception as e:
             logging.error(f"Unexpected error when loading icon: {e}")
 
-        # --- Application Data ---
+    def _initialize_data(self):
+        """Initialize application data structures."""
         self.report_data = [] 
         self.all_scan_data = {}
         self.last_scan_folder = None 
@@ -189,7 +227,8 @@ class PDFReconApp:
         self.path_to_id = {}
         self.scan_start_time = 0
 
-        # --- State Variables ---
+    def _initialize_state(self):
+        """Initialize state variables."""
         self.revision_counter = 0
         self.scan_queue = queue.Queue()
         self.copy_executor = None
@@ -198,33 +237,154 @@ class PDFReconApp:
         self.tree_sort_reverse = False
         self.exif_popup = None
         self.indicator_popup = None
+        # Progress bar tracking for customtkinter
+        self._progress_max = 1
+        self._progress_current = 0
 
-        # --- Language and Filter Setup ---
-        self.language = tk.StringVar(value=self.default_language)
-        self.filter_var = tk.StringVar()
-        
-        # --- Compile regex for software detection once ---
-        self.software_tokens = re.compile(
+    @staticmethod
+    def _compile_software_regex():
+        """Compile regex for software detection."""
+        return re.compile(
             r"(adobe|acrobat|billy|businesscentral|cairo|canva|chrome|chromium|clibpdf|dinero|dynamics|economic|edge|eboks|excel|firefox|"
             r"formpipe|foxit|fpdf|framemaker|ghostscript|illustrator|indesign|ilovepdf|itext|"
             r"kmd|lasernet|latex|libreoffice|microsoft|navision|netcompany|nitro|office|openoffice|pdflatex|pdf24|photoshop|powerpoint|prince|"
             r"quartz|reportlab|safari|skia|tcpdf|tex|visma|word|wkhtml|wkhtmltopdf|xetex)",
             re.IGNORECASE
         )
-        
-        # --- GUI Setup ---
-        self._setup_logging()
-        self.translations = self.get_translations() 
-        self._setup_styles()
-        self._setup_menu()
-        self._setup_main_frame()
-        self._setup_drag_and_drop()
-        
-        logging.info(f"PDFRecon v{self.app_version} started in {'Reader' if self.is_reader_mode else 'Full'} mode.")
 
-        # --- NY LOGIK: Auto-load case in Reader mode ---
-        if self.is_reader_mode:
-            self.root.after(100, self._autoload_case_in_reader)
+    def _center_window(self, window, width_scale=0.5, height_scale=0.5):
+        """Center a window on the screen with optional width/height scaling."""
+        sw = self.root.winfo_screenwidth()
+        sh = self.root.winfo_screenheight()
+        w = int(sw * width_scale)
+        h = int(sh * height_scale)
+        x = (sw - w) // 2
+        y = (sh - h) // 2
+        window.geometry(f"{w}x{h}+{x}+{y}")
+        return w, h
+
+    def _show_message(self, msg_type, title, message, parent=None):
+        """Helper method to display message dialogs."""
+        if parent is None:
+            parent = self.root
+        message_funcs = {
+            "error": messagebox.showerror,
+            "warning": messagebox.showwarning,
+            "info": messagebox.showinfo
+        }
+        msg_func = message_funcs.get(msg_type, messagebox.showinfo)
+        return msg_func(title, message, parent=parent)
+
+    def _safe_read_file(self, filepath):
+        """Safely read a file with proper error handling."""
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                return f.read()
+        except FileNotFoundError:
+            logging.error(f"File not found: {filepath}")
+            return None
+        except Exception as e:
+            logging.error(f"Error reading {filepath}: {e}")
+            return None
+
+    def _safe_write_file(self, filepath, content):
+        """Safely write to a file with proper error handling."""
+        try:
+            filepath.parent.mkdir(parents=True, exist_ok=True)
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(content)
+            logging.info(f"File written successfully: {filepath}")
+            return True
+        except Exception as e:
+            logging.error(f"Error writing to {filepath}: {e}")
+            return False
+
+    def _handle_file_processing_error(self, filepath, error_type, error):
+        """Centralized error handler for file processing errors."""
+        error_log = f"Error processing {filepath.name}: {error}"
+        logging.warning(error_log)
+        return {
+            "path": filepath,
+            "status": "error",
+            "error_type": error_type,
+            "error_message": str(error)
+        }
+
+    def _update_menu_state(self, menu_item_index, state="normal"):
+        """Helper to update menu item states safely."""
+        try:
+            if hasattr(self, 'file_menu'):
+                self.file_menu.entryconfig(menu_item_index, state=state)
+        except Exception as e:
+            logging.debug(f"Could not update menu state: {e}")
+
+    def _safe_pdf_open(self, filepath, raw_bytes=None, timeout_seconds=10):
+        """Safely open a PDF with timeout protection."""
+        try:
+            if raw_bytes:
+                doc = fitz.open(stream=raw_bytes, filetype="pdf")
+            else:
+                doc = fitz.open(filepath)
+            return doc
+        except Exception as e:
+            logging.error(f"Error opening PDF {filepath}: {e}")
+            raise PDFCorruptionError(f"Could not open PDF: {str(e)}")
+
+    def _safe_extract_text(self, raw_bytes=None, doc=None, max_size_mb=50, timeout_seconds=15):
+        """Safely extract text from PDF with size limits and timeout to prevent hangs."""
+        try:
+            # Skip if file is suspiciously large
+            if raw_bytes and len(raw_bytes) > max_size_mb * 1024 * 1024:
+                logging.warning(f"PDF too large for text extraction: {len(raw_bytes) / (1024*1024):.1f}MB")
+                return ""
+            
+            # Check for suspicious patterns in PDF that might cause hangs
+            if raw_bytes and (b"/ObjStm" in raw_bytes or raw_bytes.count(b"stream") > 100):
+                logging.warning(f"PDF contains suspicious patterns (streams or object streams), skipping full extraction")
+                return ""
+            
+            # If no doc provided, open it from raw_bytes
+            should_close_doc = False
+            if doc is None:
+                if not raw_bytes:
+                    return ""
+                doc = fitz.open(stream=raw_bytes, filetype="pdf")
+                should_close_doc = True
+            
+            start_time = time.time()
+            txt = ""
+            page_count = len(doc)
+            
+            # Limit extraction to first 1000 pages or first 50MB of text
+            for page_num in range(min(1000, page_count)):
+                # Check timeout every 10 pages
+                if page_num % 10 == 0 and time.time() - start_time > timeout_seconds:
+                    logging.warning(f"Text extraction timeout after {time.time() - start_time:.1f}s, stopping at page {page_num}/{page_count}")
+                    break
+                    
+                try:
+                    page = doc[page_num]
+                    page_text = page.get_text()
+                    txt += page_text
+                except Exception as page_error:
+                    logging.warning(f"Error extracting page {page_num}: {page_error}")
+                    continue
+                    
+                if len(txt) > 50 * 1024 * 1024:  # 50MB of text
+                    logging.warning(f"Text extraction exceeded 50MB limit, stopping at page {page_num}/{page_count}")
+                    break
+            
+            if should_close_doc and doc:
+                doc.close()
+                
+            logging.info(f"Successfully extracted {len(txt)} characters from {page_count} pages")
+            return txt
+        except Exception as e:
+            logging.warning(f"Could not extract text from PDF: {e}")
+            return ""
+
+
+
             
     def _(self, key):
         """Returns the translated text for a given key."""
@@ -233,11 +393,13 @@ class PDFReconApp:
 
     def get_translations(self):
         """Loads all translations for the application from external files."""
-        # Define paths to the language files relative to the script
-        base_path = Path(__file__).parent
+        # Point to project root where lang/ folder is located
+        base_path = Path(__file__).parent.parent
         json_path = base_path / "lang" / "translations.json"
-        manual_da_path = base_path / "lang" / "manual_da.md"
-        manual_en_path = base_path / "lang" / "manual_en.md"
+        manual_paths = {
+            "da": base_path / "lang" / "manual_da.md",
+            "en": base_path / "lang" / "manual_en.md"
+        }
 
         translations = {}
 
@@ -247,33 +409,42 @@ class PDFReconApp:
                 translations = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError) as e:
             logging.error(f"Could not load or parse translations.json: {e}")
-            # Create a fallback structure to prevent crashes
             translations = {"da": {}, "en": {}}
 
-        # Load the Danish manual and inject it into the translations dictionary
-        try:
-            with open(manual_da_path, 'r', encoding='utf-8') as f:
-                translations.get("da", {})["full_manual"] = f.read()
-        except FileNotFoundError:
-            logging.error(f"Danish manual not found at {manual_da_path}")
-            translations.get("da", {})["full_manual"] = "Manual not found."
-
-        # Load the English manual and inject it into the translations dictionary
-        try:
-            with open(manual_en_path, 'r', encoding='utf-8') as f:
-                translations.get("en", {})["full_manual"] = f.read()
-        except FileNotFoundError:
-            logging.error(f"English manual not found at {manual_en_path}")
-            translations.get("en", {})["full_manual"] = "Manual not found."
+        # Load manuals for each language
+        for lang, manual_path in manual_paths.items():
+            try:
+                with open(manual_path, 'r', encoding='utf-8') as f:
+                    if lang not in translations:
+                        translations[lang] = {}
+                    translations[lang]["full_manual"] = f.read()
+            except FileNotFoundError:
+                logging.error(f"{lang.upper()} manual not found at {manual_path}")
+                if lang not in translations:
+                    translations[lang] = {}
+                translations[lang]["full_manual"] = "Manual not found."
             
         # Ensure 'about_version' is dynamically inserted
         version_string = f"PDFRecon v{self.app_version}"
-        if "da" in translations:
-            translations["da"]["about_version"] = version_string
-        if "en" in translations:
-            translations["en"]["about_version"] = version_string
+        for lang in translations:
+            translations[lang]["about_version"] = version_string
 
         return translations
+  
+    def _save_config(self):
+        """Helper method to save configuration to config.ini."""
+        try:
+            parser = configparser.ConfigParser()
+            parser.read(self.config_path)
+            if 'Settings' not in parser:
+                parser['Settings'] = {}
+            parser['Settings']['Language'] = self.language.get()
+            with open(self.config_path, 'w') as configfile:
+                configfile.write("# PDFRecon Configuration File\n")
+                parser.write(configfile)
+            logging.info(f"Language setting saved to {self.config_path}")
+        except Exception as e:
+            logging.error(f"Could not save language setting to config.ini: {e}")
   
     def _load_or_create_config(self):
         """Loads configuration from config.ini or creates the file with default values."""
@@ -366,14 +537,14 @@ class PDFReconApp:
             pass
 
         # Highlight on selection
-        self.style.map('Treeview', background=[('selected', '#0078D7')])
+        self.style.map('Treeview', background=[('selected', UI_COLORS['selection_blue'])])
 
         # Define colors for Treeview rows
-        self.style.configure("red_row", background="#FFD6D6")
-        self.style.configure("yellow_row", background="#FFF4CC")
+        self.style.configure("red_row", background=UI_COLORS['red_row'])
+        self.style.configure("yellow_row", background=UI_COLORS['yellow_row'])
 
         # Define a custom style for the progress bar to ensure it's blue
-        self.style.configure("blue.Horizontal.TProgressbar", background='#0078D7')
+        self.style.configure("blue.Horizontal.TProgressbar", background=UI_COLORS['progress_blue'])
 
         # Map statuses to row styles
         self.tree_tags = {
@@ -417,18 +588,19 @@ class PDFReconApp:
         self.file_menu.add_command(label=self._("menu_open_case"), command=self._open_case)
         self.file_menu.add_command(label=self._("menu_verify_integrity"), command=self._verify_integrity, state="disabled")
         
-        # Add save/export options only if not in reader mode
-        if self.is_reader_mode:
-            self.file_menu.add_command(label=self._("menu_save_case_simple"), command=self._save_current_case, state="disabled")
-        elif not self.is_reader_mode:
-            self.file_menu.add_command(label=self._("menu_save_case"), command=self._save_case, state="disabled")
-            
-            # The 'Export Reader' menu item is only created if the application is a frozen executable.
-            if getattr(sys, 'frozen', False):
-                self.file_menu.add_command(label=self._("menu_export_reader"), command=self._export_reader, state="disabled")
-            
+        # Add save/export options based on mode
+        save_cmd = self._save_current_case if self.is_reader_mode else self._save_case
+        save_label = "menu_save_case_simple" if self.is_reader_mode else "menu_save_case"
+        self.file_menu.add_command(label=self._(save_label), command=save_cmd, state="disabled")
+        
+        # The 'Export Reader' menu item is only created if the application is a frozen executable and not in reader mode
+        if not self.is_reader_mode and getattr(sys, 'frozen', False):
+            self.file_menu.add_command(label=self._("menu_export_reader"), command=self._export_reader, state="disabled")
+        
+        if not self.is_reader_mode:
             self.file_menu.add_separator()
             self.file_menu.add_command(label=self._("menu_settings"), command=self.open_settings_popup)
+
         
         self.file_menu.add_separator()
         self.file_menu.add_command(label=self._("menu_exit"), command=self.root.quit)
@@ -528,10 +700,9 @@ class PDFReconApp:
             self.menubar.destroy()
         self._setup_menu()
 
-        # --- Update Other GUI Elements ---
-        self.scan_button.config(text=self._("choose_folder"))
-        self.export_menubutton.config(text=self._("export_report"))
-        self.filter_label.config(text=self._("filter_label"))
+        # --- Update Other GUI Elements (customtkinter buttons) ---
+        scan_button_text = self._("choose_folder") if not self.is_reader_mode else "LOAD CASE"
+        self.scan_button.configure(text=scan_button_text)
         
         # --- Update Treeview Column Headers ---
         for i, key in enumerate(self.columns_keys):
@@ -548,12 +719,10 @@ class PDFReconApp:
                 self.tree.focus(new_item_to_select)
                 self.on_select_item(None)
         else:
-            self.detail_text.config(state="normal")
-            self.detail_text.delete("1.0", tk.END)
-            self.detail_text.config(state="disabled")
+            self.detail_text.delete("1.0", "end")
 
         # --- Update Status Bar ---
-        is_scan_finished = self.scan_button['state'] == 'normal'
+        is_scan_finished = self.scan_button.cget('state') == 'normal'
         if is_scan_finished and self.all_scan_data:
             self._update_summary_status()
         elif not self.all_scan_data:
@@ -573,73 +742,166 @@ class PDFReconApp:
                     self.file_menu.entryconfig(3, state="normal") # Export Reader...
 
         # --- Save the selected language to the config file ---
-        try:
-            parser = configparser.ConfigParser()
-            parser.read(self.config_path)
-            if 'Settings' not in parser:
-                parser['Settings'] = {}
-            parser['Settings']['Language'] = self.language.get()
-            with open(self.config_path, 'w') as configfile:
-                configfile.write("# PDFRecon Configuration File\n")
-                parser.write(configfile)
-            logging.info(f"Language setting saved to {self.config_path}")
-        except Exception as e:
-            logging.error(f"Could not save language setting to config.ini: {e}")
+        self._save_config()
+
             
     def _setup_main_frame(self):
         """Sets up the main user interface components within the root window."""
-        # --- Main Container Frame ---
-        frame = ttk.Frame(self.root, padding=10)
-        frame.pack(fill="both", expand=True)
-
-        # --- Top Controls Frame (Scan Button, Filter) ---
-        top_controls_frame = ttk.Frame(frame)
-        top_controls_frame.pack(pady=5, fill="x")
-
-        self.scan_button = ttk.Button(top_controls_frame, text=self._("choose_folder"), width=25, command=self.choose_folder)
-        self.scan_button.pack(side="left", padx=(0, 10))
-        if self.is_reader_mode:
-            self.scan_button.config(state="disabled")
-
-        self.filter_label = ttk.Label(top_controls_frame, text=self._("filter_label"))
-        self.filter_label.pack(side="left", padx=(5, 2))
+        # Set up grid layout - sidebar column (0) and main content column (1)
+        self.root.grid_columnconfigure(1, weight=1)
+        self.root.grid_rowconfigure(0, weight=1)
         
-        filter_entry = ttk.Entry(top_controls_frame, textvariable=self.filter_var)
-        filter_entry.pack(side="left", fill="x", expand=True)
+        # --- Create Sidebar ---
+        self._init_sidebar()
+        
+        # --- Create Main Content Area ---
+        self._init_table_area()
+        
+        # --- Create Status Bar ---
+        self._init_statusbar()
+
+    def _init_sidebar(self):
+        """Create the left sidebar with logo, actions, and settings."""
+        sb = ctk.CTkFrame(self.root, width=220, corner_radius=0, fg_color=UI_COLORS['sidebar_bg'])
+        sb.grid(row=0, column=0, sticky="nsew")
+        sb.grid_rowconfigure(9, weight=1)
+        
+        # Logo section
+        logo = ctk.CTkFrame(sb, fg_color="transparent")
+        logo.grid(row=0, column=0, padx=20, pady=20, sticky="nw")
+        ctk.CTkLabel(logo, text="PDF", font=ctk.CTkFont(size=24, weight="bold"), 
+                    text_color=UI_COLORS['accent_blue']).pack(side="left")
+        ctk.CTkLabel(logo, text="Recon", font=ctk.CTkFont(size=24, weight="bold"), 
+                    text_color="white").pack(side="left")
+        
+        # Actions section
+        ctk.CTkLabel(sb, text="ACTIONS", text_color="#777", 
+                    font=ctk.CTkFont(size=11, weight="bold")).grid(row=1, column=0, padx=20, pady=5, sticky="w")
+        
+        # Main scan button
+        scan_button_text = self._("choose_folder") if not self.is_reader_mode else "LOAD CASE"
+        self.scan_button = ctk.CTkButton(sb, text=scan_button_text, command=self.choose_folder if not self.is_reader_mode else self._open_case,
+                                        font=ctk.CTkFont(weight="bold"), 
+                                        fg_color=UI_COLORS['accent_blue'], 
+                                        hover_color=UI_COLORS['accent_blue_hover'])
+        self.scan_button.grid(row=2, column=0, padx=20, pady=10, sticky="ew")
+        
+        if self.is_reader_mode:
+            self.scan_button.configure(state="disabled")
+        
+        # Export button
+        export_button = ctk.CTkButton(sb, text="EXPORT REPORT", command=self._show_export_menu,
+                                     font=ctk.CTkFont(weight="bold"), 
+                                     fg_color=UI_COLORS['accent_green'], 
+                                     hover_color=UI_COLORS['accent_green_hover'])
+        export_button.grid(row=3, column=0, padx=20, pady=20, sticky="ew")
+        
+        # Tools section
+        ctk.CTkLabel(sb, text="TOOLS", text_color="#777", 
+                    font=ctk.CTkFont(size=11, weight="bold")).grid(row=4, column=0, padx=20, pady=(20,5), sticky="w")
+        
+        # Verify integrity button (disabled until scan)
+        self.verify_button = ctk.CTkButton(sb, text="VERIFY INTEGRITY", 
+                                          command=self._verify_integrity,
+                                          fg_color="#333", hover_color="#444")
+        self.verify_button.grid(row=5, column=0, padx=20, pady=5, sticky="ew")
+        
+        # View log button
+        ctk.CTkButton(sb, text="VIEW LOG", command=self.show_log_file,
+                     fg_color="#333", hover_color="#444").grid(row=6, column=0, padx=20, pady=5, sticky="ew")
+        
+        # Manual button
+        ctk.CTkButton(sb, text="Forensic Manual", command=self.show_manual,
+                     fg_color="transparent", text_color="gray").grid(row=10, column=0, padx=20, pady=20, sticky="ew")
+
+    def _show_export_menu(self):
+        """Show export menu options."""
+        # Create a simple popup menu for export options
+        menu = Menu(self.root, tearoff=0)
+        menu.add_command(label="Excel (.xlsx)", command=lambda: self._prompt_and_export("xlsx"))
+        menu.add_command(label="CSV (.csv)", command=lambda: self._prompt_and_export("csv"))
+        menu.add_command(label="JSON (.json)", command=lambda: self._prompt_and_export("json"))
+        menu.add_command(label="HTML (.html)", command=lambda: self._prompt_and_export("html"))
+        
+        # Show menu at the button location
+        try:
+            menu.tk_popup(self.root.winfo_pointerx(), self.root.winfo_pointery())
+        finally:
+            menu.grab_release()
+
+    def _init_table_area(self):
+        """Create the main table/content area."""
+        container = ctk.CTkFrame(self.root, fg_color="transparent")
+        container.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
+        container.grid_rowconfigure(1, weight=3)
+        container.grid_rowconfigure(3, weight=1)
+        container.grid_columnconfigure(0, weight=1)
+        
+        # Search/Filter frame
+        search_frame = ctk.CTkFrame(container, fg_color="transparent")
+        search_frame.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        ctk.CTkLabel(search_frame, text="FILTER:", 
+                    font=ctk.CTkFont(size=12, weight="bold"), 
+                    text_color="gray").pack(side="left", padx=(0, 10))
+        
+        self.entry_search = ctk.CTkEntry(search_frame, textvariable=self.filter_var,
+                                        placeholder_text="Type to search filenames, paths, alterations...",
+                                        height=35)
+        self.entry_search.pack(side="left", fill="x", expand=True)
         self.filter_var.trace_add("write", self._apply_filter)
-
-        # --- Status Bar ---
-        initial_status = self._("status_initial_reader") if self.is_reader_mode else self._("status_initial")
-        self.status_var = tk.StringVar(value=initial_status)
-        status_label = ttk.Label(frame, textvariable=self.status_var, foreground="darkgreen", anchor="w")
-        status_label.pack(pady=(5, 10), fill="x", expand=True)
-
-        # --- Treeview (Main Results Table) ---
-        tree_frame = ttk.Frame(frame)
-        tree_frame.pack(fill="both", expand=True)
-
+        
+        # Treeview (Main Results Table) - using ttk.Treeview with custom styling
+        tree_frame = ctk.CTkFrame(container, fg_color=UI_COLORS['main_bg'])
+        tree_frame.grid(row=1, column=0, sticky="nsew")
+        
         self.columns = ["ID", "Name", "Altered", "Revisions", "Path", "MD5", "File Created", "File Modified", "EXIFTool", "Signs of Alteration", "Note"]
         self.columns_keys = ["col_id", "col_name", "col_changed", "col_revisions", "col_path", "col_md5", "col_created", "col_modified", "col_exif", "col_indicators", "col_note"]
-        self.tree = ttk.Treeview(tree_frame, columns=self.columns, show="headings", selectmode="browse")
         
-        # Configure row colors
-        self.tree.tag_configure("red_row", background='#FFDDDD')
-        self.tree.tag_configure("yellow_row", background='#FFFFCC')
-        self.tree.tag_configure("blue_row", background='#CCE5FF')
-        self.tree.tag_configure("gray_row", background='#E0E0E0')
+        # Style for dark theme treeview
+        style = ttk.Style()
+        style.theme_use("default")
+        style.configure("Dark.Treeview",
+                       background=UI_COLORS['main_bg'],
+                       foreground="white",
+                       fieldbackground=UI_COLORS['main_bg'],
+                       borderwidth=0,
+                       rowheight=25)
+        style.configure("Dark.Treeview.Heading",
+                       background="#2b2b2b",
+                       foreground="white",
+                       borderwidth=1,
+                       relief="raised",
+                       font=("Segoe UI", 10, "bold"),
+                       padding=(5, 10))  # Add padding: (horizontal, vertical)
+        style.map('Dark.Treeview.Heading',
+                 background=[('active', '#3a3a3a')])
+        style.map('Dark.Treeview', background=[('selected', UI_COLORS['selection_blue'])])
         
-        # Set up treeview columns and headings
+        self.tree = ttk.Treeview(tree_frame, columns=self.columns, show="headings", 
+                                selectmode="browse", style="Dark.Treeview")
+        
+        # Configure row colors for dark theme
+        self.tree.tag_configure("red_row", background=UI_COLORS['red_row'], foreground=UI_COLORS['red_fg'])
+        self.tree.tag_configure("yellow_row", background=UI_COLORS['yellow_row'], foreground=UI_COLORS['yellow_fg'])
+        self.tree.tag_configure("blue_row", background=UI_COLORS['blue_row'], foreground=UI_COLORS['blue_fg'])
+        self.tree.tag_configure("gray_row", background=UI_COLORS['gray_row'], foreground="white")
+        
+        # Set up treeview columns
+        col_widths = {
+            "ID": UI_DIMENSIONS['col_id_width'],
+            "Name": UI_DIMENSIONS['col_name_width'],
+            "Altered": UI_DIMENSIONS['col_altered_width'],
+            "Revisions": UI_DIMENSIONS['col_revisions_width'],
+            "Note": UI_DIMENSIONS['col_note_width'],
+        }
+        
         for i, key in enumerate(self.columns_keys):
-            self.tree.heading(self.columns[i], text=self._(key), command=lambda c=self.columns[i]: self._sort_column(c, False))
-            self.tree.column(self.columns[i], anchor="w", width=120)
+            self.tree.heading(self.columns[i], text=self._(key), 
+                            command=lambda c=self.columns[i]: self._sort_column(c, False))
+            width = col_widths.get(self.columns[i], 120)
+            anchor = "center" if self.columns[i] in ["ID", "Revisions"] else "w"
+            self.tree.column(self.columns[i], anchor=anchor, width=width)
         
-        self.tree.column("ID", width=40, anchor="center")
-        self.tree.column("Name", width=150)
-        self.tree.column("Altered", width=100, anchor="w")
-        self.tree.column("Revisions", width=80, anchor="center")
-        self.tree.column("Note", width=50, anchor="center")
-
-        # Add a scrollbar to the treeview
         tree_scrollbar = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=tree_scrollbar.set)
         
@@ -651,44 +913,49 @@ class PDFReconApp:
         self.tree.bind("<Double-1>", self.show_inspector_popup)
         self.tree.bind("<Motion>", self._on_tree_motion)
         self.tree.bind("<Button-3>", self.show_context_menu)
-
-        # --- Scrollable Details Box ---
-        detail_frame = ttk.Frame(frame)
-        detail_frame.pack(fill="both", expand=False, pady=(10, 5))
-
-        detail_scrollbar = ttk.Scrollbar(detail_frame, orient="vertical")
-        self.detail_text = tk.Text(detail_frame, height=10, wrap="word", font=("Segoe UI", 9),
-                                   yscrollcommand=detail_scrollbar.set)
-        detail_scrollbar.config(command=self.detail_text.yview)
-
-        self.detail_text.pack(side="left", fill="both", expand=True)
-        detail_scrollbar.pack(side="right", fill="y")
-
-        # Configure tags for text formatting in the details box
-        self.detail_text.tag_configure("bold", font=("Segoe UI", 9, "bold"))
-        self.detail_text.tag_configure("link", foreground="blue", underline=True)
-        self.detail_text.tag_bind("link", "<Enter>", lambda e: self.detail_text.config(cursor="hand2"))
-        self.detail_text.tag_bind("link", "<Leave>", lambda e: self.detail_text.config(cursor=""))
-        self.detail_text.tag_bind("link", "<Button-1>", self._open_path_from_detail)
         
-        # --- Bottom Frame (Export Button and Progress Bar) ---
-        bottom_frame = ttk.Frame(frame)
-        bottom_frame.pack(fill="x", pady=(5,0))
-
-        self.export_menubutton = ttk.Menubutton(bottom_frame, text=self._("export_report"), width=25)
-        self.export_menubutton.pack(side="right", padx=5)
-        self.export_menu = tk.Menu(self.export_menubutton, tearoff=0)
-        self.export_menubutton["menu"] = self.export_menu
-        self.export_menu.add_command(label="Excel (.xlsx)", command=lambda: self._prompt_and_export("xlsx"))
-        self.export_menu.add_command(label="CSV (.csv)", command=lambda: self._prompt_and_export("csv"))
-        self.export_menu.add_command(label="JSON (.json)", command=lambda: self._prompt_and_export("json"))
-        self.export_menu.add_command(label="HTML (.html)", command=lambda: self._prompt_and_export("html"))
-        self.export_menubutton.config(state="disabled")
-
-        self.progressbar = ttk.Progressbar(bottom_frame, orient="horizontal", mode="determinate", style="blue.Horizontal.TProgressbar")
-        self.progressbar.pack(side="left", fill="x", expand=True, padx=5)
+        # Details panel (Evidence Viewer)
+        self.details_frame = ctk.CTkFrame(container, fg_color="#232323", corner_radius=5)
+        self.details_frame.grid(row=3, column=0, sticky="nsew", pady=(5, 0))
+        ctk.CTkLabel(self.details_frame, text="EVIDENCE VIEWER (Select a row to inspect)", 
+                    font=("Segoe UI", 11, "bold"), text_color="#777").pack(anchor="w", padx=10, pady=(5,0))
         
-       
+        self.detail_text = ctk.CTkTextbox(self.details_frame, fg_color="#1e1e1e", 
+                                         text_color="#dcdcdc", font=("Consolas", 12))
+        self.detail_text.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        # Configure text tags for the detail viewer
+        self.detail_text._textbox.tag_config("header", foreground=UI_COLORS['accent_blue'], 
+                                            font=("Segoe UI", 12, "bold"))
+        self.detail_text._textbox.tag_config("sep", foreground="#555555")
+        self.detail_text._textbox.tag_config("alert", foreground="#ff5252")
+        self.detail_text._textbox.tag_config("info", foreground="#888888")
+        self.detail_text._textbox.tag_config("link", foreground=UI_COLORS['link_blue'], underline=True)
+        self.detail_text._textbox.tag_bind("link", "<Enter>", lambda e: self.detail_text.configure(cursor="hand2"))
+        self.detail_text._textbox.tag_bind("link", "<Leave>", lambda e: self.detail_text.configure(cursor=""))
+        self.detail_text._textbox.tag_bind("link", "<Button-1>", self._open_path_from_detail)
+
+    def _init_statusbar(self):
+        """Create the bottom status bar."""
+        initial_status = self._("status_initial_reader") if self.is_reader_mode else self._("status_initial")
+        self.status_var = tk.StringVar(value=initial_status)
+        
+        self.statusbar = ctk.CTkLabel(self.root, textvariable=self.status_var, anchor="w", 
+                                     fg_color="#1a1a1a", height=30, padx=20)
+        self.statusbar.grid(row=1, column=0, columnspan=2, sticky="ew")
+        
+        self.progressbar = ctk.CTkProgressBar(self.root, height=10, corner_radius=0, 
+                                             fg_color="#1a1a1a", progress_color=UI_COLORS['progress_blue'])
+        self.progressbar.set(0)
+
+    def _setup_detail_frame(self, parent_frame):
+        """Set up the scrollable details text widget. (Legacy - now part of _init_table_area)"""
+        pass
+
+    def _setup_bottom_frame(self, parent_frame):
+        """Set up the export button and progress bar. (Legacy - now part of sidebar and statusbar)"""
+        pass
+
     def _show_note_popup(self):
         """Opens a popup to add or edit a note for the selected file."""
         selected_items = self.tree.selection()
@@ -696,26 +963,20 @@ class PDFReconApp:
             return
         
         item_id = selected_items[0]
-        # This function gets the unique path for the selected row at the moment you right-click.
-        # It is critical that column index 4 is the 'Path'.
         path_str = self.tree.item(item_id, "values")[4]
         file_name = self.tree.item(item_id, "values")[1]
 
         popup = Toplevel(self.root)
         popup.title(f"{self._('note_popup_title')}: {file_name}")
 
-        sw = self.root.winfo_screenwidth()
-        sh = self.root.winfo_screenheight()
-        w = max(400, int(sw * 0.3))
-        h = max(300, int(sh * 0.4))
-        x, y = (sw - w) // 2, (sh - h) // 2
-        popup.geometry(f"{w}x{h}+{x}+{y}")
+        w, h = self._center_window(popup, width_scale=0.3, height_scale=0.4)
 
         popup.transient(self.root)
         popup.grab_set()
 
         main_frame = ttk.Frame(popup, padding=10)
         main_frame.pack(fill="both", expand=True)
+
         
         note_text = tk.Text(main_frame, wrap="word", height=10)
         note_text.pack(fill="both", expand=True, pady=(0, 10))
@@ -768,8 +1029,10 @@ class PDFReconApp:
         """Enables drag and drop for the main window, unless in reader mode."""
         if self.is_reader_mode:
             return
-        self.root.drop_target_register(DND_FILES)
-        self.root.dnd_bind('<<Drop>>', self.handle_drop)
+        # Note: Drag-and-drop with customtkinter requires TkinterDnD, which isn't 
+        # directly compatible. Users can still use the "Choose Folder" button.
+        # If TkinterDnD support is needed, additional configuration would be required.
+        pass
 
     def _save_current_case(self):
         """Saves annotations back to the currently open .prc file (for Reader mode)."""
@@ -867,10 +1130,8 @@ class PDFReconApp:
             self.inspector_window = Toplevel(self.root)
             self.inspector_window.title("Inspector")
             
-            sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
-            w, h = int(sw * 0.75), int(sh * 0.8)
-            x, y = (sw - w) // 2, (sh - h) // 2
-            self.inspector_window.geometry(f"{w}x{h}+{x}+{y}")
+            self._center_window(self.inspector_window, width_scale=UI_DIMENSIONS['window_scale_width'], 
+                              height_scale=UI_DIMENSIONS['window_scale_height'])
 
             notebook = ttk.Notebook(self.inspector_window)
             notebook.pack(pady=10, padx=10, fill="both", expand=True)
@@ -1083,16 +1344,13 @@ class PDFReconApp:
         popup = Toplevel(self.root)
         popup.title(f"Text Comparison for {file_data['path'].name}")
         
-        sw = self.root.winfo_screenwidth()
-        sh = self.root.winfo_screenheight()
-        w, h = int(sw * 0.7), int(sh * 0.75)
-        x, y = (sw - w) // 2, (sh - h) // 2
-        popup.geometry(f"{w}x{h}+{x}+{y}")
+        self._center_window(popup, width_scale=0.7, height_scale=0.75)
         
         popup.transient(self.root)
 
         frame = ttk.Frame(popup, padding=10)
         frame.pack(fill="both", expand=True)
+
         
         text_widget = tk.Text(frame, wrap="word", font=("Courier New", 10))
         v_scroll = ttk.Scrollbar(frame, orient="vertical", command=text_widget.yview)
@@ -1472,11 +1730,16 @@ class PDFReconApp:
         else:
             # If running as a normal script, the base path is the script's folder.
             base_path = Path(__file__).resolve().parent
+        
+        # If base_is_parent=True, go up one level to project root
+        if base_is_parent:
+            base_path = base_path.parent
+        
         return base_path / filename
 
     def show_license(self):
         """Displays the license information from 'license.txt' in a popup."""
-        license_path = self._resolve_path("license.txt")
+        license_path = self._resolve_path("license.txt", base_is_parent=True)
         try:
             with open(license_path, 'r', encoding='utf-8') as f: license_text = f.read()
         except FileNotFoundError:
@@ -1549,15 +1812,15 @@ class PDFReconApp:
         self.case_root_path = folder_path # Set the root for the new scan
         
         # --- Update GUI for Scanning State ---
-        self.scan_button.config(state="disabled")
-        self.export_menubutton.config(state="disabled")
+        self.scan_button.configure(state="disabled")
         if not self.is_reader_mode:
             self.file_menu.entryconfig(self._("menu_save_case"), state="disabled")
             if getattr(sys, 'frozen', False):
                  self.file_menu.entryconfig(self._("menu_export_reader"), state="disabled")
 
         self.status_var.set(self._("preparing_analysis"))
-        self.progressbar.config(value=0)
+        self.progressbar.set(0)
+        self.progressbar.grid(row=2, column=0, columnspan=2, sticky="ew")
 
         # --- Create a dedicated thread pool for copy operations ---
         self.copy_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix='CopyWorker')
@@ -1586,9 +1849,7 @@ class PDFReconApp:
         self.current_case_filepath = None
         self.case_is_dirty = False
         self.dirty_notes.clear()
-        self.detail_text.config(state="normal")
-        self.detail_text.delete("1.0", tk.END)
-        self.detail_text.config(state="disabled")
+        self.detail_text.delete("1.0", "end")
 
     def _open_case(self, filepath=None):
         """Opens a dialog to load a case, or loads a case from a given filepath."""
@@ -2086,16 +2347,22 @@ class PDFReconApp:
             q.put(("progress_mode_determinate", len(pdf_files)))
             files_processed = 0
 
+            # Use a timeout of 60 seconds per file to prevent hangs
+            FILE_TIMEOUT = 60  # seconds
+
             with ThreadPoolExecutor(max_workers=PDFReconConfig.MAX_WORKER_THREADS) as executor:
                 # Pass the scan root 'folder' to each file processing job
                 future_to_path = {executor.submit(self._process_single_file, fp, folder): fp for fp in pdf_files}
-                for future in as_completed(future_to_path):
+                for future in as_completed(future_to_path, timeout=FILE_TIMEOUT):
                     path = future_to_path[future]
                     files_processed += 1
                     try:
-                        results = future.result()
+                        results = future.result(timeout=FILE_TIMEOUT)
                         for result_data in results:
                             q.put(("file_row", result_data))
+                    except TimeoutError:
+                        logging.error(f"TIMEOUT processing file {path.name} - exceeded {FILE_TIMEOUT} seconds")
+                        q.put(("file_row", {"path": path, "status": "error", "error_type": "processing_timeout", "error_message": f"File processing timed out after {FILE_TIMEOUT} seconds"}))
                     except Exception as e:
                         logging.error(f"Unexpected error from thread pool for file {path.name}: {e}")
                         q.put(("file_row", {"path": path, "status": "error", "error_type": "unknown_error", "error_message": str(e)}))
@@ -2122,22 +2389,29 @@ class PDFReconApp:
                 msg_type, data = self.scan_queue.get_nowait()
                 
                 if msg_type == "progress_mode_determinate":
-                    self.progressbar.config(mode='determinate', maximum=data if data > 0 else 1, value=0)
+                    # customtkinter progress bar doesn't have mode/maximum, just uses 0-1 range
+                    self._progress_max = data if data > 0 else 1
+                    self._progress_current = 0
+                    self.progressbar.set(0)
                 elif msg_type == "detailed_progress":
-                    self.progressbar['value'] += 1
+                    self._progress_current += 1
+                    self.progressbar.set(self._progress_current / self._progress_max if self._progress_max > 0 else 0)
                     self.status_var.set(self._("scan_progress_eta").format(**data))
                 elif msg_type == "scan_status": 
                     self.status_var.set(data)
                 elif msg_type == "file_row":
                     # Store all scan data in a dictionary keyed by path for fast lookups.
-                    self.all_scan_data[str(data["path"])] = data
+                    path_key = str(data["path"])
+                    if path_key in self.all_scan_data:
+                        logging.warning(f"Duplicate path key detected: {path_key}")
+                    self.all_scan_data[path_key] = data
                     # Store EXIF and timeline data in separate dicts for quick lookup
                     if not data.get("is_revision"):
-                        self.exif_outputs[str(data["path"])] = data.get("exif")
-                        self.timeline_data[str(data["path"])] = data.get("timeline")
+                        self.exif_outputs[path_key] = data.get("exif")
+                        self.timeline_data[path_key] = data.get("timeline")
                     else: # For revisions
-                        self.exif_outputs[str(data["path"])] = data.get("exif")
-                        self.timeline_data[str(data["path"])] = data.get("timeline")
+                        self.exif_outputs[path_key] = data.get("exif")
+                        self.timeline_data[path_key] = data.get("timeline")
                         self.revision_counter += 1
 
                 elif msg_type == "error": 
@@ -2158,8 +2432,7 @@ class PDFReconApp:
         self._apply_filter()
         
         # --- Update GUI to 'finished' state ---
-        self.scan_button.config(state="normal")
-        self.export_menubutton.config(state="normal")
+        self.scan_button.configure(state="normal")
 
         # Calculate hashes for the evidence files for integrity verification
         self.evidence_hashes = self._calculate_hashes(self.all_scan_data.values())
@@ -2172,9 +2445,9 @@ class PDFReconApp:
             if getattr(sys, 'frozen', False):
                  self.file_menu.entryconfig(self._("menu_export_reader"), state="normal")
         
-        # Ensure the progress bar is full
-        if self.progressbar['value'] < self.progressbar['maximum']:
-             self.progressbar['value'] = self.progressbar['maximum']
+        # Ensure the progress bar is full and then hide it
+        self.progressbar.set(1.0)
+        self.root.after(500, lambda: self.progressbar.grid_forget())
         
         # Wait for any lingering background file copy operations to finish
         # and then update the status bar with the final summary.
@@ -2309,41 +2582,36 @@ class PDFReconApp:
         """Updates the detail view and the live inspector window when an item is selected."""
         selected_items = self.tree.selection()
         if not selected_items:
-            self.detail_text.config(state="normal")
-            self.detail_text.delete("1.0", tk.END)
-            self.detail_text.config(state="disabled")
+            self.detail_text.delete("1.0", "end")
             return
         
         item_id = selected_items[0]
         values = self.tree.item(item_id, "values")
         path_str = values[4]
         
-        self.detail_text.config(state="normal")
-        self.detail_text.delete("1.0", tk.END)
+        self.detail_text.delete("1.0", "end")
         
         # Fast O(1) lookup instead of O(n) search
         original_data = self.all_scan_data.get(path_str)
 
         for i, val in enumerate(values):
             col_name = self.tree.heading(self.columns[i], "text")
-            self.detail_text.insert(tk.END, f"{col_name}: ", ("bold",))
+            self.detail_text.insert("end", f"{col_name}: ", ("bold",))
             
             if col_name == self._("col_path"):
-                self.detail_text.insert(tk.END, val + "\n", ("link",))
+                self.detail_text.insert("end", val + "\n", ("link",))
             elif col_name == self._("col_indicators") and original_data and original_data.get("indicator_keys"):
                 indicator_details = [self._format_indicator_details(key, details) for key, details in original_data["indicator_keys"].items()]
                 full_indicators_str = "\n  • " + "\n  • ".join(indicator_details)
-                self.detail_text.insert(tk.END, full_indicators_str + "\n")
+                self.detail_text.insert("end", full_indicators_str + "\n")
             else:
-                self.detail_text.insert(tk.END, val + "\n")
+                self.detail_text.insert("end", val + "\n")
                 
         note = self.file_annotations.get(path_str)
         if note:
-            self.detail_text.insert(tk.END, "\n" + "-"*40 + "\n")
-            self.detail_text.insert(tk.END, f"{self._('note_label')}\n", ("bold",))
-            self.detail_text.insert(tk.END, note)
-
-        self.detail_text.config(state="disabled")
+            self.detail_text.insert("end", "\n" + "-"*40 + "\n")
+            self.detail_text.insert("end", f"{self._('note_label')}\n", ("bold",))
+            self.detail_text.insert("end", note)
 
         # --- NY KODE: Opdater Inspector-vinduet, hvis det er åbent ---
         if self.inspector_window and self.inspector_window.winfo_viewable():
@@ -2464,42 +2732,49 @@ class PDFReconApp:
         }
         lines = exiftool_output.splitlines()
 
-        # --- Regex Patterns ---
-        kv_re = re.compile(r'^\[(?P<group>[^\]]+)\]\s*(?P<tag>[\w\-/ ]+?)\s*:\s*(?P<value>.+)$')
-        # Regex to find a date and an optional timezone part (Z or +/-HH:MM) that handles different separators
-        date_tz_re = re.compile(r'^(?P<date>\d{4}[-:]\d{2}[-:]\d{2}[ T]\d{2}:\d{2}:\d{2})(?:\.\d+)?(?P<tz>[+\-]\d{2}:\d{2}|Z)?')
-        history_full_pattern = re.compile(r"\[XMP-xmpMM\]\s+History\s+:\s+(.*)")
+        # --- Regex Patterns (reuse module-level constants) ---
+        history_pattern = re.compile(r"\[XMP-xmpMM\]\s+History\s+:\s+(.*)")
 
         def looks_like_software(s: str) -> bool:
             return bool(s and self.software_tokens.search(s))
 
         # --- First Pass: Collect Key-Value Pairs for Tools ---
         for ln in lines:
-            m = kv_re.match(ln)
-            if not m: continue
+            m = _KV_PATTERN.match(ln)
+            if not m: 
+                continue
             
             group = m.group("group").strip().lower()
             tag = m.group("tag").strip().lower().replace(" ", "")
             val = m.group("value").strip()
 
+            # Map tags to data dictionary keys for software detection
             if tag == "producer":
-                if group == "pdf" and not data["producer_pdf"]: data["producer_pdf"] = val
-                elif group in ("xmp-pdf", "xmp_pdf") and not data["producer_xmppdf"]: data["producer_xmppdf"] = val
-            elif tag == "softwareagent" and not data["softwareagent"]: data["softwareagent"] = val
-            elif tag == "application" and not data["application"]: data["application"] = val
-            elif tag == "software" and not data["software"]: data["software"] = val
+                if group == "pdf" and not data["producer_pdf"]: 
+                    data["producer_pdf"] = val
+                elif group in ("xmp-pdf", "xmp_pdf") and not data["producer_xmppdf"]: 
+                    data["producer_xmppdf"] = val
+            elif tag == "softwareagent" and not data["softwareagent"]: 
+                data["softwareagent"] = val
+            elif tag == "application" and not data["application"]: 
+                data["application"] = val
+            elif tag == "software" and not data["software"]: 
+                data["software"] = val
             elif tag == "creatortool" and not data["creatortool"] and looks_like_software(val):
                 data["creatortool"] = val
-            elif tag == "xmptoolkit" and not data["xmptoolkit"]: data["xmptoolkit"] = val
+            elif tag == "xmptoolkit" and not data["xmptoolkit"]: 
+                data["xmptoolkit"] = val
         
         # Fallback for producer fields
-        if not data["producer_pdf"] and data["producer_xmppdf"]: data["producer_pdf"] = data["producer_xmppdf"]
-        if not data["producer_xmppdf"] and data["producer_pdf"]: data["producer_xmppdf"] = data["producer_pdf"]
+        if not data["producer_pdf"] and data["producer_xmppdf"]: 
+            data["producer_pdf"] = data["producer_xmppdf"]
+        if not data["producer_xmppdf"] and data["producer_pdf"]: 
+            data["producer_xmppdf"] = data["producer_pdf"]
 
         # --- Second Pass: Collect All Dates and History Events ---
         for ln in lines:
             # History events
-            hist_match = history_full_pattern.match(ln)
+            hist_match = history_pattern.match(ln)
             if hist_match:
                 history_str = hist_match.group(1)
                 event_blocks = re.findall(r'\{([^}]+)\}', history_str)
@@ -2507,7 +2782,6 @@ class PDFReconApp:
                     details = {k.strip(): v.strip() for k, v in (pair.split('=', 1) for pair in block.split(',') if '=' in pair)}
                     if 'When' in details:
                         try:
-                            # fromisoformat correctly handles ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)
                             dt_obj = datetime.fromisoformat(details['When'].replace('Z', '+00:00'))
                             data["history_events"].append((dt_obj, details))
                         except (ValueError, IndexError):
@@ -2515,11 +2789,12 @@ class PDFReconApp:
                 continue
 
             # Generic date lines
-            kv_match = kv_re.match(ln)
-            if not kv_match: continue
+            kv_match = _KV_PATTERN.match(ln)
+            if not kv_match: 
+                continue
 
             val_str = kv_match.group("value").strip()
-            match = date_tz_re.match(val_str)
+            match = _DATE_TZ_PATTERN.match(val_str)
             
             if match:
                 parts = match.groupdict()
@@ -2646,8 +2921,8 @@ class PDFReconApp:
         events = []
         
         # Look for PDF-style dates: /CreationDate (D:20230101120000...)
-        pdf_date_pattern = re.compile(r"\/([A-Z][a-zA-Z0-9_]+)\s*\(\s*D:(\d{14})")
-        for match in pdf_date_pattern.finditer(file_content_string):
+        # Use module-level regex constant
+        for match in _PDF_DATE_PATTERN.finditer(file_content_string):
             label, date_str = match.groups()
             try:
                 dt_obj = datetime.strptime(date_str, "%Y%m%d%H%M%S")
@@ -2660,7 +2935,8 @@ class PDFReconApp:
         xmp_date_pattern = re.compile(r"<([a-zA-Z0-9:]+)[^>]*?>\s*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.*?)\s*<\/([a-zA-Z0-9:]+)>")
         for match in xmp_date_pattern.finditer(file_content_string):
             label, date_str, closing_label = match.groups()
-            if label != closing_label: continue # Ensure tags match
+            if label != closing_label: 
+                continue
             try:
                 # Clean the date string of timezones and milliseconds
                 clean_date_str = date_str.split('Z')[0].split('+')[0].split('.')[0].strip()
@@ -2743,37 +3019,6 @@ class PDFReconApp:
 
         return {"aware": aware_events, "naive": naive_events}
     
-    def _parse_raw_content_timeline(self, file_content_string):
-        """Helper function to parse timestamps directly from the file's raw content."""
-        events = []
-        
-        # PDF-style dates: /CreationDate (D:20230101120000...). These are naive.
-        pdf_date_pattern = re.compile(r"\/([A-Z][a-zA-Z0-9_]+)\s*\(\s*D:(\d{14})")
-        for match in pdf_date_pattern.finditer(file_content_string):
-            label, date_str = match.groups()
-            try:
-                dt_obj = datetime.strptime(date_str, "%Y%m%d%H%M%S")
-                display_line = f"Raw File: /{label}: {dt_obj.strftime('%Y-%m-%d %H:%M:%S')}"
-                events.append((dt_obj, display_line))
-            except ValueError:
-                continue
-
-        # XMP-style dates: <xmp:CreateDate>2023-01-01T12:00:00Z</xmp:CreateDate>. These can be aware.
-        xmp_date_pattern = re.compile(r"<([a-zA-Z0-9:]+)[^>]*?>\s*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.*?)\s*<\/([a-zA-Z0-9:]+)>")
-        for match in xmp_date_pattern.finditer(file_content_string):
-            label, date_str, closing_label = match.groups()
-            if label != closing_label: continue
-            try:
-                # Replace 'Z' for UTC with the equivalent offset for fromisoformat
-                iso_date_str = date_str.replace('Z', '+00:00')
-                # fromisoformat will create an aware datetime if an offset is present,
-                # and a naive one otherwise.
-                dt_obj = datetime.fromisoformat(iso_date_str)
-                display_line = f"Raw File: <{label}>: {date_str}"
-                events.append((dt_obj, display_line))
-            except (ValueError, IndexError):
-                continue
-        return events       
     @staticmethod
     def decompress_stream(b):
         """Attempts to decompress a PDF stream using common filters."""
@@ -3238,11 +3483,77 @@ class PDFReconApp:
             self.validate_pdf_file(fp)
 
             raw = fp.read_bytes()
-            doc = fitz.open(stream=raw, filetype="pdf")
-            txt = self.extract_text(raw)
-            indicators = self.detect_indicators(fp, txt, doc)
+            logging.info(f"Processing file: {fp.name} ({len(raw) / (1024*1024):.1f}MB)")
+            
+            # Use safer PDF opening
+            try:
+                doc = self._safe_pdf_open(fp, raw_bytes=raw)
+            except Exception as e:
+                logging.error(f"Failed to open PDF {fp.name}: {e}")
+                raise PDFCorruptionError(f"Cannot open PDF: {str(e)}")
+            
+            # Use safer text extraction
+            logging.info(f"Extracting text from {fp.name}...")
+            txt = self._safe_extract_text(raw_bytes=raw, doc=doc)
+            logging.info(f"Text extraction complete for {fp.name}: {len(txt)} characters")
+            
+            # Detect indicators with error handling
+            logging.info(f"Detecting indicators in {fp.name}...")
+            try:
+                indicators = self.detect_indicators(fp, txt, doc)
+                logging.info(f"Indicator detection complete for {fp.name}")
+            except Exception as e:
+                logging.warning(f"Error detecting indicators in {fp.name}: {e}")
+                indicators = {}
+            
+            logging.info(f"Computing MD5 and EXIF for {fp.name}...")
             md5_hash = md5_file(fp)
             exif = self.exiftool_output(fp, detailed=True)
+
+            # Conditionally submit invalid XREF originals to the copy pool if setting is enabled
+            if PDFReconConfig.EXPORT_INVALID_XREF and "Warning" in exif and "Invalid xref table" in exif:
+                invalid_xref_dir = scan_root_folder / "Invalid XREF"
+                dest_path = invalid_xref_dir / fp.name
+                if self.copy_executor:
+                    self.copy_executor.submit(self._perform_copy, fp, dest_path)
+
+            tool_change_info = self._detect_tool_change_from_exif(exif)
+            if tool_change_info.get("changed"):
+                indicators['ToolChange'] = {}
+            
+            logging.info(f"Generating timeline for {fp.name}...")
+            original_timeline = self.generate_comprehensive_timeline(fp, txt, exif)
+            
+            logging.info(f"Extracting revisions from {fp.name}...")
+            potential_revisions = self.extract_revisions(raw, fp)
+            doc.close()
+            
+            self._add_layer_indicators(raw, fp, indicators)
+
+            # Delegate all revision processing to the new helper method
+            valid_revision_results = self._process_and_validate_revisions(potential_revisions, fp, scan_root_folder)
+
+            if valid_revision_results:
+                indicators['HasRevisions'] = {'count': len(valid_revision_results)}
+
+            original_row_data = {
+                "path": fp, "indicator_keys": indicators, "md5": md5_hash, 
+                "exif": exif, "is_revision": False, "timeline": original_timeline, "status": "success"
+            }
+            
+            results = [original_row_data] + valid_revision_results
+            return results
+
+        except PDFTooLargeError as e:
+            return [self._handle_file_processing_error(fp, "file_too_large", e)]
+        except PDFEncryptedError as e:
+            return [self._handle_file_processing_error(fp, "file_encrypted", e)]
+        except PDFCorruptionError as e:
+            return [self._handle_file_processing_error(fp, "file_corrupt", e)]
+        except Exception as e:
+            logging.exception(f"Unexpected error processing file {fp.name}")
+            return [self._handle_file_processing_error(fp, "processing_error", e)]
+
 
             # Conditionally submit invalid XREF originals to the copy pool if setting is enabled
             if PDFReconConfig.EXPORT_INVALID_XREF and "Warning" in exif and "Invalid xref table" in exif:
@@ -3265,7 +3576,6 @@ class PDFReconApp:
 
             if valid_revision_results:
                 indicators['HasRevisions'] = {'count': len(valid_revision_results)}
-
             original_row_data = {
                 "path": fp, "indicator_keys": indicators, "md5": md5_hash, 
                 "exif": exif, "is_revision": False, "timeline": original_timeline, "status": "success"
@@ -3275,17 +3585,14 @@ class PDFReconApp:
             return results
 
         except PDFTooLargeError as e:
-            logging.warning(f"Skipping large file {fp.name}: {e}")
-            return [{"path": fp, "status": "error", "error_type": "file_too_large", "error_message": str(e)}]
+            return [self._handle_file_processing_error(fp, "file_too_large", e)]
         except PDFEncryptedError as e:
-            logging.warning(f"Skipping encrypted file {fp.name}: {e}")
-            return [{"path": fp, "status": "error", "error_type": "file_encrypted", "error_message": str(e)}]
+            return [self._handle_file_processing_error(fp, "file_encrypted", e)]
         except PDFCorruptionError as e:
-            logging.warning(f"Skipping corrupt file {fp.name}: {e}")
-            return [{"path": fp, "status": "error", "error_type": "file_corrupt", "error_message": str(e)}]
+            return [self._handle_file_processing_error(fp, "file_corrupt", e)]
         except Exception as e:
             logging.exception(f"Unexpected error processing file {fp.name}")
-            return [{"path": fp, "status": "error", "error_type": "processing_error", "error_message": str(e)}]        
+            return [self._handle_file_processing_error(fp, "processing_error", e)]
     def _prompt_and_export(self, file_format):
         """Prompts the user for a file path and calls the relevant export function."""
         if not self.report_data:
