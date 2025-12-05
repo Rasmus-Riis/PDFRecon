@@ -7,3 +7,5 @@ PDFRecon.spec
 exiftool.exe
 __pycache__/
 */__pycache__/
+*.pyc
+*\*.pyc
