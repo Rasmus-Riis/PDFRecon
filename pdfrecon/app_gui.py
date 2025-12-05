@@ -3606,7 +3606,25 @@ class PDFReconApp:
             self.root.after(0, lambda: messagebox.showerror(self._("update_error_title"), self._("update_net_error_msg")))
     
     def show_manual(self):
-        """Displays a pop-up window with the program manual."""
+        """Opens the HTML help file in the default browser."""
+        import os
+        import webbrowser
+        
+        # Try to find HTML help file
+        # First check in same directory as app.py
+        script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        html_path = os.path.join(script_dir, 'PDFRecon_Help.html')
+        
+        # If not found, try current working directory
+        if not os.path.exists(html_path):
+            html_path = os.path.join(os.getcwd(), 'PDFRecon_Help.html')
+        
+        # If found, open in browser
+        if os.path.exists(html_path):
+            webbrowser.open('file://' + os.path.abspath(html_path))
+            return
+        
+        # Fallback: show old-style popup if HTML not found
         manual_popup = Toplevel(self.root)
         manual_popup.title(self._("manual_title"))
         

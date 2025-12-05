@@ -1,0 +1,1316 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>PDFRecon Help</title>
+    <style>
+        /* Dark theme matching PDFRecon */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background-color: #1e1e1e;
+            color: #dcdcdc;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        /* Sidebar navigation */
+        #sidebar {
+            width: 250px;
+            background-color: #252526;
+            border-right: 1px solid #3d3d3d;
+            overflow-y: auto;
+            padding: 20px 0;
+        }
+        
+        #sidebar h2 {
+            color: #00A0D6;
+            font-size: 18px;
+            padding: 10px 20px;
+            margin-bottom: 10px;
+        }
+        
+        #sidebar ul {
+            list-style: none;
+        }
+        
+        #sidebar li {
+            padding: 8px 20px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        
+        #sidebar li:hover {
+            background-color: #2d2d2d;
+        }
+        
+        #sidebar li.active {
+            background-color: #00A0D6;
+            color: #000;
+            font-weight: bold;
+        }
+        
+        /* Main content area */
+        #content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 30px 40px;
+        }
+        
+        h1 {
+            color: #00A0D6;
+            border-bottom: 2px solid #00A0D6;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+            font-size: 32px;
+        }
+        
+        h2 {
+            color: #ffa726;
+            margin-top: 30px;
+            margin-bottom: 15px;
+            font-size: 24px;
+        }
+        
+        h3 {
+            color: #66bb6a;
+            margin-top: 20px;
+            margin-bottom: 10px;
+            font-size: 18px;
+        }
+        
+        p, li {
+            line-height: 1.6;
+            margin-bottom: 10px;
+        }
+        
+        code {
+            background-color: #2d2d2d;
+            color: #7ec699;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Consolas', monospace;
+        }
+        
+        pre {
+            background-color: #2d2d2d;
+            border-left: 4px solid #00A0D6;
+            padding: 15px;
+            overflow-x: auto;
+            border-radius: 5px;
+            margin: 15px 0;
+        }
+        
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 20px 0;
+            background-color: #2d2d2d;
+        }
+        
+        th {
+            background-color: #00A0D6;
+            color: #000;
+            padding: 12px;
+            text-align: left;
+            font-weight: bold;
+        }
+        
+        td {
+            padding: 10px;
+            border-bottom: 1px solid #3d3d3d;
+        }
+        
+        tr:hover {
+            background-color: #353535;
+        }
+        
+        ul, ol {
+            margin: 15px 0;
+            padding-left: 30px;
+        }
+        
+        .info, .warning, .danger, .success {
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 5px;
+            border-left: 4px solid;
+        }
+        
+        .info {
+            background-color: #002d3d;
+            border-color: #00A0D6;
+        }
+        
+        .warning {
+            background-color: #3d2d00;
+            border-color: #ffa726;
+        }
+        
+        .danger {
+            background-color: #3d0000;
+            border-color: #ff5252;
+        }
+        
+        .success {
+            background-color: #002d00;
+            border-color: #66bb6a;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 0.85em;
+            font-weight: bold;
+            margin: 0 5px;
+        }
+        
+        .badge-yes { background-color: #ff5252; color: #fff; }
+        .badge-found { background-color: #ffa726; color: #000; }
+        .badge-no { background-color: #66bb6a; color: #000; }
+        
+        #search {
+            width: calc(100% - 40px);
+            margin: 10px 20px;
+            padding: 8px;
+            background-color: #3d3d3d;
+            border: 1px solid #4d4d4d;
+            color: #dcdcdc;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        #search:focus {
+            outline: none;
+            border-color: #00A0D6;
+        }
+        
+        .indicator {
+            background-color: #2d2d2d;
+            padding: 15px;
+            margin: 15px 0;
+            border-left: 4px solid #ffa726;
+            border-radius: 5px;
+        }
+        
+        .indicator h4 {
+            color: #00A0D6;
+            margin-bottom: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div id="sidebar">
+        <h2>PDFRecon Help</h2>
+        <input type="text" id="search" placeholder="Search...">
+        <ul id="nav">
+            <li onclick="showSection('intro')" class="active">Introduction</li>
+            <li onclick="showSection('interface')">Interface Guide</li>
+            <li onclick="showSection('indicators')">All Indicators</li>
+            <li onclick="showSection('classification')">Classification System</li>
+            <li onclick="showSection('timestamps')">About Timestamps</li>
+            <li onclick="showSection('workflow')">Forensic Workflow</li>
+            <li onclick="showSection('developer')">Developer Guide</li>
+        </ul>
+    </div>
+    
+    <div id="content">
+        <div id="intro" class="section">
+            <h1>PDFRecon - PDF Forensic Analysis Tool</h1>
+            <p><strong>Version: Latest</strong></p>
+            
+            <div class="info">
+                <strong>Purpose:</strong> PDFRecon is a forensic tool designed to investigate PDF files for evidence of alteration, editing, or hidden content. It analyzes technical indicators and presents results in a clear, exportable format.
+            </div>
+            
+            <h2>Key Capabilities</h2>
+            <ul>
+                <li><strong>Revision Detection</strong> - Extracts previous versions hidden in the file</li>
+                <li><strong>Edit Evidence</strong> - Identifies TouchUp edits, font changes, tool switches</li>
+                <li><strong>Timeline Analysis</strong> - Reconstructs document creation and modification history</li>
+                <li><strong>Visual Diff</strong> - Compare revisions side-by-side</li>
+                <li><strong>Metadata Extraction</strong> - Complete metadata with ExifTool integration</li>
+                <li><strong>Batch Processing</strong> - Scan entire folders with drag-and-drop support</li>
+                <li><strong>Excel Export</strong> - Generate comprehensive reports</li>
+            </ul>
+            
+            <h2>Quick Start</h2>
+            <ol>
+                <li><strong>Load Files</strong> - Click "Select PDF" or drag-and-drop files onto window</li>
+                <li><strong>Review Classification</strong> - Check YES (high risk), FOUND (medium), or NOT DETECTED (low)</li>
+                <li><strong>Examine Indicators</strong> - Click column headers to sort by specific indicators</li>
+                <li><strong>View Timeline</strong> - Right-click file → "Show Timeline" for detailed history</li>
+                <li><strong>Compare Revisions</strong> - Right-click file with revisions → "Visual Diff"</li>
+                <li><strong>Export Results</strong> - Click "Export to Excel" for documentation</li>
+            </ol>
+            
+            <div class="warning">
+                <strong>Important:</strong> Always verify findings manually. Automated analysis is a starting point, not conclusive proof.
+            </div>
+        </div>
+        
+        <div id="interface" class="section" style="display:none;">
+            <h1>Interface Guide</h1>
+            
+            <h2>Main Controls</h2>
+            
+            <table>
+                <tr>
+                    <th>Control</th>
+                    <th>Function</th>
+                </tr>
+                <tr>
+                    <td><strong>Select PDF</strong></td>
+                    <td>Choose single PDF file for analysis</td>
+                </tr>
+                <tr>
+                    <td><strong>Select Folder</strong></td>
+                    <td>Batch process all PDFs in directory</td>
+                </tr>
+                <tr>
+                    <td><strong>Export to Excel</strong></td>
+                    <td>Save analysis results to .xlsx file</td>
+                </tr>
+                <tr>
+                    <td><strong>Clear Results</strong></td>
+                    <td>Remove all files from current analysis</td>
+                </tr>
+                <tr>
+                    <td><strong>Stop Scan</strong></td>
+                    <td>Halt current batch processing</td>
+                </tr>
+                <tr>
+                    <td><strong>Drag & Drop</strong></td>
+                    <td>Drag PDF files directly onto window</td>
+                </tr>
+            </table>
+            
+            <h2>Results Table Columns</h2>
+            
+            <h3>Basic Information</h3>
+            <ul>
+                <li><strong>Filename</strong> - Name of the analyzed PDF</li>
+                <li><strong>Path</strong> - Full file path on disk</li>
+                <li><strong>Size (KB)</strong> - File size</li>
+                <li><strong>Pages</strong> - Number of pages in document</li>
+                <li><strong>MD5</strong> - File hash for duplicate detection</li>
+            </ul>
+            
+            <h3>Classification</h3>
+            <ul>
+                <li><span class="badge badge-yes">YES</span> - Strong evidence of alteration (investigate immediately)</li>
+                <li><span class="badge badge-found">FOUND</span> - Technical indicators detected (review carefully)</li>
+                <li><span class="badge badge-no">NOT DETECTED</span> - No known indicators found</li>
+            </ul>
+            
+            <h3>Indicator Columns</h3>
+            <p>Each indicator has its own column showing:</p>
+            <ul>
+                <li><strong>Empty</strong> - Indicator not detected</li>
+                <li><strong>Details</strong> - What was found (e.g., "Multiple Font Subsets: 'Arial': F1+ArialMT', 'F2+Arial-BoldMT'")</li>
+            </ul>
+            
+            <h2>Context Menu (Right-Click)</h2>
+            
+            <table>
+                <tr>
+                    <th>Action</th>
+                    <th>Description</th>
+                    <th>When Available</th>
+                </tr>
+                <tr>
+                    <td><strong>Show Timeline</strong></td>
+                    <td>Display detailed metadata timeline</td>
+                    <td>Always</td>
+                </tr>
+                <tr>
+                    <td><strong>Visual Diff</strong></td>
+                    <td>Compare revisions side-by-side</td>
+                    <td>When revisions detected</td>
+                </tr>
+                <tr>
+                    <td><strong>Export Revisions</strong></td>
+                    <td>Save all revisions as separate PDFs</td>
+                    <td>When revisions detected</td>
+                </tr>
+                <tr>
+                    <td><strong>Open Location</strong></td>
+                    <td>Open file in Explorer</td>
+                    <td>Always</td>
+                </tr>
+                <tr>
+                    <td><strong>Remove from List</strong></td>
+                    <td>Delete from current analysis</td>
+                    <td>Always</td>
+                </tr>
+            </table>
+            
+            <h2>Timeline Window</h2>
+            
+            <p>The timeline window shows:</p>
+            <ul>
+                <li><strong>PDF Info Dictionary</strong> - Creation and modification dates from PDF internal structure</li>
+                <li><strong>XMP Metadata</strong> - Adobe XMP timestamps</li>
+                <li><strong>ExifTool Data</strong> - Complete metadata extraction</li>
+                <li><strong>File System</strong> - OS-level timestamps (less reliable)</li>
+            </ul>
+            
+            <div class="warning">
+                <strong>Important:</strong> Metadata timestamps can be forged. Cross-reference multiple sources and look for inconsistencies.
+            </div>
+            
+            <h2>Visual Diff Window</h2>
+            
+            <p>When revisions are found, visual diff shows:</p>
+            <ul>
+                <li><strong>Side-by-side comparison</strong> - Original vs modified pages</li>
+                <li><strong>Difference overlay</strong> - Highlights changed areas in red</li>
+                <li><strong>Navigation controls</strong> - Jump between pages</li>
+                <li><strong>Zoom controls</strong> - Examine details</li>
+            </ul>
+            
+            <h2>Settings</h2>
+            
+            <h3>File → Settings</h3>
+            <ul>
+                <li><strong>Max File Size</strong> - Skip files larger than threshold (default: 500MB)</li>
+                <li><strong>ExifTool Timeout</strong> - Seconds before canceling metadata extraction</li>
+                <li><strong>Worker Threads</strong> - Parallel processing threads for batch scans</li>
+                <li><strong>Visual Diff Page Limit</strong> - Maximum pages to compare (performance)</li>
+            </ul>
+            
+            <h2>Keyboard Shortcuts</h2>
+            
+            <table>
+                <tr>
+                    <th>Shortcut</th>
+                    <th>Action</th>
+                </tr>
+                <tr>
+                    <td><strong>Ctrl + O</strong></td>
+                    <td>Select PDF file</td>
+                </tr>
+                <tr>
+                    <td><strong>Ctrl + F</strong></td>
+                    <td>Select folder</td>
+                </tr>
+                <tr>
+                    <td><strong>Ctrl + E</strong></td>
+                    <td>Export to Excel</td>
+                </tr>
+                <tr>
+                    <td><strong>Ctrl + Q</strong></td>
+                    <td>Quit application</td>
+                </tr>
+                <tr>
+                    <td><strong>F1</strong></td>
+                    <td>Open this manual</td>
+                </tr>
+                <tr>
+                    <td><strong>Delete</strong></td>
+                    <td>Remove selected file from list</td>
+                </tr>
+            </table>
+        </div>
+        
+        <div id="indicators" class="section" style="display:none;">
+            <h1>Complete Indicator Reference</h1>
+            
+            <p>PDFRecon checks for the following indicators of PDF alteration:</p>
+            
+            <h2><span class="badge badge-yes">YES</span> Critical Indicators (High Risk)</h2>
+            
+            <div class="indicator">
+                <h4>Has Revisions</h4>
+                <p><strong>What it means:</strong> The PDF contains previous versions saved incrementally. PDFRecon has extracted one or more hidden revisions. This is unequivocal proof the file was changed after original creation.</p>
+                <p><strong>Technical detail:</strong> PDF incremental saves append new data to the end of the file while keeping the original intact. Multiple <code>%%EOF</code> markers indicate multiple saves.</p>
+            </div>
+            
+            <div class="indicator">
+                <h4>TouchUp_TextEdit</h4>
+                <p><strong>What it means:</strong> Adobe Acrobat's TouchUp tool was used to directly edit text in the PDF. This is strong evidence of content alteration.</p>
+                <p><strong>Technical detail:</strong> Acrobat leaves a specific metadata flag: <code>/PieceInfo</code> with <code>TouchUp_TextEdit</code> key when text is manually edited.</p>
+            </div>
+            
+            <div class="indicator">
+                <h4>Missing Objects</h4>
+                <p><strong>What it means:</strong> The PDF references objects that don't exist in the file. This indicates corruption or improper editing.</p>
+                <p><strong>Technical detail:</strong> Cross-reference table (xref) points to object IDs that have no corresponding object definition.</p>
+            </div>
+            
+            <div class="indicator">
+                <h4>JavaScript Auto-Execute / Additional Actions</h4>
+                <p><strong>What it means:</strong> The PDF automatically executes JavaScript when opened (<code>OpenAction</code>) or has additional actions (<code>AA</code>). Highly suspicious - could dynamically modify content.</p>
+                <p><strong>Technical detail:</strong> Document catalog contains <code>/OpenAction</code> or <code>/AA</code> entries with JavaScript code.</p>
+            </div>
+            
+            <h2><span class="badge badge-found">FOUND</span> Evidence Indicators (Medium Risk)</h2>
+            
+            <div class="indicator">
+                <h4>Multiple Font Subsets</h4>
+                <p><strong>What it means:</strong> Same font embedded multiple times with different subsets. Indicates text was added/changed at different times or with different tools.</p>
+                <p><strong>Example:</strong> "Multiple Font Subsets: 'Arial': F1+ArialMT', 'F2+Arial-BoldMT'"</p>
+            </div>
+            
+            <div class="indicator">
+                <h4>Multiple Creators / Producers</h4>
+                <p><strong>What it means:</strong> Document processed by more than one program. File was created in one tool and edited in another.</p>
+                <p><strong>Example:</strong> "Multiple Creators (Found 2): 'Microsoft Word', 'Adobe Acrobat Pro'"</p>
+            </div>
+            
+            <div class="indicator">
+                <h4>xmpMM:History / DerivedFrom / DocumentAncestors</h4>
+                <p><strong>What it means:</strong> XMP metadata contains editing history - timestamps, version IDs, and software used.</p>
+                <p><strong>Technical detail:</strong> Adobe XMP stores detailed provenance information that survives basic metadata scrubbing.</p>
+            </div>
+            
+            <div class="indicator">
+                <h4>Multiple DocumentID / Different InstanceID</h4>
+                <p><strong>What it means:</strong> Multiple unique DocumentIDs or excessive InstanceIDs indicate complex editing history or merged documents.</p>
+                <p><strong>Example:</strong> "Trailer ID Changed: From [ID1...] to [ID2...]"</p>
+            </div>
+            
+            <div class="indicator">
+                <h4>Multiple startxref</h4>
+                <p><strong>What it means:</strong> More than one <code>startxref</code> keyword indicates incremental saves (see "Has Revisions").</p>
+            </div>
+            
+            <div class="indicator">
+                <h4>Objects with generation > 0</h4>
+                <p><strong>What it means:</strong> Objects have version numbers greater than 0, indicating they were overwritten in later saves.</p>
+                <p><strong>Example:</strong> "12 1 obj" means object 12, generation 1 (updated once)</p>
+            </div>
+            
+            <div class="indicator">
+                <h4>More Layers Than Pages</h4>
+                <p><strong>What it means:</strong> More Optional Content Groups (layers) than pages. May hide content in non-visible layers.</p>
+            </div>
+            
+            <div class="indicator">
+                <h4>Linearized / Linearized + updated</h4>
+                <p><strong>What it means:</strong> Linearized (web-optimized) PDF was subsequently modified. Supposedly final document was edited afterwards.</p>
+            </div>
+            
+            <div class="indicator">
+                <h4>Has PieceInfo</h4>
+                <p><strong>What it means:</strong> Adobe applications stored technical traces about changes or versions (e.g., Illustrator editing).</p>
+            </div>
+            
+            <div class="indicator">
+                <h4>Has Redactions</h4>
+                <p><strong>What it means:</strong> Document contains redaction annotations. Hidden text may still be present underneath.</p>
+            </div>
+            
+            <div class="indicator">
+                <h4>Has Annotations</h4>
+                <p><strong>What it means:</strong> Comments, notes, or highlights present. May contain information not in main content.</p>
+            </div>
+            
+            <div class="indicator">
+                <h4>AcroForm NeedAppearances=true</h4>
+                <p><strong>What it means:</strong> Form fields need appearance regeneration. Field text can change or auto-fill, obscuring original content.</p>
+            </div>
+            
+            <div class="indicator">
+                <h4>Has Digital Signature</h4>
+                <p><strong>What it means:</strong> Document contains digital signature. Valid = no changes since signing. Invalid/broken = likely altered.</p>
+            </div>
+            
+            <div class="indicator">
+                <h4>Date inconsistency (Info vs. XMP)</h4>
+                <p><strong>What it means:</strong> Creation/modification dates in PDF Info don't match XMP metadata dates.</p>
+                <p><strong>Example:</strong> "Creation Date Mismatch: Info='20230101...', XMP='2023-01-02...'"</p>
+            </div>
+            
+            <h2>Advanced Detection Methods</h2>
+            
+            <div class="indicator">
+                <h4>Metadata Version Mismatch</h4>
+                <p><strong>What it means:</strong> Metadata claims old software (Acrobat 4/PDF 1.3) but file uses modern features (PDF 1.7+). Metadata likely manipulated.</p>
+            </div>
+            
+            <div class="indicator">
+                <h4>Suspicious Text Positioning</h4>
+                <p><strong>What it means:</strong> Unusually high number of text positioning commands (Tm/Td operators). Pattern suggests text overlay to hide original content.</p>
+            </div>
+            
+            <div class="indicator">
+                <h4>White Rectangle Overlay</h4>
+                <p><strong>What it means:</strong> Multiple white rectangles drawn in document. Common technique to hide content by drawing white shapes over text/images.</p>
+            </div>
+            
+            <div class="indicator">
+                <h4>Excessive Drawing Operations</h4>
+                <p><strong>What it means:</strong> Page contains abnormally high number of drawing commands (>50). May indicate complex editing or content obscuring.</p>
+            </div>
+            
+            <div class="indicator">
+                <h4>Orphaned Objects</h4>
+                <p><strong>What it means:</strong> Objects defined but never referenced. Small number normal, but many suggest editing where content removed but not cleaned up.</p>
+            </div>
+            
+            <div class="indicator">
+                <h4>Large Object Number Gaps</h4>
+                <p><strong>What it means:</strong> Significant gaps in object numbering (>30% missing). Indicates extensive editing with deleted/replaced objects.</p>
+            </div>
+            
+            <div class="indicator">
+                <h4>Contains JavaScript</h4>
+                <p><strong>What it means:</strong> PDF contains JavaScript code. Can hide alterations or dynamically modify content when opened.</p>
+            </div>
+            
+            <div class="indicator">
+                <h4>Duplicate Images With Different Xrefs</h4>
+                <p><strong>What it means:</strong> Same image (by hash) appears multiple times with different object references. Indicates image was added, removed, re-added during editing.</p>
+            </div>
+            
+            <div class="indicator">
+                <h4>Images With EXIF</h4>
+                <p><strong>What it means:</strong> Embedded images contain EXIF metadata revealing when/with what device image was created - may not match PDF's claimed creation date.</p>
+            </div>
+            
+            <div class="indicator">
+                <h4>CropBox/MediaBox Mismatch</h4>
+                <p><strong>What it means:</strong> Visible area (CropBox) significantly smaller than full page (MediaBox). Content may be hidden outside visible area.</p>
+            </div>
+            
+            <div class="indicator">
+                <h4>Excessive Form Fields</h4>
+                <p><strong>What it means:</strong> Unusually high number of form fields (>50). Could indicate complex form or tampering with field values.</p>
+            </div>
+            
+            <div class="indicator">
+                <h4>Duplicate Bookmarks</h4>
+                <p><strong>What it means:</strong> Multiple bookmarks have identical titles. May indicate document structure modified or bookmarks improperly copied.</p>
+            </div>
+            
+            <div class="indicator">
+                <h4>Invalid Bookmark Destinations</h4>
+                <p><strong>What it means:</strong> Bookmarks point to non-existent pages. Occurs when pages deleted after bookmarks created - indicates structural changes.</p>
+            </div>
+        </div>
+        
+        <div id="classification" class="section" style="display:none;">
+            <h1>Classification System</h1>
+            
+            <p>PDFRecon classifies files to help prioritize investigation efforts:</p>
+            
+            <h2><span class="badge badge-yes">YES (High Risk)</span></h2>
+            
+            <div class="danger">
+                <p><strong>Assigned when:</strong> Strong evidence of alteration found.</p>
+                <p><strong>Action:</strong> Always investigate thoroughly.</p>
+                <p><strong>Indicators:</strong> Difficult to forge, point directly to content/structure changes.</p>
+                <ul>
+                    <li>Has Revisions</li>
+                    <li>TouchUp_TextEdit</li>
+                    <li>Missing Objects</li>
+                    <li>JavaScript Auto-Execute</li>
+                </ul>
+            </div>
+            
+            <h2><span class="badge badge-found">Indications Found (Medium Risk)</span></h2>
+            
+            <div class="warning">
+                <p><strong>Assigned when:</strong> Technical traces deviate from standard "clean" PDF.</p>
+                <p><strong>Action:</strong> Closer examination warranted.</p>
+                <p><strong>Indicators:</strong> Not definitive proof alone, but show file has history/structure requiring review.</p>
+                <ul>
+                    <li>Multiple Font Subsets</li>
+                    <li>Multiple Creators/Producers</li>
+                    <li>XMP History Data</li>
+                    <li>Date Inconsistencies</li>
+                    <li>And 20+ other technical indicators</li>
+                </ul>
+            </div>
+            
+            <h2><span class="badge badge-no">NOT DETECTED (Low Risk)</span></h2>
+            
+            <div class="success">
+                <p><strong>Assigned when:</strong> No known indicators found.</p>
+                <p><strong>Action:</strong> Lower priority for investigation.</p>
+                <p><strong>Note:</strong> Does NOT mean file is 100% unchanged - just that it doesn't exhibit typical alteration signs.</p>
+            </div>
+            
+            <h2>Classification Logic</h2>
+            
+            <p>The system uses a tiered approach:</p>
+            
+            <ol>
+                <li><strong>Critical Indicators</strong> - If ANY found, classify as YES</li>
+                <li><strong>Evidence Indicators</strong> - If ANY found (and no critical), classify as FOUND</li>
+                <li><strong>No Indicators</strong> - If none found, classify as NOT DETECTED</li>
+            </ol>
+            
+            <div class="info">
+                <strong>Important:</strong> Classification is a triage tool, not a verdict. Always examine files in context of your investigation.
+            </div>
+        </div>
+        
+        <div id="timestamps" class="section" style="display:none;">
+            <h1>Understanding Timestamps</h1>
+            
+            <div class="warning">
+                <h2>⚠️ Critical: File System Timestamps Are Unreliable</h2>
+                <p>The 'File Created' and 'File Modified' columns show timestamps from your computer's file system. These are highly unreliable forensic indicators.</p>
+            </div>
+            
+            <h2>Why File System Timestamps Are Unreliable</h2>
+            
+            <ul>
+                <li><strong>Copying Updates Timestamps</strong> - Simply copying a file updates creation date to copy time</li>
+                <li><strong>Moving Can Change Them</strong> - Moving between drives may reset timestamps</li>
+                <li><strong>Operating System Dependent</strong> - Different OS handle timestamps differently</li>
+                <li><strong>Easily Manipulated</strong> - Tools exist to freely modify these timestamps</li>
+                <li><strong>Network Transfers</strong> - Downloading/syncing often replaces original timestamps</li>
+            </ul>
+            
+            <h2>Reliable Timeline Sources</h2>
+            
+            <p>For forensic investigation, use internal metadata:</p>
+            
+            <table>
+                <tr>
+                    <th>Source</th>
+                    <th>Reliability</th>
+                    <th>Description</th>
+                </tr>
+                <tr>
+                    <td><strong>PDF Info Dictionary</strong></td>
+                    <td>⚠️ Medium</td>
+                    <td>Internal /CreationDate and /ModDate - can be modified but requires intent</td>
+                </tr>
+                <tr>
+                    <td><strong>XMP Metadata</strong></td>
+                    <td>✅ High</td>
+                    <td>Adobe XMP timestamps - more difficult to forge, contains detailed history</td>
+                </tr>
+                <tr>
+                    <td><strong>XMP History</strong></td>
+                    <td>✅ Very High</td>
+                    <td>Complete edit history with timestamps - very difficult to forge convincingly</td>
+                </tr>
+                <tr>
+                    <td><strong>ExifTool Metadata</strong></td>
+                    <td>✅ High</td>
+                    <td>Comprehensive extraction including hidden fields</td>
+                </tr>
+                <tr>
+                    <td><strong>File System Dates</strong></td>
+                    <td>❌ Low</td>
+                    <td>OS-level timestamps - easily changed, unreliable</td>
+                </tr>
+            </table>
+            
+            <h2>Using "Show Timeline" Feature</h2>
+            
+            <p>Right-click any file and select "Show Timeline" to see:</p>
+            
+            <ul>
+                <li><strong>PDF Internal Dates</strong> - From document Info dictionary</li>
+                <li><strong>XMP Dates</strong> - From Adobe XMP metadata</li>
+                <li><strong>XMP History</strong> - Complete editing timeline (if present)</li>
+                <li><strong>ExifTool Output</strong> - All metadata fields</li>
+                <li><strong>File System Dates</strong> - For reference only</li>
+            </ul>
+            
+            <h2>Forensic Best Practices</h2>
+            
+            <div class="success">
+                <h3>✅ Do This:</h3>
+                <ul>
+                    <li>Cross-reference multiple timestamp sources</li>
+                    <li>Look for inconsistencies between Info and XMP dates</li>
+                    <li>Examine XMP History for detailed editing timeline</li>
+                    <li>Use ExifTool output for comprehensive view</li>
+                    <li>Consider timestamp context (creator tool, versioning patterns)</li>
+                </ul>
+            </div>
+            
+            <div class="danger">
+                <h3>❌ Don't Do This:</h3>
+                <ul>
+                    <li>Rely solely on file system timestamps</li>
+                    <li>Assume creation date = when document was authored</li>
+                    <li>Trust single timestamp source without verification</li>
+                    <li>Ignore timestamp inconsistencies</li>
+                </ul>
+            </div>
+            
+            <h2>Detecting Timestamp Manipulation</h2>
+            
+            <p>Red flags indicating timestamp tampering:</p>
+            
+            <ul>
+                <li><strong>Mismatched Dates</strong> - Info dict says 2020, XMP says 2024</li>
+                <li><strong>Impossible Sequences</strong> - Modified date before creation date</li>
+                <li><strong>Round Numbers</strong> - Dates exactly at midnight (00:00:00) are suspicious</li>
+                <li><strong>Missing Timezone</strong> - Professional software includes timezone info</li>
+                <li><strong>Incomplete History</strong> - XMP History present but with gaps</li>
+            </ul>
+            
+            <h2>Example Timeline Analysis</h2>
+            
+            <div class="info">
+                <p><strong>Scenario:</strong> Investigation of suspected invoice alteration</p>
+                
+                <p><strong>File System Dates:</strong></p>
+                <ul>
+                    <li>Created: 2024-12-01 10:00:00</li>
+                    <li>Modified: 2024-12-01 10:00:00</li>
+                </ul>
+                
+                <p><strong>PDF Info Dict:</strong></p>
+                <ul>
+                    <li>CreationDate: 2024-01-15 14:23:45</li>
+                    <li>ModDate: 2024-01-15 14:23:45</li>
+                </ul>
+                
+                <p><strong>XMP Metadata:</strong></p>
+                <ul>
+                    <li>CreateDate: 2024-01-15 14:23:45</li>
+                    <li>ModifyDate: 2024-11-30 16:47:12</li>
+                </ul>
+                
+                <p><strong>Analysis:</strong> XMP ModifyDate is 10 months later than CreationDate, but PDF Info dict shows same date. This is strong evidence the Info dict was tampered with to hide the November editing session. The file system date reflects when the file was copied to the analysis workstation.</p>
+            </div>
+        </div>
+        
+        <div id="workflow" class="section" style="display:none;">
+            <h1>Forensic Investigation Workflow</h1>
+            
+            <h2>Basic Investigation Steps</h2>
+            
+            <div class="success">
+                <h3>Step 1: Initial Triage</h3>
+                <ol>
+                    <li>Load PDF(s) into PDFRecon</li>
+                    <li>Sort by "Changed" column</li>
+                    <li>Focus on <span class="badge badge-yes">YES</span> classifications first</li>
+                    <li>Check <span class="badge badge-found">FOUND</span> classifications for patterns</li>
+                </ol>
+            </div>
+            
+            <div class="info">
+                <h3>Step 2: Timeline Analysis</h3>
+                <ol>
+                    <li>Right-click suspicious file → "Show Timeline"</li>
+                    <li>Compare Info dict dates vs XMP dates</li>
+                    <li>Look for inconsistencies or suspicious patterns</li>
+                    <li>Examine XMP History if present</li>
+                    <li>Note creator/producer software used</li>
+                </ol>
+            </div>
+            
+            <div class="warning">
+                <h3>Step 3: Revision Comparison (if available)</h3>
+                <ol>
+                    <li>Right-click file with revisions → "Visual Diff"</li>
+                    <li>Compare original vs current version side-by-side</li>
+                    <li>Examine difference overlay for changed areas</li>
+                    <li>Right-click → "Export Revisions" to save separately</li>
+                    <li>Analyze each revision individually if needed</li>
+                </ol>
+            </div>
+            
+            <div class="success">
+                <h3>Step 4: Indicator Analysis</h3>
+                <ol>
+                    <li>Review each triggered indicator</li>
+                    <li>Cross-reference with this manual</li>
+                    <li>Document specific findings (font changes, tool switches, etc.)</li>
+                    <li>Look for patterns across multiple indicators</li>
+                </ol>
+            </div>
+            
+            <div class="info">
+                <h3>Step 5: Documentation</h3>
+                <ol>
+                    <li>Export results to Excel</li>
+                    <li>Take screenshots of Visual Diff if applicable</li>
+                    <li>Save Timeline window output</li>
+                    <li>Export all revisions for evidence preservation</li>
+                    <li>Document analysis methodology and findings</li>
+                </ol>
+            </div>
+            
+            <h2>Common Investigation Scenarios</h2>
+            
+            <h3>Scenario 1: Invoice/Financial Document</h3>
+            
+            <p><strong>Focus Areas:</strong></p>
+            <ul>
+                <li>TouchUp_TextEdit (manual number changes)</li>
+                <li>Multiple Font Subsets (replaced text)</li>
+                <li>White Rectangle Overlay (hidden original content)</li>
+                <li>Date inconsistencies</li>
+            </ul>
+            
+            <p><strong>Workflow:</strong></p>
+            <ol>
+                <li>Check for revisions - compare original amounts</li>
+                <li>Examine font subsets - inconsistent fonts indicate text replacement</li>
+                <li>Timeline analysis - verify claimed invoice date matches creation date</li>
+                <li>Visual diff - look for number changes</li>
+            </ol>
+            
+            <h3>Scenario 2: Legal Document/Contract</h3>
+            
+            <p><strong>Focus Areas:</strong></p>
+            <ul>
+                <li>Has Revisions (hidden versions)</li>
+                <li>Multiple Creators/Producers (tool switching)</li>
+                <li>Digital Signature status</li>
+                <li>XMP History (editing timeline)</li>
+            </ul>
+            
+            <p><strong>Workflow:</strong></p>
+            <ol>
+                <li>Extract and compare all revisions</li>
+                <li>Verify digital signature validity</li>
+                <li>Check if document was edited after signing</li>
+                <li>Examine metadata for all parties involved</li>
+            </ol>
+            
+            <h3>Scenario 3: Academic/Research Paper</h3>
+            
+            <p><strong>Focus Areas:</strong></p>
+            <ul>
+                <li>Multiple Font Subsets (plagiarism indicator)</li>
+                <li>XMP History (authorship verification)</li>
+                <li>Suspicious Text Positioning (hidden text)</li>
+                <li>Copy-paste indicators</li>
+            </ul>
+            
+            <p><strong>Workflow:</strong></p>
+            <ol>
+                <li>Check font consistency - mixed fonts may indicate copied content</li>
+                <li>Review XMP History for creation software and timeline</li>
+                <li>Look for text positioning anomalies</li>
+                <li>Cross-reference claimed authorship with metadata</li>
+            </ol>
+            
+            <h2>Red Flags Requiring Immediate Attention</h2>
+            
+            <div class="danger">
+                <ul>
+                    <li><strong>Revisions + TouchUp_TextEdit</strong> - Direct evidence of manual content editing</li>
+                    <li><strong>Info vs XMP Date Mismatch</strong> - Attempted timestamp manipulation</li>
+                    <li><strong>White Rectangles + Text Changes</strong> - Deliberate content hiding</li>
+                    <li><strong>Broken Digital Signature</strong> - Document altered after signing</li>
+                    <li><strong>JavaScript Auto-Execute</strong> - Potential dynamic content manipulation</li>
+                    <li><strong>Missing Objects</strong> - Structural corruption or tampering</li>
+                </ul>
+            </div>
+            
+            <h2>Evidence Preservation</h2>
+            
+            <div class="warning">
+                <h3>Best Practices:</h3>
+                <ul>
+                    <li><strong>Work on Copies</strong> - Never analyze original evidence files</li>
+                    <li><strong>Hash Everything</strong> - Document MD5/SHA256 hashes</li>
+                    <li><strong>Export All Revisions</strong> - Save hidden versions separately</li>
+                    <li><strong>Screenshot Findings</strong> - Visual evidence of differences</li>
+                    <li><strong>Document Chain of Custody</strong> - Record all analysis steps</li>
+                    <li><strong>Save Raw Results</strong> - Keep Excel exports and timeline outputs</li>
+                </ul>
+            </div>
+        </div>
+        
+        <div id="developer" class="section" style="display:none;">
+            <h1>Developer Guide - Extending PDFRecon</h1>
+            
+            <p>This guide is for developers who want to add new indicators or extend PDFRecon's analysis capabilities.</p>
+            
+            <h2>Architecture Overview</h2>
+            
+            <h3>Core Components</h3>
+            
+            <pre><code>PDFRecon/
+├── app.py                  # Application entry point
+├── pdfrecon/
+│   ├── __init__.py        # Package initialization
+│   ├── app_gui.py         # Main GUI application (4000+ lines)
+│   ├── config.py          # Configuration and constants
+│   ├── logging_setup.py   # Logging configuration
+│   ├── pdf_processor.py   # PDF operations with hang prevention
+│   ├── scanner.py         # PDF analysis engine
+│   ├── exporter.py        # Report generation
+│   └── utils.py           # Utility functions
+├── lang/
+│   ├── translations.json  # UI translations
+│   └── manual_*.md        # Manual translations
+└── exiftool_files/        # ExifTool integration</code></pre>
+            
+            <h2>Adding New Indicators</h2>
+            
+            <h3>Step 1: Define Indicator in scanner.py</h3>
+            
+            <pre><code># In pdfrecon/scanner.py
+
+def check_my_indicator(self, pdf_bytes: bytes, pdf_dict: dict) -> tuple:
+    """
+    Check for my new indicator.
+    
+    Args:
+        pdf_bytes: Raw PDF file bytes
+        pdf_dict: Parsed PDF dictionary structure
+        
+    Returns:
+        tuple: (found: bool, details: str)
+    """
+    try:
+        # Your detection logic here
+        if some_condition:
+            details = "Description of what was found"
+            return (True, details)
+        return (False, "")
+    except Exception as e:
+        logging.error(f"Error in check_my_indicator: {e}")
+        return (False, "")</code></pre>
+            
+            <h3>Step 2: Add to Analysis Flow</h3>
+            
+            <pre><code># In pdfrecon/scanner.py, analyze_pdf() method
+
+# Add your indicator check
+my_indicator_found, my_indicator_details = self.check_my_indicator(
+    pdf_bytes, pdf_dict
+)
+
+# Add to results dictionary
+results['my_indicator'] = my_indicator_details if my_indicator_found else ""
+
+# Update classification logic if needed
+if my_indicator_found:
+    results['Changed'] = 'YES'  # or 'Indications Found'</code></pre>
+            
+            <h3>Step 3: Add Column to UI</h3>
+            
+            <pre><code># In pdfrecon/app_gui.py, __init__() method
+
+# Add to table columns list
+self.table_columns = [
+    # ... existing columns ...
+    ("My Indicator", 150),  # (column_name, width)
+]</code></pre>
+            
+            <h2>PDF Structure Basics</h2>
+            
+            <h3>Key PDF Components</h3>
+            
+            <pre><code># PDF structure overview
+
+%PDF-1.7                     # Header (version)
+1 0 obj                      # Objects (numbered)
+<< /Type /Catalog ... >>    # Dictionary
+endobj
+...
+xref                         # Cross-reference table
+0 6                         # Object 0, next 6 objects
+0000000000 65535 f          # Free object
+0000000015 00000 n          # Object at byte 15
+...
+trailer                      # Trailer dictionary
+<< /Size 6 /Root 1 0 R >>
+startxref                    # Pointer to xref
+1234
+%%EOF                        # End of file marker
+
+# Incremental save adds new section:
+...
+xref
+6 3                          # New objects 6-8
+...
+trailer
+<< /Size 9 /Prev 1234 >>    # Points to previous trailer
+startxref
+5678
+%%EOF                        # Second EOF = revision!</code></pre>
+            
+            <h3>Common Detection Patterns</h3>
+            
+            <pre><code># Pattern 1: Find specific PDF keywords
+import re
+
+pattern = rb'/TouchUp_TextEdit'
+if pattern in pdf_bytes:
+    # TouchUp detected
+    
+# Pattern 2: Count occurrences
+eof_count = pdf_bytes.count(b'%%EOF')
+if eof_count > 1:
+    # Multiple saves = revisions
+    
+# Pattern 3: Extract metadata dates
+date_pattern = re.compile(rb'/CreationDate\s*\((.*?)\)')
+match = date_pattern.search(pdf_bytes)
+if match:
+    creation_date = match.group(1).decode('latin-1')
+    
+# Pattern 4: Parse XMP metadata
+if b'<x:xmpmeta' in pdf_bytes:
+    # Extract and parse XML
+    start = pdf_bytes.find(b'<x:xmpmeta')
+    end = pdf_bytes.find(b'</x:xmpmeta>', start) + 12
+    xmp_xml = pdf_bytes[start:end]</code></pre>
+            
+            <h2>ExifTool Integration</h2>
+            
+            <pre><code># Running ExifTool on PDF
+
+def run_exiftool(self, filepath: str) -> dict:
+    """Extract metadata using ExifTool."""
+    try:
+        exiftool_path = self.get_exiftool_path()
+        cmd = [exiftool_path, '-s', '-G', '-a', filepath]
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            encoding='utf-8',
+            errors='replace'
+        )
+        
+        # Parse output
+        metadata = {}
+        for line in result.stdout.split('\n'):
+            if ':' in line:
+                key, value = line.split(':', 1)
+                metadata[key.strip()] = value.strip()
+        
+        return metadata
+    except Exception as e:
+        logging.error(f"ExifTool failed: {e}")
+        return {}</code></pre>
+            
+            <h2>Visual Diff Implementation</h2>
+            
+            <pre><code># Comparing PDF revisions visually
+
+import fitz  # PyMuPDF
+
+def create_visual_diff(original_pdf: bytes, modified_pdf: bytes, page_num: int):
+    """Create visual difference overlay."""
+    
+    # Render both versions
+    doc1 = fitz.open(stream=original_pdf, filetype="pdf")
+    doc2 = fitz.open(stream=modified_pdf, filetype="pdf")
+    
+    page1 = doc1[page_num]
+    page2 = doc2[page_num]
+    
+    # Render to images
+    pix1 = page1.get_pixmap(dpi=150)
+    pix2 = page2.get_pixmap(dpi=150)
+    
+    # Convert to PIL Images
+    img1 = Image.frombytes("RGB", [pix1.width, pix1.height], pix1.samples)
+    img2 = Image.frombytes("RGB", [pix2.width, pix2.height], pix2.samples)
+    
+    # Calculate difference
+    diff = ImageChops.difference(img1, img2)
+    
+    # Enhance differences (make them more visible)
+    diff = ImageOps.autocontrast(diff)
+    
+    return img1, img2, diff</code></pre>
+            
+            <h2>Performance Considerations</h2>
+            
+            <h3>Do's ✅</h3>
+            <ul>
+                <li>Use regex for pattern matching (faster than manual search)</li>
+                <li>Cache expensive operations</li>
+                <li>Process large files in chunks</li>
+                <li>Use threading for batch operations</li>
+                <li>Set timeouts for external tools (ExifTool)</li>
+            </ul>
+            
+            <h3>Don'ts ❌</h3>
+            <ul>
+                <li>Don't parse entire PDF into memory for large files</li>
+                <li>Don't use unbounded loops</li>
+                <li>Don't block UI thread with heavy processing</li>
+                <li>Don't open encrypted PDFs without checking first</li>
+            </ul>
+            
+            <h2>Error Handling</h2>
+            
+            <pre><code># Robust error handling pattern
+
+def analyze_indicator(self, pdf_bytes: bytes) -> tuple:
+    """Analyze with proper error handling."""
+    try:
+        # Check for corrupted file
+        if len(pdf_bytes) < 100:
+            raise PDFCorruptionError("File too small")
+        
+        # Check for encryption
+        if b'/Encrypt' in pdf_bytes:
+            raise PDFEncryptedError("File is encrypted")
+        
+        # Your analysis logic
+        result = self._do_analysis(pdf_bytes)
+        
+        return (True, result)
+        
+    except PDFEncryptedError as e:
+        logging.warning(f"Encrypted PDF: {e}")
+        return (False, "ENCRYPTED")
+    except PDFCorruptionError as e:
+        logging.error(f"Corrupted PDF: {e}")
+        return (False, "CORRUPTED")
+    except Exception as e:
+        logging.error(f"Unexpected error: {e}", exc_info=True)
+        return (False, "")</code></pre>
+            
+            <h2>Testing Your Indicator</h2>
+            
+            <h3>Create Test PDFs</h3>
+            
+            <ol>
+                <li><strong>Baseline</strong> - Clean PDF without indicator</li>
+                <li><strong>Positive</strong> - PDF with indicator present</li>
+                <li><strong>Edge Cases</strong> - Corrupted, encrypted, or malformed PDFs</li>
+            </ol>
+            
+            <h3>Test Workflow</h3>
+            
+            <pre><code># Manual testing steps
+
+1. Load test PDF into PDFRecon
+2. Verify indicator detected correctly
+3. Check details string is informative
+4. Verify classification (YES/FOUND/NOT DETECTED)
+5. Test with large batch (performance)
+6. Test with edge cases (error handling)
+7. Export to Excel and verify column appears</code></pre>
+            
+            <h2>Contributing</h2>
+            
+            <h3>Code Style</h3>
+            <ul>
+                <li>Follow PEP 8 style guidelines</li>
+                <li>Use type hints where helpful</li>
+                <li>Add docstrings to all functions</li>
+                <li>Keep functions focused and short</li>
+                <li>Use descriptive variable names</li>
+            </ul>
+            
+            <h3>Pull Request Checklist</h3>
+            <ul>
+                <li>☐ Code follows style guidelines</li>
+                <li>☐ No syntax errors or warnings</li>
+                <li>☐ Tested with sample PDFs</li>
+                <li>☐ Documentation updated (manual)</li>
+                <li>☐ Changelog entry added</li>
+                <li>☐ No breaking changes (or documented)</li>
+            </ul>
+            
+            <h2>Useful Resources</h2>
+            
+            <div class="info">
+                <h3>PDF Specification</h3>
+                <ul>
+                    <li><strong>PDF Reference (ISO 32000)</strong> - Official PDF standard</li>
+                    <li><strong>PyMuPDF Documentation</strong> - Python PDF library</li>
+                    <li><strong>ExifTool Documentation</strong> - Metadata extraction</li>
+                    <li><strong>Adobe XMP Specification</strong> - Extended metadata</li>
+                </ul>
+            </div>
+            
+            <h2>Example: Complete Indicator</h2>
+            
+            <pre><code>"""
+Example: Detect duplicate images indicator
+"""
+
+def check_duplicate_images(self, pdf_bytes: bytes, pdf_dict: dict) -> tuple:
+    """
+    Detect if same image appears multiple times with different references.
+    
+    This can indicate editing where images were removed and re-added.
+    
+    Args:
+        pdf_bytes: Raw PDF file bytes
+        pdf_dict: Parsed PDF structure
+        
+    Returns:
+        tuple: (found: bool, details: str)
+    """
+    try:
+        import hashlib
+        from collections import defaultdict
+        
+        # Extract all image objects
+        image_pattern = rb'/Subtype\s*/Image.*?stream(.*?)endstream'
+        images = re.findall(image_pattern, pdf_bytes, re.DOTALL)
+        
+        if len(images) < 2:
+            return (False, "")
+        
+        # Hash each image
+        image_hashes = defaultdict(list)
+        for idx, img_data in enumerate(images):
+            img_hash = hashlib.md5(img_data).hexdigest()
+            image_hashes[img_hash].append(idx)
+        
+        # Find duplicates
+        duplicates = {h: refs for h, refs in image_hashes.items() 
+                     if len(refs) > 1}
+        
+        if duplicates:
+            count = len(duplicates)
+            details = f"Found {count} duplicate image(s)"
+            return (True, details)
+        
+        return (False, "")
+        
+    except Exception as e:
+        logging.error(f"check_duplicate_images failed: {e}")
+        return (False, "")</code></pre>
+        </div>
+    </div>
+    
+    <script>
+        function showSection(sectionId) {
+            // Hide all sections
+            document.querySelectorAll('.section').forEach(s => s.style.display = 'none');
+            
+            // Show selected section
+            document.getElementById(sectionId).style.display = 'block';
+            
+            // Update active menu item
+            document.querySelectorAll('#nav li').forEach(li => li.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            // Scroll to top
+            document.getElementById('content').scrollTop = 0;
+        }
+        
+        // Simple search functionality
+        document.getElementById('search').addEventListener('input', function(e) {
+            const query = e.target.value.toLowerCase();
+            const sections = document.querySelectorAll('.section');
+            
+            if (query.length < 2) return;
+            
+            // Search through all sections
+            sections.forEach(section => {
+                const text = section.textContent.toLowerCase();
+                if (text.includes(query)) {
+                    section.style.display = 'block';
+                    document.querySelectorAll('#nav li').forEach(li => li.classList.remove('active'));
+                }
+            });
+        });
+    </script>
+</body>
+</html>

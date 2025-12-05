@@ -25,6 +25,7 @@ from .config import (
 )
 from .pdf_processor import safe_pdf_open, safe_extract_text, validate_pdf_file, count_layers
 from .utils import md5_file
+from .advanced_forensics import run_advanced_forensics
 
 
 def find_pdf_files_generator(folder_path):
@@ -224,6 +225,9 @@ def detect_indicators(filepath: Path, txt: str, doc, exif_output: str = "", app_
         # Bookmark tampering
         if doc:
             _detect_bookmark_anomalies(doc, indicators)
+        
+        # --- Advanced Forensics (v1.3+) ---
+        run_advanced_forensics(txt, doc, filepath, indicators)
 
         # --- ID Comparison ---
         def _norm_uuid(x):
@@ -269,19 +273,19 @@ def detect_indicators(filepath: Path, txt: str, doc, exif_output: str = "", app_
 
 def analyze_fonts(filepath: Path, doc):
     """
-    Analyzes fonts in the PDF to detect multiple subsets of the same base font.
+    Analyzes fonts in the PDF to detect multiple subsets of the same font STYLE.
     
-    When a PDF includes custom fonts, they may be split into multiple subsets
-    (e.g., "ABC+Calibri", "DEF+Calibri"). Multiple subsets of the same font
-    can indicate editing or assembly from different sources.
+    IMPORTANT: Multiple subsets are ONLY suspicious when they're the same style:
+    - SUSPICIOUS: AAAAAA+Arial-Regular AND BBBBBB+Arial-Regular (same style, different subsets)
+    - NORMAL: AAAAAA+Arial-Bold AND BBBBBB+Arial-Regular (different styles = expected)
     
     Args:
         filepath (Path): Path to the PDF file (for logging)
         doc: PyMuPDF document object
         
     Returns:
-        dict: Dictionary of base fonts with their conflicting subsets.
-              Example: {'Calibri': ['ABC+Calibri', 'DEF+Calibri-Bold']}
+        dict: Dictionary of base fonts with their conflicting subsets OF THE SAME STYLE.
+              Example: {'Arial-Regular': ['ABC+Arial-Regular', 'DEF+Arial-Regular']}
     """
     font_subsets = {}
     
@@ -294,11 +298,12 @@ def analyze_fonts(filepath: Path, doc):
                     basefont_name = font_info[3]
                     if "+" in basefont_name:
                         try:
-                            _, actual_base_font = basefont_name.split("+", 1)
-                            normalized_base = actual_base_font.split('-')[0]
-                            if normalized_base not in font_subsets:
-                                font_subsets[normalized_base] = set()
-                            font_subsets[normalized_base].add(basefont_name)
+                            subset_prefix, full_font_name = basefont_name.split("+", 1)
+                            # Keep the FULL font name including style (Arial-Bold, Arial-Regular, etc.)
+                            # This way we track subsets per STYLE, not per base font
+                            if full_font_name not in font_subsets:
+                                font_subsets[full_font_name] = set()
+                            font_subsets[full_font_name].add(basefont_name)
                         except ValueError:
                             continue
             except Exception as e:
@@ -308,11 +313,13 @@ def analyze_fonts(filepath: Path, doc):
         logging.error(f"Error accessing page fonts for {filepath.name}: {e}")
         return {}
     
-    # Filter for only those fonts that actually have multiple subsets
-    conflicting_fonts = {base: list(subsets) for base, subsets in font_subsets.items() if len(subsets) > 1}
+    # Filter for only those font STYLES that have multiple subsets
+    # This now correctly identifies: AAAAAA+Arial-Regular + BBBBBB+Arial-Regular (suspicious)
+    # But ignores: AAAAAA+Arial-Bold + BBBBBB+Arial-Regular (normal)
+    conflicting_fonts = {style: list(subsets) for style, subsets in font_subsets.items() if len(subsets) > 1}
     
     if conflicting_fonts:
-        logging.info(f"Multiple font subsets found in {filepath.name}: {conflicting_fonts}")
+        logging.info(f"Multiple font subsets of SAME STYLE found in {filepath.name}: {conflicting_fonts}")
 
     return conflicting_fonts
 
