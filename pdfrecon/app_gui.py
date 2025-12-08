@@ -2930,8 +2930,8 @@ class PDFReconApp:
             
             # Build the command-line arguments for ExifTool
             command = [str(exe_path)]
-            if detailed: command.extend(["-a", "-s", "-G1", "-struct"])
-            else: command.extend(["-a"])
+            if detailed: command.extend(["-a", "-u", "-s", "-G1", "-struct"])
+            else: command.extend(["-a", "-u", "-s", "-G1"])
             command.append("-") # Read from stdin
 
             # Run the process

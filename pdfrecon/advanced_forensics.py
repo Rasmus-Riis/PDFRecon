@@ -8,6 +8,7 @@ import re
 import logging
 import hashlib
 from pathlib import Path
+from .jpeg_forensics import analyze_pdf_images_qt
 
 
 def detect_emails_and_urls(txt: str, indicators: dict):
@@ -369,6 +370,88 @@ def detect_pdf_a_compliance(txt: str, indicators: dict):
         logging.debug(f"Error detecting PDF/A compliance: {e}")
 
 
+def detect_polyglot_file(pdf_bytes: bytes, indicators: dict):
+    """
+    Detect polyglot files - files that are valid as multiple formats simultaneously.
+    
+    A legitimate PDF should have %PDF header at or very near offset 0.
+    If the header appears at a suspicious offset (e.g., 512+ bytes), the file may be
+    a polyglot attempting to be both a ZIP and PDF to evade security scanners.
+    
+    Args:
+        pdf_bytes (bytes): Raw PDF file content
+        indicators (dict): Dictionary to add indicators to
+    """
+    try:
+        # PDF spec allows %PDF within first 1024 bytes, but legitimate files use offset 0
+        pdf_header = b'%PDF-'
+        
+        # Find the position of the PDF header
+        header_offset = pdf_bytes.find(pdf_header)
+        
+        if header_offset == -1:
+            indicators['PolyglotFile'] = {
+                'status': 'CRITICAL: No PDF header found',
+                'note': 'File may be corrupted or not a valid PDF'
+            }
+            return
+        
+        if header_offset == 0:
+            # Normal PDF - header at start
+            return
+        
+        if header_offset > 0 and header_offset <= 1024:
+            # Check what's before the PDF header
+            prefix = pdf_bytes[:header_offset]
+            
+            # Check for common file signatures
+            signatures = {
+                b'PK\x03\x04': 'ZIP/Office/JAR',
+                b'PK\x05\x06': 'ZIP (empty)',
+                b'\x1f\x8b\x08': 'GZIP',
+                b'Rar!': 'RAR',
+                b'\x89PNG': 'PNG',
+                b'\xff\xd8\xff': 'JPEG',
+                b'GIF8': 'GIF',
+                b'BM': 'BMP',
+                b'\x00\x00\x00': 'Possible video/binary',
+            }
+            
+            detected_format = None
+            for sig, format_name in signatures.items():
+                if prefix.startswith(sig):
+                    detected_format = format_name
+                    break
+            
+            # Suspicious if offset is large or another format is detected
+            if header_offset >= 512 or detected_format:
+                indicators['PolyglotFile'] = {
+                    'status': 'SUSPICIOUS',
+                    'pdf_header_offset': header_offset,
+                    'detected_prefix_format': detected_format if detected_format else 'Unknown binary data',
+                    'note': f'PDF header at byte {header_offset} - may be polyglot file to evade security'
+                }
+                logging.warning(f"Polyglot file detected: PDF header at offset {header_offset}")
+            elif header_offset > 0:
+                # Small offset, might be legitimate but worth noting
+                indicators['PolyglotFile'] = {
+                    'status': 'Minor offset',
+                    'pdf_header_offset': header_offset,
+                    'note': f'PDF header at byte {header_offset} (within spec but unusual)'
+                }
+        
+        elif header_offset > 1024:
+            # Beyond PDF spec - definitely suspicious
+            indicators['PolyglotFile'] = {
+                'status': 'CRITICAL: Header beyond spec',
+                'pdf_header_offset': header_offset,
+                'note': f'PDF header at byte {header_offset} - exceeds 1024 byte limit, likely malicious'
+            }
+            
+    except Exception as e:
+        logging.debug(f"Error detecting polyglot file: {e}")
+
+
 def run_advanced_forensics(txt: str, doc, filepath: Path, indicators: dict):
     """
     Main entry point for advanced forensic detection.
@@ -380,6 +463,9 @@ def run_advanced_forensics(txt: str, doc, filepath: Path, indicators: dict):
         indicators (dict): Dictionary to add indicators to
     """
     try:
+        # Get raw bytes for polyglot detection
+        pdf_bytes = filepath.read_bytes() if filepath and filepath.exists() else txt.encode('latin-1', errors='ignore')
+        
         detect_emails_and_urls(txt, indicators)
         detect_unc_paths(txt, indicators)
         detect_language(doc, indicators)
@@ -390,6 +476,8 @@ def run_advanced_forensics(txt: str, doc, filepath: Path, indicators: dict):
         detect_3d_and_multimedia(txt, indicators)
         detect_temporal_anomalies(txt, indicators)
         detect_pdf_a_compliance(txt, indicators)
+        detect_polyglot_file(pdf_bytes, indicators)
+        analyze_pdf_images_qt(doc, filepath, indicators)
         
         logging.info(f"Advanced forensics completed for {filepath.name}")
         
