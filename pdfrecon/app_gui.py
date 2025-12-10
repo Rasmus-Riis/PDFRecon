@@ -1757,10 +1757,11 @@ class PDFReconApp:
         if getattr(sys, 'frozen', False):
             # If the app is frozen, the base path is the folder containing the exe.
             base_path = Path(sys.executable).parent
-            if not base_is_parent:
-                # Data files (like exiftool) are in a temp folder _MEIPASS,
-                # unless we want a file next to the exe (base_is_parent=True).
-                return Path(getattr(sys, '_MEIPASS', base_path)) / filename
+            # When frozen and base_is_parent=True, look for the file next to the exe (e.g., exiftool.exe)
+            if base_is_parent:
+                return base_path / filename
+            # Otherwise, look in _MEIPASS for bundled data files (translations, etc.)
+            return Path(getattr(sys, '_MEIPASS', base_path)) / filename
         else:
             # If running as a normal script, the base path is the script's folder.
             base_path = Path(__file__).resolve().parent
@@ -3767,13 +3768,11 @@ class PDFReconApp:
             except Exception as e:
                 logging.error(f"Failed to open PDF {fp.name}: {e}")
                 raise PDFCorruptionError(f"Cannot open PDF: {str(e)}")
-            
-            # Use safer text extraction
+
+            # Extract text for indicator detection (must capture raw PDF structure)
             logging.info(f"Extracting text from {fp.name}...")
-            txt = self._safe_extract_text(raw_bytes=raw, doc=doc)
-            logging.info(f"Text extraction complete for {fp.name}: {len(txt)} characters")
-            
-            # Detect indicators with error handling
+            txt = self.extract_text(raw)
+            logging.info(f"Text extraction complete for {fp.name}: {len(txt)} characters")            # Detect indicators with error handling
             logging.info(f"Detecting indicators in {fp.name}...")
             try:
                 indicators = self.detect_indicators(fp, txt, doc)
