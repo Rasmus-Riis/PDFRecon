@@ -3179,27 +3179,70 @@ class PDFReconApp:
         """Helper function to parse timestamps directly from the file's raw content."""
         events = []
         
-        # Look for PDF-style dates: /CreationDate (D:20230101120000...)
-        # Use module-level regex constant
-        for match in _PDF_DATE_PATTERN.finditer(file_content_string):
-            label, date_str = match.groups()
+        # Look for PDF-style dates: /CreationDate (D:20230101120000+02'00')
+        # Extended pattern to also capture timezone: +HH'MM' or -HH'MM' or Z
+        pdf_date_pattern_full = re.compile(r"\/([A-Z][a-zA-Z0-9_]+)\s*\(\s*D:(\d{14})([+\-]\d{2}'\d{2}'|[+\-]\d{2}:\d{2}|Z)?")
+        for match in pdf_date_pattern_full.finditer(file_content_string):
+            label, date_str, tz_str = match.groups()
             try:
                 dt_obj = datetime.strptime(date_str, "%Y%m%d%H%M%S")
+                # Apply timezone if present
+                if tz_str:
+                    if tz_str == 'Z':
+                        dt_obj = dt_obj.replace(tzinfo=timezone.utc)
+                    else:
+                        # Parse +02'00' or +02:00 format
+                        tz_clean = tz_str.replace("'", "")
+                        if ':' not in tz_clean:
+                            tz_clean = tz_clean[:3] + ':' + tz_clean[3:]
+                        hours = int(tz_clean[:3])
+                        minutes = int(tz_clean[4:6])
+                        if hours < 0:
+                            minutes = -minutes
+                        from datetime import timedelta
+                        tz_offset = timezone(timedelta(hours=hours, minutes=minutes))
+                        dt_obj = dt_obj.replace(tzinfo=tz_offset)
                 display_line = f"Raw File: /{label}: {dt_obj.strftime('%Y-%m-%d %H:%M:%S')}"
                 events.append((dt_obj, display_line))
             except ValueError:
                 continue
 
         # Look for XMP-style dates: <xmp:CreateDate>2023-01-01T12:00:00Z</xmp:CreateDate>
-        xmp_date_pattern = re.compile(r"<([a-zA-Z0-9:]+)[^>]*?>\s*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.*?)\s*<\/([a-zA-Z0-9:]+)>")
+        xmp_date_pattern = re.compile(r"<([a-zA-Z0-9:]+)[^>]*?>\s*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[^\s<]*)\s*<\/([a-zA-Z0-9:]+)>")
         for match in xmp_date_pattern.finditer(file_content_string):
             label, date_str, closing_label = match.groups()
             if label != closing_label: 
                 continue
             try:
-                # Clean the date string of timezones and milliseconds
-                clean_date_str = date_str.split('Z')[0].split('+')[0].split('.')[0].strip()
-                dt_obj = datetime.fromisoformat(clean_date_str)
+                # Parse with timezone support
+                # Handle Z (UTC), +HH:MM, -HH:MM, and no timezone
+                clean_str = date_str.strip()
+                
+                # Check for timezone indicators
+                has_tz = False
+                if clean_str.endswith('Z'):
+                    # UTC timezone
+                    base_str = clean_str[:-1].split('.')[0]  # Remove Z and milliseconds
+                    dt_obj = datetime.fromisoformat(base_str)
+                    dt_obj = dt_obj.replace(tzinfo=timezone.utc)
+                    has_tz = True
+                elif '+' in clean_str[10:] or (clean_str[10:].count('-') > 0 and ':' in clean_str.split('-')[-1]):
+                    # Has timezone offset like +02:00 or -05:00
+                    # Python 3.7+ fromisoformat handles this
+                    try:
+                        dt_obj = datetime.fromisoformat(clean_str.replace('Z', '+00:00'))
+                        has_tz = True
+                    except ValueError:
+                        # Fallback: strip timezone and parse as naive
+                        base_str = clean_str.split('+')[0].split('.')[0]
+                        if '-' in base_str[10:]:
+                            base_str = '-'.join(base_str.rsplit('-', 1)[:-1]) if base_str.count('-') > 2 else base_str
+                        dt_obj = datetime.fromisoformat(base_str.split('.')[0])
+                else:
+                    # No timezone - parse as naive
+                    base_str = clean_str.split('.')[0]
+                    dt_obj = datetime.fromisoformat(base_str)
+                
                 display_line = f"Raw File: <{label}>: {date_str}"
                 events.append((dt_obj, display_line))
             except (ValueError, IndexError):
