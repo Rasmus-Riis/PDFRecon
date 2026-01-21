@@ -8,7 +8,7 @@ import re
 import os
 
 # --- Application Version ---
-APP_VERSION = "17.3.3"
+APP_VERSION = "17.3.5"
 
 # --- UI Configuration Constants ---
 UI_COLORS = {
@@ -18,6 +18,8 @@ UI_COLORS = {
     'yellow_fg': '#fff4cc',
     'blue_row': '#152a4f',
     'blue_fg': '#99badd',
+    'purple_row': '#3d1f4a',
+    'purple_fg': '#e0ccff',
     'gray_row': '#2a2a2a',
     'selection_blue': '#1F6AA5',
     'progress_blue': '#1F6AA5',

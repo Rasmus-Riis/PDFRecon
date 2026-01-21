@@ -466,7 +466,9 @@ class PDFReconApp:
         return translations
   
     def _save_config(self):
-        """Helper method to save configuration to config.ini."""
+        """Helper method to save configuration to config.ini (silently skips on restricted systems)."""
+        if not getattr(self, '_config_writable', True):
+            return  # Skip save on restricted systems
         try:
             parser = configparser.ConfigParser()
             parser.read(self.config_path)
@@ -476,66 +478,80 @@ class PDFReconApp:
             with open(self.config_path, 'w') as configfile:
                 configfile.write("# PDFRecon Configuration File\n")
                 parser.write(configfile)
-            logging.info(f"Language setting saved to {self.config_path}")
-        except Exception as e:
-            logging.error(f"Could not save language setting to config.ini: {e}")
+        except Exception:
+            pass  # Silently fail on restricted systems
   
     def _load_or_create_config(self):
-        """Loads configuration from config.ini or creates the file with default values."""
+        """Loads configuration from config.ini or uses defaults (no write required)."""
         parser = configparser.ConfigParser()
-        # Set a default language in case the config file is missing or corrupt.
         self.default_language = "en"
-        if not self.config_path.exists():
-            logging.info("config.ini not found. Creating with default values.")
+        self._config_writable = False  # Track if we can write to config
+        
+        # Try to read existing config first
+        if self.config_path.exists():
+            try:
+                parser.read(self.config_path)
+                settings = parser['Settings']
+                PDFReconConfig.MAX_FILE_SIZE = settings.getint('MaxFileSizeMB', 500) * 1024 * 1024
+                PDFReconConfig.EXIFTOOL_TIMEOUT = settings.getint('ExifToolTimeout', 30)
+                PDFReconConfig.MAX_WORKER_THREADS = settings.getint('MaxWorkerThreads', PDFReconConfig.MAX_WORKER_THREADS)
+                PDFReconConfig.VISUAL_DIFF_PAGE_LIMIT = settings.getint('VisualDiffPageLimit', 5)
+                PDFReconConfig.EXPORT_INVALID_XREF = settings.getboolean('ExportInvalidXREF', False)
+                self.default_language = settings.get('Language', 'en')
+                self._config_writable = True
+                return
+            except Exception:
+                pass  # Fall through to use defaults
+        
+        # Use defaults without requiring file write (for restricted environments)
+        # Config will be created only if write succeeds
+        try:
             parser['Settings'] = {
                 'MaxFileSizeMB': '500',
                 'ExifToolTimeout': '30',
                 'MaxWorkerThreads': str(PDFReconConfig.MAX_WORKER_THREADS),
                 'Language': self.default_language,
-                 'VisualDiffPageLimit': str(PDFReconConfig.VISUAL_DIFF_PAGE_LIMIT),
+                'VisualDiffPageLimit': str(PDFReconConfig.VISUAL_DIFF_PAGE_LIMIT),
                 'ExportInvalidXREF': 'False'
             }
-            try:
-                with open(self.config_path, 'w') as configfile:
-                    configfile.write("# PDFRecon Configuration File\n")
-                    parser.write(configfile)
-            except IOError as e:
-                logging.error(f"Could not write to config.ini: {e}")
-                return
-        
-        try:
-            parser.read(self.config_path)
-            settings = parser['Settings']
-            PDFReconConfig.MAX_FILE_SIZE = settings.getint('MaxFileSizeMB', 500) * 1024 * 1024
-            PDFReconConfig.EXIFTOOL_TIMEOUT = settings.getint('ExifToolTimeout', 30)
-            PDFReconConfig.MAX_WORKER_THREADS = settings.getint('MaxWorkerThreads', PDFReconConfig.MAX_WORKER_THREADS)
-            PDFReconConfig.VISUAL_DIFF_PAGE_LIMIT = settings.getint('VisualDiffPageLimit', 5)
-            PDFReconConfig.EXPORT_INVALID_XREF = settings.getboolean('ExportInvalidXREF', False)
-            # Load the language, fallback to the default 'en'
-            self.default_language = settings.get('Language', 'en')
-            logging.info(f"Configuration loaded from {self.config_path}")
-        except Exception as e:
-            logging.error(f"Could not read config.ini, using default values. Error: {e}")
+            with open(self.config_path, 'w') as configfile:
+                configfile.write("# PDFRecon Configuration File\n")
+                parser.write(configfile)
+            self._config_writable = True
+        except Exception:
+            # Can't write config - that's OK on restricted systems, just use defaults
+            self._config_writable = False
 
     def _setup_logging(self):
-        """ Sets up a robust logger that writes to a file. """
-        self.log_file_path = self._resolve_path("pdfrecon.log", base_is_parent=True)
-        
+        """ Sets up a robust logger that writes to a file (with fallback to temp dir or console-only). """
         logger = logging.getLogger()
         logger.setLevel(logging.INFO)
         
         # Clear existing handlers to avoid duplicate logs
         if logger.hasHandlers():
             logger.handlers.clear()
-            
-        try:
-            # Create a file handler to write logs to a file
-            fh = logging.FileHandler(self.log_file_path, mode='a', encoding='utf-8')
-            formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-            fh.setFormatter(formatter)
-            logger.addHandler(fh)
-        except Exception as e:
-            messagebox.showerror("Log Error", f"Could not create the log file.\n\nDetails: {e}")
+        
+        # Try multiple locations for the log file
+        log_locations = [
+            self._resolve_path("pdfrecon.log", base_is_parent=True),  # App directory
+            Path(tempfile.gettempdir()) / "pdfrecon.log",  # Temp directory
+        ]
+        
+        self.log_file_path = None
+        for log_path in log_locations:
+            try:
+                fh = logging.FileHandler(log_path, mode='a', encoding='utf-8')
+                formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+                fh.setFormatter(formatter)
+                logger.addHandler(fh)
+                self.log_file_path = log_path
+                break  # Success, stop trying
+            except Exception:
+                continue  # Try next location
+        
+        # If no file logging worked, add a NullHandler to prevent errors (console still works via print)
+        if self.log_file_path is None:
+            logger.addHandler(logging.NullHandler())
     def _autoload_case_in_reader(self):
         """If in reader mode, finds and opens a .prc file in the executable's directory."""
         try:
@@ -824,11 +840,11 @@ class PDFReconApp:
             self.scan_button.configure(state="disabled")
         
         # Export button
-        export_button = ctk.CTkButton(sb, text="EXPORT REPORT", command=self._show_export_menu,
+        self.export_button = ctk.CTkButton(sb, text="EXPORT REPORT", command=self._show_export_menu,
                                      font=ctk.CTkFont(weight="bold"), 
                                      fg_color=UI_COLORS['accent_green'], 
                                      hover_color=UI_COLORS['accent_green_hover'])
-        export_button.grid(row=3, column=0, padx=20, pady=20, sticky="ew")
+        self.export_button.grid(row=3, column=0, padx=20, pady=20, sticky="ew")
         
         # Tools section
         ctk.CTkLabel(sb, text="TOOLS", text_color="#777", 
@@ -918,6 +934,7 @@ class PDFReconApp:
         self.tree.tag_configure("red_row", background=UI_COLORS['red_row'], foreground=UI_COLORS['red_fg'])
         self.tree.tag_configure("yellow_row", background=UI_COLORS['yellow_row'], foreground=UI_COLORS['yellow_fg'])
         self.tree.tag_configure("blue_row", background=UI_COLORS['blue_row'], foreground=UI_COLORS['blue_fg'])
+        self.tree.tag_configure("purple_row", background=UI_COLORS['purple_row'], foreground=UI_COLORS['purple_fg'])
         self.tree.tag_configure("gray_row", background=UI_COLORS['gray_row'], foreground="white")
         
         # Set up treeview columns
@@ -1176,6 +1193,7 @@ class PDFReconApp:
             self.inspector_indicators_text = tk.Text(indicators_frame, wrap="word", font=("Segoe UI", 9))
             self.inspector_indicators_text.pack(fill="both", expand=True)
             self.inspector_indicators_text.tag_configure("bold", font=("Segoe UI", 9, "bold"))
+            self.inspector_indicators_text.tag_configure("related_link", foreground="#9999ff", underline=True)
             self._make_text_copyable(self.inspector_indicators_text)
 
             # Tab 2: EXIFTool
@@ -1200,7 +1218,18 @@ class PDFReconApp:
             self.inspector_timeline_text = timeline_text_widget
             self._make_text_copyable(self.inspector_timeline_text)
 
-            # Tab 4: PDF Viewer
+            # Tab 4: Version History (for files with revisions)
+            version_frame = ttk.Frame(notebook, padding="10")
+            notebook.add(version_frame, text="Version History")
+            version_text_widget = tk.Text(version_frame, wrap="word", font=("Courier New", 10))
+            version_vscroll = ttk.Scrollbar(version_frame, orient="vertical", command=version_text_widget.yview)
+            version_text_widget.config(yscrollcommand=version_vscroll.set)
+            version_vscroll.pack(side="right", fill="y")
+            version_text_widget.pack(fill="both", expand=True)
+            self.inspector_version_text = version_text_widget
+            self._make_text_copyable(self.inspector_version_text)
+
+            # Tab 5: PDF Viewer
             pdf_view_frame = ttk.Frame(notebook)
             notebook.add(pdf_view_frame, text=self._("view_pdf"))
             self.inspector_pdf_frame = pdf_view_frame
@@ -1223,9 +1252,14 @@ class PDFReconApp:
             col_name = self.tree.heading(self.columns[i], "text")
             self.inspector_indicators_text.insert(tk.END, f"{col_name}: ", ("bold",))
             if col_name == self._("col_indicators") and file_data and file_data.get("indicator_keys"):
-                indicator_details = [self._format_indicator_details(key, details) for key, details in file_data["indicator_keys"].items()]
-                full_indicators_str = "\n  • " + "\n  • ".join(indicator_details)
-                self.inspector_indicators_text.insert(tk.END, full_indicators_str + "\n")
+                # Display indicators with clickable links for RelatedFiles
+                for key, details in file_data["indicator_keys"].items():
+                    self.inspector_indicators_text.insert(tk.END, "\n  • ")
+                    if key == "RelatedFiles":
+                        self._insert_related_files_with_links(details)
+                    else:
+                        self.inspector_indicators_text.insert(tk.END, self._format_indicator_details(key, details))
+                self.inspector_indicators_text.insert(tk.END, "\n")
             else:
                 self.inspector_indicators_text.insert(tk.END, val + "\n")
         note = self.file_annotations.get(path_str)
@@ -1247,6 +1281,12 @@ class PDFReconApp:
         self._populate_timeline_widget(self.inspector_timeline_text, path_str)
         self.inspector_timeline_text.config(state="disabled")
 
+        # Update Version History Tab
+        self.inspector_version_text.config(state="normal")
+        self.inspector_version_text.delete("1.0", tk.END)
+        self._populate_version_history(self.inspector_version_text, path_str, file_data)
+        self.inspector_version_text.config(state="disabled")
+
         # --- PDF Viewer Update Logic with crash fix ---
         if self.inspector_pdf_update_job:
             self.inspector_window.after_cancel(self.inspector_pdf_update_job)
@@ -1267,10 +1307,55 @@ class PDFReconApp:
             pdf_main_frame.pack(fill="both", expand=True)
             pdf_main_frame.rowconfigure(0, weight=1)
             pdf_main_frame.columnconfigure(0, weight=1)
+            
+            # Check for TouchUp_TextEdit indicator and show banner
+            touchup_info = file_data.get("indicator_keys", {}).get("TouchUp_TextEdit", {})
+            has_touchup = bool(touchup_info)
+            touchup_texts_by_page = {}
+            
+            current_row = 0
+            
+            if has_touchup:
+                touchup_banner = ttk.Label(pdf_main_frame, 
+                    text="🔴 TouchUp_TextEdit detected - extracted text shown below",
+                    foreground="red", font=("Segoe UI", 9, "bold"))
+                touchup_banner.grid(row=current_row, column=0, pady=(0, 5), sticky="ew")
+                current_row += 1
+                
+                # Get extracted TouchUp text organized by page
+                found_text = touchup_info.get("found_text", {})
+                if isinstance(found_text, dict):
+                    touchup_texts_by_page = found_text
+                elif isinstance(found_text, list):
+                    touchup_texts_by_page = {0: found_text}  # Legacy: page 0 = all pages
+                
+                # Create a text widget to show extracted TouchUp text for current page
+                touchup_text_frame = ttk.Frame(pdf_main_frame)
+                touchup_text_frame.grid(row=current_row, column=0, sticky="ew", pady=(0, 5))
+                
+                touchup_text_label = ttk.Label(touchup_text_frame, text="Extracted altered text:", 
+                                               font=("Segoe UI", 8, "bold"))
+                touchup_text_label.pack(anchor="w")
+                
+                touchup_text_widget = tk.Text(touchup_text_frame, wrap="word", height=5, 
+                                              font=("Consolas", 9), bg="#3a1a1a", fg="#ffcccc",
+                                              relief="flat", padx=5, pady=5)
+                touchup_text_widget.pack(fill="x", expand=False)
+                # Configure text tags for formatting
+                touchup_text_widget.tag_configure("header", font=("Consolas", 9, "bold"), foreground="#ff9999")
+                touchup_text_widget.tag_configure("hint", font=("Consolas", 8, "italic"), foreground="#cc9999")
+                touchup_text_widget.tag_configure("number", font=("Consolas", 9, "bold"), foreground="#99ff99")
+                touchup_text_widget.config(state="disabled")
+                current_row += 1
+            else:
+                touchup_text_widget = None
+            
             pdf_image_label = ttk.Label(pdf_main_frame)
-            pdf_image_label.grid(row=0, column=0, pady=5, sticky="nsew")
+            pdf_image_label.grid(row=current_row, column=0, pady=5, sticky="nsew")
+            pdf_main_frame.rowconfigure(current_row, weight=1)
+            
             pdf_nav_frame = ttk.Frame(pdf_main_frame)
-            pdf_nav_frame.grid(row=1, column=0, pady=(10,0))
+            pdf_nav_frame.grid(row=current_row + 1, column=0, pady=(10,0))
             
             prev_button = ttk.Button(pdf_nav_frame, text=self._("diff_prev_page"))
             page_label = ttk.Label(pdf_nav_frame, text="", font=("Segoe UI", 9, "italic"))
@@ -1295,6 +1380,26 @@ class PDFReconApp:
                     return
 
                 page = self.inspector_doc.load_page(page_num)
+                
+                # Update the TouchUp text overlay for current page
+                if has_touchup and touchup_text_widget:
+                    # Get TouchUp texts for this page (1-indexed in stored data)
+                    page_texts = touchup_texts_by_page.get(page_num + 1, [])
+                    
+                    touchup_text_widget.config(state="normal")
+                    touchup_text_widget.delete("1.0", tk.END)
+                    
+                    if page_texts:
+                        touchup_text_widget.insert("1.0", f"Page {page_num + 1} - Extracted text segments:\n", "header")
+                        touchup_text_widget.insert(tk.END, "(│ separates individual text operations)\n\n", "hint")
+                        for idx, text in enumerate(page_texts, 1):
+                            touchup_text_widget.insert(tk.END, f"[{idx}] ", "number")
+                            touchup_text_widget.insert(tk.END, f"{text}\n")
+                    else:
+                        touchup_text_widget.insert("1.0", f"(No altered text extracted from page {page_num + 1})")
+                    
+                    touchup_text_widget.config(state="disabled")
+                
                 pix = page.get_pixmap(dpi=150)
                 img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
                 
@@ -1355,10 +1460,81 @@ class PDFReconApp:
         if is_revision:
             context_menu.add_command(label=self._("visual_diff"), command=lambda: self.show_visual_diff_popup(item_id))
 
+        # Related files option
+        related_files = file_data and file_data.get("indicator_keys", {}).get("RelatedFiles", {}).get("files", [])
+        if related_files:
+            related_menu = tk.Menu(context_menu, tearoff=0)
+            for rel_file in related_files:
+                rel_name = rel_file.get("name", "Unknown")
+                rel_path = rel_file.get("path", "")
+                rel_type = rel_file.get("type", "related")
+                prefix = "← " if rel_type == "derived_from" else "→ " if rel_type == "parent_of" else "↔ "
+                related_menu.add_command(
+                    label=f"{prefix}{rel_name}",
+                    command=lambda p=rel_path: self._navigate_to_file(p)
+                )
+            context_menu.add_cascade(label=f"🔗 Related Files ({len(related_files)})", menu=related_menu)
+
         context_menu.add_separator()
         context_menu.add_command(label="Open File Location", command=lambda: self.open_file_location(item_id))
         
-        context_menu.tk_popup(event.x_root, event.y_root)  
+        context_menu.tk_popup(event.x_root, event.y_root)
+
+    def _navigate_to_file(self, path_str):
+        """Navigates to and selects a file in the treeview by its path."""
+        # Find the item with the matching path
+        for item_id in self.tree.get_children():
+            values = self.tree.item(item_id, "values")
+            if len(values) > 4 and values[4] == path_str:
+                # Select the item
+                self.tree.selection_set(item_id)
+                # Scroll to make it visible
+                self.tree.see(item_id)
+                # Focus on it
+                self.tree.focus(item_id)
+                # Trigger the selection event to update details
+                self.on_select_item(None)
+                return
+        
+        # If not found, show a message
+        messagebox.showinfo("Not Found", f"The related file could not be found in the current scan results.")
+
+    def _insert_related_files_with_links(self, details):
+        """Inserts RelatedFiles indicator with clickable links in the inspector."""
+        count = details.get('count', 0)
+        files = details.get('files', [])
+        
+        self.inspector_indicators_text.insert(tk.END, f"Related Files Found ({count}):")
+        
+        for f in files:
+            rel_type = f.get('type', 'related')
+            name = f.get('name', 'Unknown')
+            path = f.get('path', '')
+            
+            if rel_type == 'derived_from':
+                prefix = "\n      ← Derived from: "
+            elif rel_type == 'parent_of':
+                prefix = "\n      → Parent of: "
+            else:
+                prefix = "\n      ↔ Related to: "
+            
+            self.inspector_indicators_text.insert(tk.END, prefix)
+            
+            # Create a unique tag for this link
+            tag_name = f"link_{hash(path)}"
+            self.inspector_indicators_text.tag_configure(tag_name, foreground="#9999ff", underline=True)
+            
+            # Insert the clickable filename
+            start_idx = self.inspector_indicators_text.index(tk.END)
+            self.inspector_indicators_text.insert(tk.END, name, (tag_name,))
+            
+            # Bind click event to this specific tag
+            self.inspector_indicators_text.tag_bind(tag_name, "<Button-1>", 
+                lambda e, p=path: self._navigate_to_file(p))
+            self.inspector_indicators_text.tag_bind(tag_name, "<Enter>", 
+                lambda e: self.inspector_indicators_text.config(cursor="hand2"))
+            self.inspector_indicators_text.tag_bind(tag_name, "<Leave>", 
+                lambda e: self.inspector_indicators_text.config(cursor=""))
     
     def show_text_diff_popup(self, item_id):
         """Displays a popup showing the text differences between a file and its revision."""
@@ -1542,6 +1718,237 @@ class PDFReconApp:
                 text_widget.insert("end", f" | {description:<60}", source_tag)
                 text_widget.insert("end", f" | {delta_str}\n", "delta")
                 last_dt_obj = dt_obj
+
+    def _populate_version_history(self, text_widget, path_str, file_data):
+        """Populates the Version History tab with a comparison of all versions."""
+        # Configure tags
+        text_widget.tag_configure("header", font=("Courier New", 12, "bold"), spacing1=10, spacing3=5)
+        text_widget.tag_configure("version_header", font=("Courier New", 11, "bold"), foreground="#1F6AA5")
+        text_widget.tag_configure("label", font=("Courier New", 10, "bold"))
+        text_widget.tag_configure("value", font=("Courier New", 10))
+        text_widget.tag_configure("changed", font=("Courier New", 10, "bold"), foreground="#FF6600")
+        text_widget.tag_configure("unchanged", font=("Courier New", 10), foreground="#666666")
+        text_widget.tag_configure("separator", foreground="#444444")
+
+        if not file_data:
+            text_widget.insert("end", "No data available for this file.")
+            return
+
+        # Check if this file has revisions or incremental updates
+        indicators = file_data.get("indicator_keys", {})
+        has_revisions = indicators.get("HasRevisions", {}).get("count", 0)
+        incremental_count = indicators.get("IncrementalUpdates", {}).get("count", 0)
+        startxref_count = indicators.get("MultipleStartxref", {}).get("count", 0)
+        is_revision = file_data.get("is_revision", False)
+
+        if is_revision:
+            text_widget.insert("end", "This is a revision. Select the parent file to see version comparison.\n")
+            return
+
+        # No incremental updates at all
+        if not has_revisions and not incremental_count and startxref_count <= 1:
+            text_widget.insert("end", "No incremental updates detected in this file.\n\n", "header")
+            text_widget.insert("end", "This PDF has not been saved incrementally, so there are no embedded\n")
+            text_widget.insert("end", "previous versions to compare.\n\n")
+            text_widget.insert("end", "Note: This doesn't mean the file hasn't been edited - it may have been\n")
+            text_widget.insert("end", "saved with 'Save As' or 'Optimize' which rewrites the entire file.")
+            return
+
+        # Incremental updates detected but no revisions extracted
+        if not has_revisions and (incremental_count or startxref_count > 1):
+            detected_versions = incremental_count if incremental_count else startxref_count
+            text_widget.insert("end", f"Incremental updates detected ({detected_versions} versions)\n\n", "header")
+            text_widget.insert("end", "⚠ IMPORTANT: ", "label")
+            text_widget.insert("end", "Incremental updates are a NORMAL PDF feature and do NOT\n", "value")
+            text_widget.insert("end", "prove the document was maliciously altered. They occur during:\n")
+            text_widget.insert("end", "  • Digital signing (required to preserve signed content)\n")
+            text_widget.insert("end", "  • Form filling\n")
+            text_widget.insert("end", "  • Adding comments or annotations\n")
+            text_widget.insert("end", "  • Normal 'Save' operations in Adobe Acrobat\n\n")
+            text_widget.insert("end", "However, the previous versions could NOT be extracted.\n\n", "changed")
+            text_widget.insert("end", "This can happen when:\n")
+            text_widget.insert("end", "  • The PDF was created by software that doesn't store complete versions\n")
+            text_widget.insert("end", "  • The incremental updates only contain small changes (not full pages)\n")
+            text_widget.insert("end", "  • The PDF structure is non-standard or corrupted\n")
+            text_widget.insert("end", "  • The revisions have invalid cross-reference tables\n\n")
+            text_widget.insert("end", "The timestamps below are from the FINAL version only:\n\n", "label")
+            
+            # Still show the current file's timestamps
+            current_timeline = self.timeline_data.get(path_str, {})
+            current_dates = self._extract_key_dates_from_timeline(current_timeline)
+            
+            text_widget.insert("end", "─" * 50 + "\n", "separator")
+            for label, key in [("Created", "created"), ("Modified", "modified"), ("Metadata", "metadata")]:
+                value = current_dates.get(key, "N/A")
+                text_widget.insert("end", f"  {label:12}: ", "label")
+                text_widget.insert("end", f"{value}\n", "value" if value != "N/A" else "unchanged")
+            
+            tool = current_dates.get("tool", "")
+            if tool:
+                text_widget.insert("end", f"  {'Tool':12}: ", "label")
+                text_widget.insert("end", f"{tool}\n", "value")
+            return
+
+        # Gather all versions: current file + all revisions
+        versions = []
+        
+        # Add current (final) version
+        current_timeline = self.timeline_data.get(path_str, {})
+        current_dates = self._extract_key_dates_from_timeline(current_timeline)
+        versions.append({
+            "name": "Final Version",
+            "path": path_str,
+            "dates": current_dates,
+            "is_current": True
+        })
+
+        # Find all revisions for this file
+        for rev_path_str, rev_data in self.all_scan_data.items():
+            if rev_data.get("is_revision") and str(rev_data.get("original_path")) == path_str:
+                rev_timeline = self.timeline_data.get(rev_path_str, {})
+                rev_dates = self._extract_key_dates_from_timeline(rev_timeline)
+                # Extract version number from filename (e.g., "file_rev1_@12345.pdf")
+                try:
+                    rev_name = Path(rev_path_str).stem
+                    if "_rev" in rev_name:
+                        rev_num = rev_name.split("_rev")[1].split("_")[0]
+                        offset = rev_name.split("@")[1] if "@" in rev_name else "?"
+                        version_label = f"Version {rev_num} (@{offset})"
+                    else:
+                        version_label = Path(rev_path_str).name
+                except:
+                    version_label = Path(rev_path_str).name
+                
+                versions.append({
+                    "name": version_label,
+                    "path": rev_path_str,
+                    "dates": rev_dates,
+                    "is_current": False
+                })
+
+        # Sort versions by revision number (rev1, rev2, etc.) with Final at the end
+        def sort_key(v):
+            if v["is_current"]:
+                return (999, "")
+            name = v["name"]
+            if "Version " in name:
+                try:
+                    num = int(name.split("Version ")[1].split(" ")[0])
+                    return (num, name)
+                except:
+                    pass
+            return (0, name)
+        
+        versions.sort(key=sort_key)
+
+        # Display header
+        text_widget.insert("end", f"═══ VERSION HISTORY ({len(versions)} versions found) ═══\n\n", "header")
+        
+        # Important disclaimer
+        text_widget.insert("end", "⚠ IMPORTANT: ", "label")
+        text_widget.insert("end", "Incremental updates are a NORMAL PDF feature and do NOT\n", "value")
+        text_widget.insert("end", "prove the document was maliciously altered. They occur during:\n")
+        text_widget.insert("end", "  • Digital signing (required to preserve signed content)\n")
+        text_widget.insert("end", "  • Form filling\n")
+        text_widget.insert("end", "  • Adding comments or annotations\n")
+        text_widget.insert("end", "  • Normal 'Save' operations in Adobe Acrobat\n\n")
+        text_widget.insert("end", "Compare the timestamps and content below to assess if changes are suspicious.\n\n", "value")
+
+        # Track previous version's dates for comparison
+        prev_dates = None
+
+        for v in versions:
+            dates = v["dates"]
+            
+            # Version header
+            if v["is_current"]:
+                text_widget.insert("end", f"▶ {v['name']} (Current File)\n", "version_header")
+            else:
+                text_widget.insert("end", f"  {v['name']}\n", "version_header")
+            
+            text_widget.insert("end", "  " + "─" * 50 + "\n", "separator")
+
+            # Display key dates
+            date_fields = [
+                ("Created", "created"),
+                ("Modified", "modified"),
+                ("Metadata", "metadata"),
+            ]
+
+            for label, key in date_fields:
+                value = dates.get(key, "N/A")
+                text_widget.insert("end", f"  {label:12}: ", "label")
+                
+                # Check if changed from previous version
+                if prev_dates and prev_dates.get(key) and value != prev_dates.get(key):
+                    text_widget.insert("end", f"{value}", "changed")
+                    text_widget.insert("end", f"  ← CHANGED from {prev_dates.get(key)}\n", "changed")
+                else:
+                    text_widget.insert("end", f"{value}\n", "value" if value != "N/A" else "unchanged")
+
+            # Show tool info if available
+            tool = dates.get("tool", "")
+            if tool:
+                text_widget.insert("end", f"  {'Tool':12}: ", "label")
+                if prev_dates and prev_dates.get("tool") and tool != prev_dates.get("tool"):
+                    text_widget.insert("end", f"{tool}", "changed")
+                    text_widget.insert("end", f"  ← CHANGED\n", "changed")
+                else:
+                    text_widget.insert("end", f"{tool}\n", "value")
+
+            text_widget.insert("end", "\n")
+            prev_dates = dates
+
+        # Summary
+        text_widget.insert("end", "═" * 54 + "\n", "separator")
+        text_widget.insert("end", "\nTip: ", "label")
+        text_widget.insert("end", "Orange text indicates values that changed between versions.\n", "value")
+        text_widget.insert("end", "Check the 'Altered_files' folder for the extracted revision PDFs.\n", "value")
+
+    def _extract_key_dates_from_timeline(self, timeline_data):
+        """Extracts key dates (created, modified, metadata) from timeline data."""
+        dates = {
+            "created": None,
+            "modified": None,
+            "metadata": None,
+            "tool": None
+        }
+        
+        if not timeline_data:
+            return dates
+
+        # Check both aware and naive events
+        all_events = timeline_data.get("aware", []) + timeline_data.get("naive", [])
+        
+        for dt_obj, description in all_events:
+            desc_lower = description.lower()
+            dt_str = dt_obj.strftime("%d-%m-%Y %H:%M:%S")
+            
+            # Extract created date
+            if "created" in desc_lower or "creation" in desc_lower:
+                if not dates["created"] or "exiftool" in desc_lower:
+                    dates["created"] = dt_str
+            
+            # Extract modified date
+            if "modified" in desc_lower or "modify" in desc_lower:
+                if not dates["modified"] or "exiftool" in desc_lower:
+                    dates["modified"] = dt_str
+            
+            # Extract metadata date
+            if "metadata" in desc_lower:
+                if not dates["metadata"] or "exiftool" in desc_lower:
+                    dates["metadata"] = dt_str
+
+            # Extract tool info
+            if "tool:" in desc_lower:
+                try:
+                    tool_part = description.split("Tool:")[1].strip()
+                    if tool_part and not dates["tool"]:
+                        dates["tool"] = tool_part[:50]  # Limit length
+                except:
+                    pass
+
+        return dates
                 
     def show_visual_diff_popup(self, item_id):
         """Shows a side-by-side visual comparison of a revision and its original."""
@@ -1701,38 +2108,40 @@ class PDFReconApp:
                 new_diff_pages = int(diff_pages_var.get())
                 new_export_xref = export_xref_var.get()
 
-                # Update the running config
+                # Update the running config (always works, even on restricted systems)
                 PDFReconConfig.MAX_FILE_SIZE = new_size * 1024 * 1024
                 PDFReconConfig.EXIFTOOL_TIMEOUT = new_timeout
                 PDFReconConfig.MAX_WORKER_THREADS = new_threads
                 PDFReconConfig.VISUAL_DIFF_PAGE_LIMIT = new_diff_pages
                 PDFReconConfig.EXPORT_INVALID_XREF = new_export_xref
 
-                # Write to config.ini
-                parser = configparser.ConfigParser()
-                parser.read(self.config_path)
-                if 'Settings' not in parser:
-                    parser['Settings'] = {}
-                
-                parser['Settings']['MaxFileSizeMB'] = str(new_size)
-                parser['Settings']['ExifToolTimeout'] = str(new_timeout)
-                parser['Settings']['MaxWorkerThreads'] = str(new_threads)
-                parser['Settings']['VisualDiffPageLimit'] = str(new_diff_pages)
-                parser['Settings']['ExportInvalidXREF'] = str(new_export_xref)
+                # Try to write to config.ini (silently skip on restricted systems)
+                saved_to_file = False
+                if getattr(self, '_config_writable', True):
+                    try:
+                        parser = configparser.ConfigParser()
+                        parser.read(self.config_path)
+                        if 'Settings' not in parser:
+                            parser['Settings'] = {}
+                        
+                        parser['Settings']['MaxFileSizeMB'] = str(new_size)
+                        parser['Settings']['ExifToolTimeout'] = str(new_timeout)
+                        parser['Settings']['MaxWorkerThreads'] = str(new_threads)
+                        parser['Settings']['VisualDiffPageLimit'] = str(new_diff_pages)
+                        parser['Settings']['ExportInvalidXREF'] = str(new_export_xref)
 
-                with open(self.config_path, 'w') as configfile:
-                    configfile.write("# PDFRecon Configuration File\n")
-                    parser.write(configfile)
+                        with open(self.config_path, 'w') as configfile:
+                            configfile.write("# PDFRecon Configuration File\n")
+                            parser.write(configfile)
+                        saved_to_file = True
+                    except Exception:
+                        pass  # Can't write - settings applied in memory only
 
-                logging.info("Settings updated and saved to config.ini.")
                 messagebox.showinfo(self._("settings_saved_title"), self._("settings_saved_msg"), parent=settings_popup)
                 settings_popup.destroy()
 
             except ValueError:
                 messagebox.showerror("Error", self._("settings_invalid_input"), parent=settings_popup)
-            except Exception as e:
-                messagebox.showerror("Error", f"Could not save settings: {e}", parent=settings_popup)
-                logging.error(f"Failed to save settings: {e}")
 
         # --- Buttons Frame ---
         buttons_frame = ttk.Frame(main_frame)
@@ -1895,6 +2304,9 @@ class PDFReconApp:
             # === CRITICAL: Run ExifTool HERE ===
             exif = self.exiftool_output(fp, detailed=True)
             
+            # Extract document IDs for cross-referencing
+            document_ids = self._extract_all_document_ids(txt, exif)
+            
             # Detect indicators
             indicator_keys = self.detect_indicators(fp, txt, doc)
             
@@ -1924,7 +2336,8 @@ class PDFReconApp:
                 "exif": exif,
                 "is_revision": False,
                 "timeline": original_timeline,
-                "status": "success"
+                "status": "success",
+                "document_ids": document_ids
             }
             results.append(original_row_data)
             
@@ -2081,6 +2494,9 @@ class PDFReconApp:
         # Update the results table
         self._apply_filter()
         
+        # Cross-reference document IDs to find related files
+        self._cross_reference_document_ids()
+        
         # Update status bar with summary
         self._update_summary_status()
         
@@ -2155,7 +2571,7 @@ class PDFReconApp:
             # --- Update GUI with loaded data ---
             self._apply_filter()
             self._update_summary_status()
-            self.export_menubutton.config(state="normal")
+            self.export_button.configure(state="normal")
             
             if self.evidence_hashes:
                 self.file_menu.entryconfig(self._("menu_verify_integrity"), state="normal")
@@ -2589,6 +3005,199 @@ class PDFReconApp:
             out[k] = {v for v in out[k] if v}
 
         return out
+
+    def _extract_all_document_ids(self, txt: str, exif_output: str) -> dict:
+        """
+        Extracts all document IDs from a PDF for cross-referencing.
+        Returns a dict with 'own_ids' (this file's identifiers) and 'ref_ids' (references to other documents).
+        """
+        def _norm(val):
+            if val is None:
+                return None
+            if isinstance(val, (bytes, bytearray)):
+                val = val.decode("utf-8", "ignore")
+            s = str(val).strip()
+            s = re.sub(r"^urn:uuid:", "", s, flags=re.I)
+            s = re.sub(r"^(uuid:|xmp\.iid:|xmp\.did:)", "", s, flags=re.I)
+            s = s.strip("<>").strip()
+            return s.upper() if s else None
+
+        own_ids = set()  # IDs that identify THIS document
+        ref_ids = set()  # IDs that reference OTHER documents (ancestors, derived from, etc.)
+
+        # Extract this document's own IDs
+        # XMP DocumentID
+        m = re.search(r'xmpMM:DocumentID(?:>|=")([^<"]+)', txt, re.I)
+        if m:
+            v = _norm(m.group(1))
+            if v: own_ids.add(v)
+
+        # XMP InstanceID
+        m = re.search(r'xmpMM:InstanceID(?:>|=")([^<"]+)', txt, re.I)
+        if m:
+            v = _norm(m.group(1))
+            if v: own_ids.add(v)
+
+        # PDF Trailer IDs (first and second)
+        for m in re.finditer(r"/ID\s*\[\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*\]", txt):
+            v1, v2 = _norm(m.group(1)), _norm(m.group(2))
+            if v1: own_ids.add(v1)
+            if v2: own_ids.add(v2)
+
+        # Extract referenced IDs (ancestors, derived from, etc.)
+        # XMP OriginalDocumentID (reference to original)
+        m = re.search(r'xmpMM:OriginalDocumentID(?:>|=")([^<"]+)', txt, re.I)
+        if m:
+            v = _norm(m.group(1))
+            if v: ref_ids.add(v)
+
+        # DerivedFrom block
+        df = re.search(r"<xmpMM:DerivedFrom\b[^>]*>(.*?)</xmpMM:DerivedFrom>", txt, re.I | re.S)
+        if df:
+            blk = df.group(1)
+            for m in re.finditer(r'stRef:documentID(?:>|=")([^<"]+)', blk, re.I):
+                v = _norm(m.group(1))
+                if v: ref_ids.add(v)
+            for m in re.finditer(r'stRef:instanceID(?:>|=")([^<"]+)', blk, re.I):
+                v = _norm(m.group(1))
+                if v: ref_ids.add(v)
+
+        # Ingredients block (embedded/linked documents)
+        ing = re.search(r"<xmpMM:Ingredients\b[^>]*>(.*?)</xmpMM:Ingredients>", txt, re.I | re.S)
+        if ing:
+            blk = ing.group(1)
+            for m in re.finditer(r'stRef:documentID(?:>|=")([^<"]+)', blk, re.I):
+                v = _norm(m.group(1))
+                if v: ref_ids.add(v)
+
+        # Photoshop DocumentAncestors
+        ps = re.search(r"<photoshop:DocumentAncestors\b[^>]*>(.*?)</photoshop:DocumentAncestors>", txt, re.I | re.S)
+        if ps:
+            for m in re.finditer(r"<rdf:li[^>]*>([^<]+)</rdf:li>", ps.group(1), re.I):
+                v = _norm(m.group(1))
+                if v: ref_ids.add(v)
+
+        # History references (past versions)
+        hist = re.search(r"<xmpMM:History\b[^>]*>(.*?)</xmpMM:History>", txt, re.I | re.S)
+        if hist:
+            blk = hist.group(1)
+            for m in re.finditer(r'stRef:documentID(?:>|=")([^<"]+)', blk, re.I):
+                v = _norm(m.group(1))
+                if v: ref_ids.add(v)
+
+        # Also check ExifTool output for any DocumentID/InstanceID
+        if exif_output:
+            for m in re.finditer(r"Document\s*ID\s*:\s*(\S+)", exif_output, re.I):
+                v = _norm(m.group(1))
+                if v: own_ids.add(v)
+            for m in re.finditer(r"Instance\s*ID\s*:\s*(\S+)", exif_output, re.I):
+                v = _norm(m.group(1))
+                if v: own_ids.add(v)
+            for m in re.finditer(r"Original\s*Document\s*ID\s*:\s*(\S+)", exif_output, re.I):
+                v = _norm(m.group(1))
+                if v: ref_ids.add(v)
+
+        # Remove any overlap (don't count own IDs as references)
+        ref_ids = ref_ids - own_ids
+
+        return {
+            "own_ids": own_ids,
+            "ref_ids": ref_ids
+        }
+
+    def _cross_reference_document_ids(self):
+        """
+        Cross-references document IDs across all scanned files to find related documents.
+        Updates the indicator_keys of related files with a 'RelatedFiles' indicator.
+        """
+        if not self.all_scan_data:
+            return
+
+        # Build index: ID -> list of file paths that have this ID as "own"
+        id_to_owners = {}
+        # Build index: file path -> document_ids data
+        path_to_ids = {}
+
+        for path_str, data in self.all_scan_data.items():
+            if data.get("is_revision"):
+                continue  # Skip revisions for now
+            
+            doc_ids = data.get("document_ids")
+            if not doc_ids:
+                continue
+
+            path_to_ids[path_str] = doc_ids
+            
+            for own_id in doc_ids.get("own_ids", set()):
+                if own_id not in id_to_owners:
+                    id_to_owners[own_id] = []
+                id_to_owners[own_id].append(path_str)
+
+        # Now find relationships
+        relationships = {}  # path -> {related_path: relationship_type}
+
+        for path_str, doc_ids in path_to_ids.items():
+            ref_ids = doc_ids.get("ref_ids", set())
+            own_ids = doc_ids.get("own_ids", set())
+
+            for ref_id in ref_ids:
+                # Check if any other file owns this ID
+                owners = id_to_owners.get(ref_id, [])
+                for owner_path in owners:
+                    if owner_path != path_str:
+                        # This file references another file!
+                        if path_str not in relationships:
+                            relationships[path_str] = {}
+                        if owner_path not in relationships[path_str]:
+                            relationships[path_str][owner_path] = "derived_from"
+
+                        # Also mark the reverse relationship
+                        if owner_path not in relationships:
+                            relationships[owner_path] = {}
+                        if path_str not in relationships[owner_path]:
+                            relationships[owner_path][path_str] = "parent_of"
+
+            # Check if any other file references this file's IDs
+            for own_id in own_ids:
+                for other_path, other_ids in path_to_ids.items():
+                    if other_path == path_str:
+                        continue
+                    if own_id in other_ids.get("ref_ids", set()):
+                        # Another file references this file
+                        if path_str not in relationships:
+                            relationships[path_str] = {}
+                        if other_path not in relationships[path_str]:
+                            relationships[path_str][other_path] = "parent_of"
+
+        # Update indicators for files with relationships
+        for path_str, related_files in relationships.items():
+            if path_str in self.all_scan_data:
+                data = self.all_scan_data[path_str]
+                if "indicator_keys" not in data:
+                    data["indicator_keys"] = {}
+                
+                # Format the related files info
+                related_info = []
+                for related_path, rel_type in related_files.items():
+                    # Get just the filename
+                    try:
+                        related_name = Path(related_path).name
+                    except:
+                        related_name = related_path
+                    related_info.append({
+                        "path": related_path,
+                        "name": related_name,
+                        "type": rel_type
+                    })
+
+                data["indicator_keys"]["RelatedFiles"] = {
+                    "count": len(related_files),
+                    "files": related_info
+                }
+
+        # Log summary
+        if relationships:
+            logging.info(f"Document ID cross-reference found {len(relationships)} files with relationships.")
     
     def _scan_worker_parallel(self, folder, q):
         """
@@ -2817,6 +3426,9 @@ class PDFReconApp:
                 display_id = parent_display_ids.get(path_str, i + 1)
                 flag = self.get_flag(indicator_keys, False)
                 tag = self.tree_tags.get(flag, "")
+                # Override with purple for files with related documents
+                if "RelatedFiles" in indicator_keys:
+                    tag = "purple_row"
                 revisions_count = indicator_keys.get("HasRevisions", {}).get("count", 0)
                 revisions_display = str(revisions_count) if revisions_count > 0 else ""
                 indicators_display = "✔" if indicator_keys else ""
@@ -3179,30 +3791,33 @@ class PDFReconApp:
         """Helper function to parse timestamps directly from the file's raw content."""
         events = []
         
-        # Look for PDF-style dates: /CreationDate (D:20230101120000+02'00')
-        # Extended pattern to also capture timezone: +HH'MM' or -HH'MM' or Z
-        pdf_date_pattern_full = re.compile(r"\/([A-Z][a-zA-Z0-9_]+)\s*\(\s*D:(\d{14})([+\-]\d{2}'\d{2}'|[+\-]\d{2}:\d{2}|Z)?")
-        for match in pdf_date_pattern_full.finditer(file_content_string):
+        # Extended PDF date pattern that captures optional timezone: D:YYYYMMDDHHmmss+HH'mm' or Z
+        pdf_date_extended = re.compile(
+            r"\/([A-Z][a-zA-Z0-9_]+)\s*\(\s*D:(\d{14})([+\-]\d{2}'\d{2}'|[+\-]\d{2}:\d{2}|[+\-]\d{4}|Z)?"
+        )
+        
+        for match in pdf_date_extended.finditer(file_content_string):
             label, date_str, tz_str = match.groups()
             try:
+                # Parse the base datetime
                 dt_obj = datetime.strptime(date_str, "%Y%m%d%H%M%S")
-                # Apply timezone if present
+                
+                # Handle timezone if present
                 if tz_str:
                     if tz_str == 'Z':
                         dt_obj = dt_obj.replace(tzinfo=timezone.utc)
                     else:
-                        # Parse +02'00' or +02:00 format
-                        tz_clean = tz_str.replace("'", "")
-                        if ':' not in tz_clean:
-                            tz_clean = tz_clean[:3] + ':' + tz_clean[3:]
-                        hours = int(tz_clean[:3])
-                        minutes = int(tz_clean[4:6])
-                        if hours < 0:
-                            minutes = -minutes
-                        from datetime import timedelta
-                        tz_offset = timezone(timedelta(hours=hours, minutes=minutes))
-                        dt_obj = dt_obj.replace(tzinfo=tz_offset)
-                display_line = f"Raw File: /{label}: {dt_obj.strftime('%Y-%m-%d %H:%M:%S')}"
+                        # Normalize: +01'00' or +01:00 or +0100 -> +01:00
+                        tz_clean = tz_str.replace("'", "").replace(":", "")
+                        if len(tz_clean) == 5:  # e.g., +0100
+                            tz_clean = tz_clean[:3] + ":" + tz_clean[3:]
+                        try:
+                            dt_obj = datetime.fromisoformat(dt_obj.strftime("%Y-%m-%dT%H:%M:%S") + tz_clean)
+                        except ValueError:
+                            pass  # Keep as naive if parsing fails
+                
+                tz_display = tz_str if tz_str else ""
+                display_line = f"Raw File: /{label}: {dt_obj.strftime('%Y-%m-%d %H:%M:%S')}{tz_display}"
                 events.append((dt_obj, display_line))
             except ValueError:
                 continue
@@ -3214,35 +3829,31 @@ class PDFReconApp:
             if label != closing_label: 
                 continue
             try:
-                # Parse with timezone support
-                # Handle Z (UTC), +HH:MM, -HH:MM, and no timezone
-                clean_str = date_str.strip()
+                # Normalize the date string for fromisoformat
+                # Handle Z -> +00:00, strip milliseconds but keep timezone
+                normalized = date_str.strip()
                 
-                # Check for timezone indicators
-                has_tz = False
-                if clean_str.endswith('Z'):
-                    # UTC timezone
-                    base_str = clean_str[:-1].split('.')[0]  # Remove Z and milliseconds
-                    dt_obj = datetime.fromisoformat(base_str)
-                    dt_obj = dt_obj.replace(tzinfo=timezone.utc)
-                    has_tz = True
-                elif '+' in clean_str[10:] or (clean_str[10:].count('-') > 0 and ':' in clean_str.split('-')[-1]):
-                    # Has timezone offset like +02:00 or -05:00
-                    # Python 3.7+ fromisoformat handles this
-                    try:
-                        dt_obj = datetime.fromisoformat(clean_str.replace('Z', '+00:00'))
-                        has_tz = True
-                    except ValueError:
-                        # Fallback: strip timezone and parse as naive
-                        base_str = clean_str.split('+')[0].split('.')[0]
-                        if '-' in base_str[10:]:
-                            base_str = '-'.join(base_str.rsplit('-', 1)[:-1]) if base_str.count('-') > 2 else base_str
-                        dt_obj = datetime.fromisoformat(base_str.split('.')[0])
-                else:
-                    # No timezone - parse as naive
-                    base_str = clean_str.split('.')[0]
-                    dt_obj = datetime.fromisoformat(base_str)
+                # Check if there's timezone info
+                has_tz = 'Z' in normalized or '+' in normalized[10:] or (normalized.count('-') > 2 and '-' in normalized[10:])
                 
+                # Replace Z with +00:00 for fromisoformat
+                normalized = normalized.replace('Z', '+00:00')
+                
+                # Remove milliseconds but keep timezone
+                if '.' in normalized:
+                    dot_pos = normalized.index('.')
+                    # Find where timezone starts (+ or - after the dot)
+                    tz_start = -1
+                    for i, c in enumerate(normalized[dot_pos:]):
+                        if c in '+-':
+                            tz_start = dot_pos + i
+                            break
+                    if tz_start > 0:
+                        normalized = normalized[:dot_pos] + normalized[tz_start:]
+                    else:
+                        normalized = normalized[:dot_pos]
+                
+                dt_obj = datetime.fromisoformat(normalized)
                 display_line = f"Raw File: <{label}>: {date_str}"
                 events.append((dt_obj, display_line))
             except (ValueError, IndexError):
@@ -3362,6 +3973,10 @@ class PDFReconApp:
                 txt_segments.append(m.group(1).decode("utf-8", "ignore"))
             except Exception:
                 txt_segments.append(m.group(1).decode("latin1", "ignore"))
+
+        # Ensure TouchUp_TextEdit is detectable even if it appears outside sampled text.
+        if re.search(rb"touchup_textedit", raw, re.I):
+            txt_segments.append("TouchUp_TextEdit")
 
         return "\n".join(txt_segments)
 
@@ -4099,6 +4714,7 @@ class PDFReconApp:
                 .red-row {{ background-color: #FFDDDD; }}
                 .yellow-row {{ background-color: #FFFFCC; }}
                 .blue-row {{ background-color: #CCE5FF; }}
+                .purple-row {{ background-color: #E8CCFF; }}
                 .gray-row {{ background-color: #E0E0E0; }}
             </style>
         </head>
@@ -4114,7 +4730,7 @@ class PDFReconApp:
         """
         headers = "".join(f"<th>{self._(key)}</th>" for key in self.columns_keys)
         rows = ""
-        tag_map = {"red_row": "red-row", "yellow_row": "yellow-row", "blue_row": "blue-row", "gray_row": "gray-row"}
+        tag_map = {"red_row": "red-row", "yellow_row": "yellow-row", "blue_row": "blue-row", "purple_row": "purple-row", "gray_row": "gray-row"}
         
         # --- Generate Table Rows ---
         for i, values in enumerate(self.report_data):
@@ -4150,32 +4766,121 @@ class PDFReconApp:
         Parses a PDF's internal objects to find any text associated with a TouchUp_TextEdit flag.
         Returns a list of extracted text strings.
         """
-        found_text = []
+        def _clean_text_segment(raw_bytes):
+            try:
+                text = raw_bytes.decode("latin-1", errors="ignore")
+                replacements = {"Õ": "å", "ã": "å", "°": "ø", "¯": "ø", "µ": "æ", "\xa0": " "}
+                for old, new in replacements.items():
+                    text = text.replace(old, new)
+                text = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", text)
+                text = re.sub(r" +", " ", text)
+                return text.strip()
+            except Exception:
+                return ""
+
+        def _is_probably_junk(text):
+            if not text or len(text) < 3:
+                return True
+            allowed = 0
+            for ch in text:
+                if ch.isalnum() or ch.isspace() or ch in ".,:;!?-()'\"/":
+                    allowed += 1
+            if allowed / max(len(text), 1) < 0.7:
+                return True
+            if len(set(text)) <= 3 and len(text) > 10:
+                return True
+            return False
+
+        # First try pikepdf-based extraction (TouchUp blocks).
+        try:
+            import pikepdf
+            from pikepdf import String
+            from io import BytesIO
+
+            results = []
+            pdf = None
+            try:
+                original_filepath = doc.name if doc and hasattr(doc, "name") else None
+                if original_filepath and Path(original_filepath).exists():
+                    pdf = pikepdf.open(original_filepath)
+                elif doc and not doc.is_closed and hasattr(doc, "write"):
+                    pdf = pikepdf.open(BytesIO(doc.write()))
+            except Exception as e:
+                logging.debug(f"Pikepdf open failed for TouchUp extraction: {e}")
+                pdf = None
+
+            if pdf is not None:
+                # Group results by page number: {page_num: [text1, text2, ...]}
+                page_results = {}
+                with pdf:
+                    for i, page in enumerate(pdf.pages):
+                        page_num = i + 1
+                        try:
+                            commands = pikepdf.parse_content_stream(page)
+                        except Exception:
+                            continue
+
+                        active_search = False
+                        current_block_buffer = []
+
+                        for operands, operator in commands:
+                            op_name = str(operator)
+                            if any("TouchUp" in str(arg) for arg in operands):
+                                active_search = True
+                            elif active_search and op_name in ["Tj", "TJ"]:
+                                chunks = operands[0] if op_name == "TJ" else operands
+                                for chunk in chunks:
+                                    if isinstance(chunk, String):
+                                        try:
+                                            raw_text = chunk.decode()
+                                            cleaned = _clean_text_segment(raw_text.encode("latin-1", errors="ignore"))
+                                        except Exception:
+                                            cleaned = _clean_text_segment(bytes(chunk))
+                                        if cleaned and not _is_probably_junk(cleaned):
+                                            current_block_buffer.append(cleaned)
+                            elif op_name in ["ET", "EMC"]:
+                                if active_search and current_block_buffer:
+                                    # Join with visible separator so user can see segment boundaries
+                                    # Use │ (box drawing character) as delimiter
+                                    combined = " │ ".join([b for b in current_block_buffer if b])
+                                    if combined:
+                                        if page_num not in page_results:
+                                            page_results[page_num] = []
+                                        page_results[page_num].append(combined)
+                                    current_block_buffer = []
+                                active_search = False
+
+                if page_results:
+                    # Return as dictionary grouped by page
+                    return page_results
+        except ImportError:
+            logging.debug("pikepdf not installed, falling back to legacy TouchUp extraction.")
+        except Exception as e:
+            logging.warning(f"TouchUp pikepdf extraction failed: {e}")
+
+        # Fallback: legacy extraction from xref streams.
+        # Returns dict format: {0: [text1, text2, ...]} (page 0 = unknown page)
+        found_text = {}
         if not doc or doc.is_closed:
             return found_text
-            
-        # Iterate through all objects in the PDF's cross-reference table
+
         for xref in range(1, doc.xref_length()):
             try:
-                # Get the raw source code of the object
                 obj_source = doc.xref_object(xref, compressed=False)
-                
-                # Check if this object contains the flag
                 if "/TouchUp_TextEdit" in obj_source:
-                    # If it's a stream object, get its decoded content
                     stream = doc.xref_stream(xref)
                     if stream:
-                        # This regex finds text within parentheses followed by the 'Tj' (Show Text) operator.
-                        # It's a common pattern for simple text entries in content streams.
                         matches = re.findall(rb"\((.*?)\)\s*Tj", stream)
                         for match in matches:
                             try:
-                                # Decode the text using a PDF-specific utility to handle special characters
                                 decoded_text = fitz.utils.pdfdoc_decode(match)
                                 if decoded_text.strip():
-                                    found_text.append(decoded_text.strip())
-                            except:
-                                continue # Ignore text that can't be decoded
+                                    # Use page 0 as "unknown page" for legacy extraction
+                                    if 0 not in found_text:
+                                        found_text[0] = []
+                                    found_text[0].append(decoded_text.strip())
+                            except Exception:
+                                continue
             except Exception as e:
                 logging.warning(f"Could not process object {xref} for TouchUp text: {e}")
                 continue
@@ -4206,8 +4911,83 @@ class PDFReconApp:
                 doc.close()    
         
             
+    def _get_touchup_regions_for_page(self, fitz_doc, page_num, touchup_texts):
+        """
+        Find regions on a PDF page that match extracted TouchUp text.
+        Uses PyMuPDF's text search with readable fragments extracted from the garbled TouchUp output.
+        Returns a list of fitz.Rect objects representing the regions.
+        """
+        regions = []
+        if not touchup_texts:
+            return regions
+            
+        try:
+            page = fitz_doc.load_page(page_num)
+            
+            # Extract searchable fragments from the garbled TouchUp text
+            # The TouchUp extraction often produces mixed readable/garbage text
+            searchable_fragments = []
+            
+            for text in touchup_texts:
+                if not text:
+                    continue
+                    
+                # Find runs of readable characters (letters, digits, common punctuation)
+                # This extracts things like "Ishaq Ali" from "XXXXXX  Ishaq Ali&ngfhffhUW"
+                current_fragment = []
+                for char in text:
+                    if char.isalnum() or char in ' .,:-':
+                        current_fragment.append(char)
+                    else:
+                        if current_fragment:
+                            fragment = ''.join(current_fragment).strip()
+                            # Only keep fragments that look like actual words (3+ chars, has letters)
+                            if len(fragment) >= 3 and any(c.isalpha() for c in fragment):
+                                searchable_fragments.append(fragment)
+                            current_fragment = []
+                
+                # Don't forget the last fragment
+                if current_fragment:
+                    fragment = ''.join(current_fragment).strip()
+                    if len(fragment) >= 3 and any(c.isalpha() for c in fragment):
+                        searchable_fragments.append(fragment)
+            
+            # Also try to extract individual words that might be searchable
+            for text in touchup_texts:
+                if not text:
+                    continue
+                # Split by any non-alphanumeric and look for word-like patterns
+                import re
+                words = re.findall(r'[A-Za-zÀ-ÿ]{3,}', text)  # Words with 3+ letters including Danish chars
+                searchable_fragments.extend(words)
+            
+            # Remove duplicates while preserving order
+            seen = set()
+            unique_fragments = []
+            for f in searchable_fragments:
+                if f.lower() not in seen and len(f) >= 3:
+                    seen.add(f.lower())
+                    unique_fragments.append(f)
+            
+            logging.debug(f"TouchUp searchable fragments for page {page_num + 1}: {unique_fragments[:10]}")  # Log first 10
+            
+            # Search for each fragment on the page
+            for fragment in unique_fragments[:20]:  # Limit to first 20 fragments to avoid slowness
+                try:
+                    rects = page.search_for(fragment, quads=False)
+                    if rects:
+                        regions.extend(rects)
+                        logging.debug(f"Found '{fragment}' at {len(rects)} location(s)")
+                except Exception as e:
+                    logging.debug(f"Search error for '{fragment}': {e}")
+                    
+        except Exception as e:
+            logging.warning(f"Error finding TouchUp regions on page {page_num}: {e}")
+        
+        return regions
+
     def show_pdf_viewer_popup(self, item_id):
-        """Displays a simple PDF viewer for the selected file."""
+        """Displays a simple PDF viewer for the selected file, with TouchUp text highlighted in red."""
         self.root.config(cursor="watch")
         self.root.update_idletasks()
 
@@ -4219,6 +4999,21 @@ class PDFReconApp:
             self.root.config(cursor="")
             return
 
+        # Check if this file has TouchUp_TextEdit indicator
+        file_data = self.all_scan_data.get(path_str)
+        has_touchup = False
+        touchup_texts_by_page = {}
+        
+        if file_data:
+            touchup_info = file_data.get("indicator_keys", {}).get("TouchUp_TextEdit", {})
+            if touchup_info:
+                has_touchup = True
+                found_text = touchup_info.get("found_text", {})
+                if isinstance(found_text, dict):
+                    touchup_texts_by_page = found_text
+                elif isinstance(found_text, list):
+                    touchup_texts_by_page = {0: found_text}
+
         try:
             # --- Popup Window Setup ---
             popup = Toplevel(self.root)
@@ -4226,19 +5021,32 @@ class PDFReconApp:
             
             # --- PDF Loading ---
             popup.current_page = 0
-            popup.doc = fitz.open(resolved_path) # Use resolved_path
+            popup.doc = fitz.open(resolved_path)
             popup.total_pages = len(popup.doc)
+            popup.has_touchup = has_touchup
+            popup.touchup_texts_by_page = touchup_texts_by_page
+            popup.touchup_regions_cache = {}  # Cache for extracted regions per page
+            
             # --- Widget Layout ---
             main_frame = ttk.Frame(popup, padding=10)
             main_frame.pack(fill="both", expand=True)
             main_frame.rowconfigure(0, weight=1)
             main_frame.columnconfigure(0, weight=1)
 
+            # Info label for TouchUp highlighting
+            info_frame = ttk.Frame(main_frame)
+            info_frame.grid(row=0, column=0, sticky="ew")
+            if has_touchup:
+                info_label = ttk.Label(info_frame, text=f"🔴 TouchUp_TextEdit detected - edited regions highlighted in red", 
+                                       foreground="red", font=("Segoe UI", 9, "italic"))
+                info_label.pack(pady=5)
+
             image_label = ttk.Label(main_frame)
-            image_label.grid(row=0, column=0, pady=5, sticky="nsew")
+            image_label.grid(row=1, column=0, pady=5, sticky="nsew")
+            main_frame.rowconfigure(1, weight=1)
             
             nav_frame = ttk.Frame(main_frame)
-            nav_frame.grid(row=1, column=0, pady=(10,0))
+            nav_frame.grid(row=2, column=0, pady=(10,0))
             
             prev_button = ttk.Button(nav_frame, text=self._("diff_prev_page"))
             page_label = ttk.Label(nav_frame, text="", font=("Segoe UI", 9, "italic"))
@@ -4249,7 +5057,7 @@ class PDFReconApp:
             next_button.pack(side="left", padx=10)
             
             def update_page(page_num):
-                """Renders and displays a specific page of the PDF."""
+                """Renders and displays a specific page of the PDF, with TouchUp text highlighted."""
                 if not (0 <= page_num < popup.total_pages): return
                 
                 popup.current_page = page_num
@@ -4258,11 +5066,42 @@ class PDFReconApp:
 
                 # Render page to a pixmap, then to a PIL Image
                 page = popup.doc.load_page(page_num)
+                
+                # Get TouchUp regions for this page if TouchUp was detected
+                highlight_rects = []
+                if popup.has_touchup:
+                    # Check cache first
+                    if page_num not in popup.touchup_regions_cache:
+                        # Get TouchUp texts for this page (1-indexed in stored data)
+                        page_texts = popup.touchup_texts_by_page.get(page_num + 1, [])
+                        # Also include page 0 texts (legacy/unknown page) for all pages
+                        if 0 in popup.touchup_texts_by_page:
+                            page_texts = page_texts + popup.touchup_texts_by_page.get(0, [])
+                        
+                        popup.touchup_regions_cache[page_num] = self._get_touchup_regions_for_page(
+                            popup.doc, page_num, page_texts
+                        )
+                    highlight_rects = popup.touchup_regions_cache[page_num]
+                
+                # Draw red rectangles on the page before rendering
+                if highlight_rects:
+                    shape = page.new_shape()
+                    for rect in highlight_rects:
+                        # Draw a red rectangle outline around the text
+                        shape.draw_rect(rect)
+                        shape.finish(color=(1, 0, 0), fill=None, width=2)  # Red outline
+                        
+                        # Also draw a semi-transparent red fill
+                        shape.draw_rect(rect)
+                        shape.finish(color=None, fill=(1, 0, 0), fill_opacity=0.3)  # Light red fill
+                    
+                    shape.commit()
+                
                 pix = page.get_pixmap(dpi=150)
                 img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
                 
                 # Scale image to fit the window
-                max_img_w, max_img_h = main_frame.winfo_width() * 0.95, main_frame.winfo_height() * 0.9
+                max_img_w, max_img_h = main_frame.winfo_width() * 0.95, main_frame.winfo_height() * 0.85
                 img_w, img_h = img.size
                 ratio = min(max_img_w / img_w, max_img_h / img_h) if img_w > 0 and img_h > 0 else 1
                 scaled_size = (int(img_w * ratio), int(img_h * ratio))
@@ -4313,15 +5152,30 @@ class PDFReconApp:
             found_text_str = ""
             diff_str = ""
             if details and details.get('found_text'):
-                text_list_str = ', '.join(f'"{t}"' for t in details['found_text'])
-                found_text_str = f"Found isolated text: {text_list_str}"
+                found_text = details['found_text']
+                # Handle both dict (new format) and list (legacy format)
+                if isinstance(found_text, dict):
+                    # New format: {page_num: [text1, text2, ...]}
+                    lines = ["(Note: │ separates individual text operations)"]
+                    for page_num in sorted(found_text.keys()):
+                        texts = found_text[page_num]
+                        if page_num == 0:
+                            lines.append("\nExtracted text:")  # Legacy fallback has no page info
+                        else:
+                            lines.append(f"\nSide {page_num}:")
+                        for idx, text in enumerate(texts, 1):
+                            lines.append(f"  [{idx}] {text}")
+                    found_text_str = "\n".join(lines)
+                elif isinstance(found_text, list):
+                    # Legacy format: ["Side 1: text1", "Side 1: text2", ...]
+                    found_text_str = "\n".join(found_text)
             if details and details.get('text_diff'):
                 diff_str = "A text comparison to a previous version is available."
             
             if found_text_str and diff_str:
-                return f"TouchUp TextEdit ({found_text_str}. {diff_str})"
+                return f"TouchUp TextEdit:\n{found_text_str}\n\n({diff_str})"
             elif found_text_str:
-                return f"TouchUp TextEdit ({found_text_str})"
+                return f"TouchUp TextEdit:\n{found_text_str}"
             elif diff_str:
                 return f"TouchUp TextEdit ({diff_str})"
             else:
@@ -4354,6 +5208,20 @@ class PDFReconApp:
             return f"Has Layers (Found {details['count']})"
         if key == 'MoreLayersThanPages':
             return f"More Layers ({details['layers']}) Than Pages ({details['pages']})"
+        if key == 'RelatedFiles':
+            count = details.get('count', 0)
+            files = details.get('files', [])
+            lines = [f"Related Files Found ({count}):"]
+            for f in files:
+                rel_type = f.get('type', 'related')
+                name = f.get('name', 'Unknown')
+                if rel_type == 'derived_from':
+                    lines.append(f"  ← Derived from: {name}")
+                elif rel_type == 'parent_of':
+                    lines.append(f"  → Parent of: {name}")
+                else:
+                    lines.append(f"  ↔ Related to: {name}")
+            return "\n".join(lines)
         # Fallback for simple indicators with no details
         return key.replace("_", " ")
         
