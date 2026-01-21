@@ -290,8 +290,6 @@ See [license.txt](license.txt) for full license information.
 ## Author
 
 **Rasmus Riis**  
-📧 riisras@gmail.com
-
 ---
 
 ## Acknowledgments
