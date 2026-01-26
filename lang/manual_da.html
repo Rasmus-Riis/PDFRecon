@@ -1,0 +1,1362 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>PDFRecon Forensic Manual</title>
+    <style>
+        /* Dark theme matching PDFRecon */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background-color: #1e1e1e;
+            color: #dcdcdc;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        /* Sidebar navigation */
+        #sidebar {
+            width: 280px;
+            background-color: #252526;
+            border-right: 1px solid #3d3d3d;
+            overflow-y: auto;
+            padding: 20px 0;
+            flex-shrink: 0;
+        }
+        
+        #sidebar h2 {
+            color: #00A0D6;
+            font-size: 18px;
+            padding: 10px 20px;
+            margin-bottom: 10px;
+        }
+        
+        #sidebar ul {
+            list-style: none;
+        }
+        
+        #sidebar li {
+            padding: 8px 20px;
+            cursor: pointer;
+            transition: background 0.2s;
+            font-size: 14px;
+        }
+        
+        #sidebar li:hover {
+            background-color: #2d2d2d;
+        }
+        
+        #sidebar li.active {
+            background-color: #00A0D6;
+            color: #000;
+            font-weight: bold;
+        }
+        
+        #sidebar .section-header {
+            color: #888;
+            font-size: 11px;
+            text-transform: uppercase;
+            padding: 15px 20px 5px 20px;
+            cursor: default;
+            letter-spacing: 1px;
+        }
+        
+        #sidebar .section-header:hover {
+            background-color: transparent;
+        }
+        
+        /* Main content area */
+        #content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 30px 40px;
+            max-width: 1000px;
+        }
+        
+        h1 {
+            color: #00A0D6;
+            border-bottom: 2px solid #00A0D6;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+            font-size: 28px;
+        }
+        
+        h2 {
+            color: #ffa726;
+            margin-top: 30px;
+            margin-bottom: 15px;
+            font-size: 22px;
+        }
+        
+        h3 {
+            color: #66bb6a;
+            margin-top: 20px;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+        
+        h4 {
+            color: #00A0D6;
+            margin-top: 15px;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        
+        p, li {
+            line-height: 1.7;
+            margin-bottom: 10px;
+        }
+        
+        code {
+            background-color: #2d2d2d;
+            color: #7ec699;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 13px;
+        }
+        
+        pre {
+            background-color: #2d2d2d;
+            border-left: 4px solid #00A0D6;
+            padding: 15px;
+            overflow-x: auto;
+            border-radius: 5px;
+            margin: 15px 0;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        
+        pre code {
+            background: none;
+            padding: 0;
+        }
+        
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 20px 0;
+            background-color: #2d2d2d;
+        }
+        
+        th {
+            background-color: #00A0D6;
+            color: #000;
+            padding: 12px;
+            text-align: left;
+            font-weight: bold;
+        }
+        
+        td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #3d3d3d;
+        }
+        
+        tr:hover {
+            background-color: #353535;
+        }
+        
+        ul, ol {
+            margin: 15px 0;
+            padding-left: 30px;
+        }
+        
+        .info, .warning, .danger, .success {
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 5px;
+            border-left: 4px solid;
+        }
+        
+        .info {
+            background-color: #002d3d;
+            border-color: #00A0D6;
+        }
+        
+        .warning {
+            background-color: #3d2d00;
+            border-color: #ffa726;
+        }
+        
+        .danger {
+            background-color: #3d0000;
+            border-color: #ff5252;
+        }
+        
+        .success {
+            background-color: #002d00;
+            border-color: #66bb6a;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 0.85em;
+            font-weight: bold;
+            margin: 0 5px;
+        }
+        
+        .badge-yes { background-color: #ff5252; color: #fff; }
+        .badge-found { background-color: #ffa726; color: #000; }
+        .badge-no { background-color: #66bb6a; color: #000; }
+        
+        #search {
+            width: calc(100% - 40px);
+            margin: 10px 20px;
+            padding: 8px;
+            background-color: #3d3d3d;
+            border: 1px solid #4d4d4d;
+            color: #dcdcdc;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        #search:focus {
+            outline: none;
+            border-color: #00A0D6;
+        }
+        
+        .indicator {
+            background-color: #2d2d2d;
+            padding: 15px;
+            margin: 15px 0;
+            border-left: 4px solid #ffa726;
+            border-radius: 5px;
+        }
+        
+        .indicator.critical {
+            border-left-color: #ff5252;
+        }
+        
+        .indicator h4 {
+            color: #00A0D6;
+            margin-bottom: 8px;
+            margin-top: 0;
+        }
+        
+        .step {
+            background-color: #252526;
+            border: 1px solid #3d3d3d;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        
+        .step-number {
+            display: inline-block;
+            background-color: #00A0D6;
+            color: #000;
+            width: 24px;
+            height: 24px;
+            text-align: center;
+            line-height: 24px;
+            border-radius: 50%;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        
+        .highlight {
+            background-color: #3d3d00;
+            padding: 2px 4px;
+            border-radius: 2px;
+        }
+        
+        .hex-display {
+            background-color: #1a1a2e;
+            border: 1px solid #3d3d3d;
+            padding: 10px;
+            font-family: 'Consolas', monospace;
+            margin: 10px 0;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        
+        .hex-offset { color: #888; }
+        .hex-bytes { color: #7ec699; }
+        .hex-ascii { color: #ffa726; }
+    </style>
+</head>
+<body>
+    <div id="sidebar">
+        <h2>📋 Forensic Manual</h2>
+        <input type="text" id="search" placeholder="Search...">
+        <ul id="nav">
+            <li onclick="showSection('intro')" class="active">Introduction</li>
+            <li onclick="showSection('tools')">Tools Required</li>
+            <li class="section-header">— HIGH RISK (YES) —</li>
+            <li onclick="showSection('touchup')">TouchUp_TextEdit</li>
+            <li onclick="showSection('revisions')">Has Revisions</li>
+            <li onclick="showSection('javascript')">JavaScript Execute</li>
+            <li onclick="showSection('missing')">Missing Objects</li>
+            <li class="section-header">— MEDIUM RISK —</li>
+            <li onclick="showSection('fonts')">Multiple Font Subsets</li>
+            <li onclick="showSection('creators')">Multiple Creators</li>
+            <li onclick="showSection('xmphistory')">XMP History</li>
+            <li onclick="showSection('documentid')">Document ID Mismatch</li>
+            <li onclick="showSection('startxref')">Multiple startxref</li>
+            <li onclick="showSection('generation')">Generation > 0</li>
+            <li onclick="showSection('whiterect')">White Rectangle</li>
+            <li onclick="showSection('invisible')">Invisible Text</li>
+            <li onclick="showSection('signature')">Digital Signature</li>
+            <li class="section-header">— REFERENCE —</li>
+            <li onclick="showSection('timestamps')">Timestamp Formats</li>
+            <li onclick="showSection('xref')">XRef Tables</li>
+            <li onclick="showSection('operators')">PDF Operators</li>
+            <li onclick="showSection('commands')">Command Reference</li>
+        </ul>
+    </div>
+    
+    <div id="content">
+        <!-- INTRODUCTION -->
+        <div id="intro" class="section">
+            <h1>PDFRecon Forensic Analysis Manual</h1>
+            
+            <div class="info">
+                <strong>Purpose:</strong> This manual explains how to manually verify each forensic indicator that PDFRecon detects. Use these techniques to confirm automated findings or conduct independent analysis.
+            </div>
+            
+            <h2>Classification System</h2>
+            
+            <table>
+                <tr>
+                    <th>Classification</th>
+                    <th>Meaning</th>
+                    <th>Action Required</th>
+                </tr>
+                <tr>
+                    <td><span class="badge badge-yes">YES</span></td>
+                    <td>Strong evidence of alteration</td>
+                    <td>Immediate investigation</td>
+                </tr>
+                <tr>
+                    <td><span class="badge badge-found">FOUND</span></td>
+                    <td>Technical indicators detected</td>
+                    <td>Careful review</td>
+                </tr>
+                <tr>
+                    <td><span class="badge badge-no">NOT DETECTED</span></td>
+                    <td>No known indicators</td>
+                    <td>Lower priority</td>
+                </tr>
+            </table>
+            
+            <div class="warning">
+                <strong>⚠️ Important:</strong> Automated detection is a starting point. Always verify findings manually before drawing conclusions. Some indicators can result from legitimate operations.
+            </div>
+            
+            <h2>About File System Timestamps</h2>
+            <p>The 'File Created' and 'File Modified' columns show timestamps from your operating system. These are <strong>unreliable</strong> for forensic purposes:</p>
+            <ul>
+                <li>Copying a file updates the creation date</li>
+                <li>Moving between drives can reset timestamps</li>
+                <li>Cloud sync services often replace original dates</li>
+                <li>Timestamps can be easily manipulated</li>
+            </ul>
+            <p>Always use <strong>Show Timeline</strong> to examine metadata stored <em>inside</em> the PDF file.</p>
+        </div>
+        
+        <!-- TOOLS REQUIRED -->
+        <div id="tools" class="section" style="display:none;">
+            <h1>Tools Required for Manual Analysis</h1>
+            
+            <table>
+                <tr>
+                    <th>Tool</th>
+                    <th>Purpose</th>
+                    <th>Download</th>
+                </tr>
+                <tr>
+                    <td><strong>HxD</strong></td>
+                    <td>Free hex editor for Windows</td>
+                    <td>mh-nexus.de/en/hxd/</td>
+                </tr>
+                <tr>
+                    <td><strong>010 Editor</strong></td>
+                    <td>Professional hex editor with PDF templates</td>
+                    <td>sweetscape.com/010editor/</td>
+                </tr>
+                <tr>
+                    <td><strong>QPDF</strong></td>
+                    <td>Decompress and normalize PDFs</td>
+                    <td>github.com/qpdf/qpdf</td>
+                </tr>
+                <tr>
+                    <td><strong>mutool</strong></td>
+                    <td>PDF inspection (part of MuPDF)</td>
+                    <td>mupdf.com</td>
+                </tr>
+                <tr>
+                    <td><strong>ExifTool</strong></td>
+                    <td>Complete metadata extraction</td>
+                    <td>exiftool.org</td>
+                </tr>
+                <tr>
+                    <td><strong>pdfimages</strong></td>
+                    <td>Extract embedded images</td>
+                    <td>Part of poppler-utils</td>
+                </tr>
+            </table>
+            
+            <h2>Essential Command: Decompress PDF</h2>
+            <p>Most PDFs use compression. Before manual analysis, decompress:</p>
+            <pre><code>qpdf --qdf --object-streams=disable input.pdf readable.pdf</code></pre>
+            <p>This makes all content streams readable in a hex editor.</p>
+        </div>
+        
+        <!-- TOUCHUP_TEXTEDIT - DETAILED -->
+        <div id="touchup" class="section" style="display:none;">
+            <h1>TouchUp_TextEdit <span class="badge badge-yes">HIGH RISK</span></h1>
+            
+            <div class="danger">
+                <strong>What it means:</strong> Adobe Acrobat's TouchUp Text tool was used to manually edit text in the PDF. This leaves specific metadata that proves direct content modification.
+            </div>
+            
+            <h2>Step 1: Find the TouchUp Marker</h2>
+            
+            <div class="step">
+                <span class="step-number">1</span> Open the PDF in a hex editor (HxD, 010 Editor)
+            </div>
+            
+            <div class="step">
+                <span class="step-number">2</span> Press <code>Ctrl+F</code> and search for text: <code>TouchUp_TextEdit</code>
+            </div>
+            
+            <div class="step">
+                <span class="step-number">3</span> Alternative: Search for hex bytes:
+                <div class="hex-display">
+                    <span class="hex-bytes">2F 54 6F 75 63 68 55 70 5F 54 65 78 74 45 64 69 74</span>
+                    <span class="hex-ascii">= /TouchUp_TextEdit</span>
+                </div>
+            </div>
+            
+            <h2>Step 2: Examine the PieceInfo Structure</h2>
+            
+            <p>When found, the surrounding structure looks like:</p>
+            <pre><code>/PieceInfo &lt;&lt;
+  /AdobePhotoshop &lt;&lt;
+    /LastModified (D:20240115143000+01'00')
+    /Private &lt;&lt;
+      /TouchUp_TextEdit true
+    &gt;&gt;
+  &gt;&gt;
+&gt;&gt;</code></pre>
+            
+            <div class="info">
+                <strong>Document these values:</strong>
+                <ul>
+                    <li>Byte offset where <code>/TouchUp_TextEdit</code> found</li>
+                    <li>The <code>/LastModified</code> timestamp</li>
+                    <li>Screenshot of hex context</li>
+                </ul>
+            </div>
+            
+            <h2>Step 3: Extract the Edited Text (Advanced)</h2>
+            
+            <div class="warning">
+                <strong>Understanding the Challenge:</strong> TouchUp edits are stored in content streams using CID (Character ID) encoding. The text you see in PDFRecon's output (e.g., "ZK,KZK,ZP=GZ") appears garbled because it needs to be decoded through the font's character mapping dictionary.
+            </div>
+            
+            <h3>How CID Encoding Works</h3>
+            
+            <p>When Adobe TouchUp edits text, it:</p>
+            <ol>
+                <li>Creates new font subsets (e.g., <code>/C2_0</code>, <code>/C2_1</code>)</li>
+                <li>Stores text as CID numbers, not actual letters</li>
+                <li>Maps CIDs to Unicode via a <code>/ToUnicode</code> CMap</li>
+            </ol>
+            
+            <h3>Step 3a: Find the Font Reference</h3>
+            
+            <div class="step">
+                <span class="step-number">1</span> In the content stream, look for font selections like:
+                <pre><code>/C2_0 12 Tf    ← Using font "C2_0" at 12pt
+&lt;0047004800490048&gt; Tj    ← CID-encoded text</code></pre>
+            </div>
+            
+            <div class="step">
+                <span class="step-number">2</span> Note the font name (e.g., <code>C2_0</code>) - this is the key to decoding
+            </div>
+            
+            <h3>Step 3b: Find the Font Dictionary</h3>
+            
+            <div class="step">
+                <span class="step-number">3</span> Search for <code>/C2_0</code> in the PDF to find its font dictionary:
+                <pre><code>/C2_0 &lt;&lt;
+  /Type /Font
+  /Subtype /Type0
+  /BaseFont /BCDFGH+Arial-BoldMT
+  /Encoding /Identity-H
+  /DescendantFonts [15 0 R]
+  /ToUnicode 16 0 R     ← This object contains the mapping!
+&gt;&gt;</code></pre>
+            </div>
+            
+            <h3>Step 3c: Find the ToUnicode CMap</h3>
+            
+            <div class="step">
+                <span class="step-number">4</span> Go to the referenced object (e.g., object 16) and find the CMap:
+                <pre><code>16 0 obj
+&lt;&lt;/Length 500&gt;&gt;
+stream
+/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CMapName /Adobe-Identity-UCS def
+/CIDSystemInfo &lt;&lt;
+  /Registry (Adobe)
+  /Ordering (UCS)
+  /Supplement 0
+&gt;&gt; def
+1 begincodespacerange
+&lt;0000&gt; &lt;FFFF&gt;
+endcodespacerange
+15 beginbfchar
+&lt;0003&gt; &lt;0020&gt;    ← CID 0003 = Unicode 0020 (space)
+&lt;0047&gt; &lt;0041&gt;    ← CID 0047 = Unicode 0041 (letter A)
+&lt;0048&gt; &lt;0042&gt;    ← CID 0048 = Unicode 0042 (letter B)
+&lt;0049&gt; &lt;0043&gt;    ← CID 0049 = Unicode 0043 (letter C)
+...
+endbfchar
+endcmap
+endstream
+endobj</code></pre>
+            </div>
+            
+            <h3>Step 3d: Decode the Text Manually</h3>
+            
+            <div class="step">
+                <span class="step-number">5</span> Now decode the hex string <code>&lt;0047004800490048&gt;</code>:
+                <table>
+                    <tr>
+                        <th>Hex CID</th>
+                        <th>From CMap</th>
+                        <th>Unicode</th>
+                        <th>Character</th>
+                    </tr>
+                    <tr>
+                        <td><code>0047</code></td>
+                        <td><code>&lt;0047&gt; &lt;0041&gt;</code></td>
+                        <td>U+0041</td>
+                        <td><strong>A</strong></td>
+                    </tr>
+                    <tr>
+                        <td><code>0048</code></td>
+                        <td><code>&lt;0048&gt; &lt;0042&gt;</code></td>
+                        <td>U+0042</td>
+                        <td><strong>B</strong></td>
+                    </tr>
+                    <tr>
+                        <td><code>0049</code></td>
+                        <td><code>&lt;0049&gt; &lt;0043&gt;</code></td>
+                        <td>U+0043</td>
+                        <td><strong>C</strong></td>
+                    </tr>
+                    <tr>
+                        <td><code>0048</code></td>
+                        <td><code>&lt;0048&gt; &lt;0042&gt;</code></td>
+                        <td>U+0042</td>
+                        <td><strong>B</strong></td>
+                    </tr>
+                </table>
+                <p><strong>Result:</strong> The text is "ABCB"</p>
+            </div>
+            
+            <h3>Why PDFRecon Shows Garbled Text</h3>
+            
+            <div class="info">
+                <p>When PDFRecon extracts TouchUp text, it attempts to decode using available font mappings. If the ToUnicode CMap is missing, incomplete, or uses non-standard encoding, the result appears as random characters.</p>
+                <p><strong>Common patterns:</strong></p>
+                <ul>
+                    <li><code>ZK,KZK</code> - CID values interpreted as ASCII</li>
+                    <li><code>/IZ/IZK?ZGK</code> - Mix of operators and CID data</li>
+                    <li>Numbers like <code>2710832</code> - Successfully decoded numeric text</li>
+                </ul>
+                <p>When you see partial readable text mixed with gibberish, the readable parts are text that could be decoded, while gibberish indicates missing mappings.</p>
+            </div>
+            
+            <h2>Quick Verification Commands</h2>
+            
+            <pre><code># Search for TouchUp marker
+grep -l "TouchUp_TextEdit" *.pdf
+
+# Find all font references in PDF
+grep -oP '/C\d+_\d+' file.pdf | sort | uniq
+
+# Decompress for analysis
+qpdf --qdf --object-streams=disable input.pdf readable.pdf
+
+# Then search in readable version
+grep -A 20 "ToUnicode" readable.pdf</code></pre>
+        </div>
+        
+        <!-- HAS REVISIONS -->
+        <div id="revisions" class="section" style="display:none;">
+            <h1>Has Revisions <span class="badge badge-yes">HIGH RISK</span></h1>
+            
+            <div class="danger">
+                <strong>What it means:</strong> The PDF contains previous versions saved incrementally. PDFRecon extracted hidden revisions proving the document was modified after initial creation.
+            </div>
+            
+            <h2>Step 1: Count %%EOF Markers</h2>
+            
+            <div class="step">
+                <span class="step-number">1</span> In hex editor, search for <code>%%EOF</code>
+                <div class="hex-display">
+                    <span class="hex-bytes">25 25 45 4F 46</span>
+                    <span class="hex-ascii">= %%EOF</span>
+                </div>
+            </div>
+            
+            <div class="step">
+                <span class="step-number">2</span> Count occurrences and note byte offsets:
+                <ul>
+                    <li>1 occurrence = Original document (no revisions)</li>
+                    <li>2+ occurrences = Document has revisions</li>
+                </ul>
+            </div>
+            
+            <h2>Step 2: Extract Revisions Manually</h2>
+            
+            <p>Each <code>%%EOF</code> marks the end of a complete PDF version:</p>
+            
+            <pre><code>Bytes 0 → first %%EOF  = Revision 1 (oldest)
+Bytes 0 → second %%EOF = Revision 2
+Bytes 0 → third %%EOF  = Revision 3
+...
+Bytes 0 → last %%EOF   = Current version</code></pre>
+            
+            <div class="step">
+                <span class="step-number">3</span> In HxD:
+                <ul>
+                    <li>Note the byte offset of first <code>%%EOF</code> (e.g., 45000)</li>
+                    <li>Edit → Select Block → Start: 0, End: 45004 (offset + 5)</li>
+                    <li>Copy and paste into new file</li>
+                    <li>Save as <code>filename_rev1.pdf</code></li>
+                </ul>
+            </div>
+            
+            <h2>Step 3: Follow the /Prev Chain</h2>
+            
+            <p>Each incremental save has a trailer pointing to the previous version:</p>
+            
+            <pre><code>trailer
+&lt;&lt;
+  /Size 150
+  /Root 1 0 R
+  /Prev 12345      ← Byte offset of previous xref
+&gt;&gt;
+startxref
+45000
+%%EOF</code></pre>
+            
+            <div class="step">
+                <span class="step-number">4</span> Search for <code>/Prev</code> followed by a number. Each <code>/Prev</code> value points to an earlier cross-reference table.
+            </div>
+            
+            <h2>Command Line Extraction</h2>
+            
+            <pre><code># Find all %%EOF positions
+grep -boa "%%EOF" file.pdf
+
+# Output example:
+# 45000:%%EOF
+# 98500:%%EOF
+# 125000:%%EOF
+
+# Extract first revision (oldest)
+head -c 45005 file.pdf > revision1.pdf
+
+# Extract second revision
+head -c 98505 file.pdf > revision2.pdf
+
+# Count revisions
+grep -c "%%EOF" file.pdf</code></pre>
+            
+            <div class="warning">
+                <strong>Important Note:</strong> Incremental updates are a NORMAL PDF feature. They occur during:
+                <ul>
+                    <li>Digital signing (required to preserve signature)</li>
+                    <li>Form filling</li>
+                    <li>Adding comments/annotations</li>
+                    <li>Normal "Save" in Adobe Acrobat</li>
+                </ul>
+                Compare the CONTENT between revisions to assess if changes are suspicious.
+            </div>
+        </div>
+        
+        <!-- JAVASCRIPT -->
+        <div id="javascript" class="section" style="display:none;">
+            <h1>JavaScript Auto-Execute <span class="badge badge-yes">HIGH RISK</span></h1>
+            
+            <div class="danger">
+                <strong>What it means:</strong> The PDF executes JavaScript automatically when opened, potentially modifying displayed content dynamically.
+            </div>
+            
+            <h2>Step 1: Search for OpenAction</h2>
+            
+            <div class="step">
+                <span class="step-number">1</span> Search for <code>/OpenAction</code>
+                <div class="hex-display">
+                    <span class="hex-bytes">2F 4F 70 65 6E 41 63 74 69 6F 6E</span>
+                    <span class="hex-ascii">= /OpenAction</span>
+                </div>
+            </div>
+            
+            <h2>Step 2: Examine What It Triggers</h2>
+            
+            <p>Direct JavaScript:</p>
+            <pre><code>/OpenAction &lt;&lt;
+  /S /JavaScript
+  /JS (app.alert\("Warning"\);)
+&gt;&gt;</code></pre>
+            
+            <p>Indirect reference:</p>
+            <pre><code>/OpenAction 15 0 R</code></pre>
+            <p>Then find object 15 to see the JavaScript code.</p>
+            
+            <h2>Step 3: Find and Decode JavaScript</h2>
+            
+            <p>JavaScript can be stored as:</p>
+            <ul>
+                <li><strong>Direct string:</strong> <code>/JS (javascript code here)</code></li>
+                <li><strong>Hex string:</strong> <code>/JS &lt;6170702E616C657274&gt;</code></li>
+                <li><strong>Stream reference:</strong> <code>/JS 20 0 R</code></li>
+            </ul>
+            
+            <h3>Decoding Hex JavaScript</h3>
+            <pre><code>Hex:   61 70 70 2E 61 6C 65 72 74
+ASCII: a  p  p  .  a  l  e  r  t</code></pre>
+            
+            <h2>Step 4: Check Additional Actions (AA)</h2>
+            
+            <p>Search for <code>/AA</code> which defines actions on various triggers:</p>
+            <pre><code>/AA &lt;&lt;
+  /O &lt;&lt;/S /JavaScript /JS (...)&gt;&gt;    % On page open
+  /C &lt;&lt;/S /JavaScript /JS (...)&gt;&gt;    % On page close
+  /E &lt;&lt;/S /JavaScript /JS (...)&gt;&gt;    % On mouse enter
+  /X &lt;&lt;/S /JavaScript /JS (...)&gt;&gt;    % On mouse exit
+&gt;&gt;</code></pre>
+        </div>
+        
+        <!-- MISSING OBJECTS -->
+        <div id="missing" class="section" style="display:none;">
+            <h1>Missing Objects <span class="badge badge-yes">HIGH RISK</span></h1>
+            
+            <div class="danger">
+                <strong>What it means:</strong> The PDF references objects that don't exist in the file, indicating corruption or improper editing.
+            </div>
+            
+            <h2>Step 1: List All Object Definitions</h2>
+            
+            <p>Objects are defined as <code>X Y obj</code>:</p>
+            <pre><code>5 0 obj        ← Object 5, generation 0
+&lt;&lt;/Type /Page&gt;&gt;
+endobj</code></pre>
+            
+            <h2>Step 2: List All Object References</h2>
+            
+            <p>References use format <code>X Y R</code>:</p>
+            <pre><code>/Kids [3 0 R 5 0 R 7 0 R]    ← References objects 3, 5, and 7</code></pre>
+            
+            <h2>Step 3: Compare Lists</h2>
+            
+            <pre><code># List all definitions
+grep -oP '\d+(?= 0 obj)' file.pdf | sort -n | uniq > defined.txt
+
+# List all references
+grep -oP '\d+(?= 0 R)' file.pdf | sort -n | uniq > referenced.txt
+
+# Find missing (referenced but not defined)
+comm -23 referenced.txt defined.txt</code></pre>
+            
+            <p>Any object in <code>referenced.txt</code> not in <code>defined.txt</code> is MISSING.</p>
+        </div>
+        
+        <!-- MULTIPLE FONT SUBSETS -->
+        <div id="fonts" class="section" style="display:none;">
+            <h1>Multiple Font Subsets <span class="badge badge-found">MEDIUM</span></h1>
+            
+            <div class="warning">
+                <strong>What it means:</strong> The same font style is embedded multiple times with different subsets, suggesting text was added at different times or with different tools.
+            </div>
+            
+            <h2>How to Identify</h2>
+            
+            <p>Font subsets have the format: <code>XXXXXX+FontName</code></p>
+            
+            <pre><code>/BaseFont /AAAAAA+Arial-Regular     ← First subset
+/BaseFont /BBBBBB+Arial-Regular     ← SAME font, different prefix = SUSPICIOUS
+/BaseFont /CCCCCC+Arial-Bold        ← Different style = NORMAL</code></pre>
+            
+            <h2>Manual Search</h2>
+            
+            <pre><code># Find all font subsets
+grep -oP '/BaseFont /[A-Z]{6}\+\S+' file.pdf | sort | uniq
+
+# Count unique subsets per font family
+grep -oP '/BaseFont /[A-Z]{6}\+(\S+)' file.pdf | \
+  sed 's/.*+//' | sort | uniq -c</code></pre>
+            
+            <div class="info">
+                <strong>Interpretation:</strong>
+                <ul>
+                    <li>Multiple subsets of SAME font style → Text added later</li>
+                    <li>Different font styles (Bold vs Regular) → Normal</li>
+                    <li>Different font families → Normal (document uses multiple fonts)</li>
+                </ul>
+            </div>
+        </div>
+        
+        <!-- MULTIPLE CREATORS -->
+        <div id="creators" class="section" style="display:none;">
+            <h1>Multiple Creators / Producers <span class="badge badge-found">MEDIUM</span></h1>
+            
+            <div class="warning">
+                <strong>What it means:</strong> The document was processed by more than one program, indicating it was created in one tool and edited in another.
+            </div>
+            
+            <h2>Step 1: Find Info Dictionary Values</h2>
+            
+            <pre><code>/Creator (Microsoft Word 2019)
+/Producer (Adobe PDF Library 15.0)</code></pre>
+            
+            <h2>Step 2: Check XMP Metadata</h2>
+            
+            <pre><code>&lt;xmp:CreatorTool&gt;Microsoft Word&lt;/xmp:CreatorTool&gt;
+&lt;pdf:Producer&gt;Adobe PDF Library&lt;/pdf:Producer&gt;</code></pre>
+            
+            <h2>Step 3: Search for Multiple Values</h2>
+            
+            <pre><code># Find all Creator/Producer entries
+grep -i "creator\|producer" file.pdf</code></pre>
+            
+            <p>Different values in different locations = multiple tools were used.</p>
+            
+            <h3>Decoding Escape Sequences</h3>
+            <pre><code>/Creator (Microsoft\256 Word)
+
+\256 = octal for ® (registered trademark)
+
+Common escapes:
+\n = newline    \r = carriage return    \t = tab
+\( = literal (  \) = literal )          \\ = literal \
+\ddd = octal character code</code></pre>
+        </div>
+        
+        <!-- XMP HISTORY -->
+        <div id="xmphistory" class="section" style="display:none;">
+            <h1>XMP History <span class="badge badge-found">MEDIUM</span></h1>
+            
+            <div class="warning">
+                <strong>What it means:</strong> Adobe XMP metadata contains a complete editing history with timestamps and software versions.
+            </div>
+            
+            <h2>Step 1: Find XMP Metadata</h2>
+            
+            <p>Search for <code>&lt;?xpacket begin</code> or <code>&lt;x:xmpmeta</code></p>
+            
+            <h2>Step 2: Locate History Section</h2>
+            
+            <pre><code>&lt;xmpMM:History&gt;
+  &lt;rdf:Seq&gt;
+    &lt;rdf:li rdf:parseType="Resource"&gt;
+      &lt;stEvt:action&gt;created&lt;/stEvt:action&gt;
+      &lt;stEvt:instanceID&gt;xmp.iid:abc123&lt;/stEvt:instanceID&gt;
+      &lt;stEvt:when&gt;2024-01-10T09:30:00+01:00&lt;/stEvt:when&gt;
+      &lt;stEvt:softwareAgent&gt;Adobe InDesign 15.0&lt;/stEvt:softwareAgent&gt;
+    &lt;/rdf:li&gt;
+    &lt;rdf:li rdf:parseType="Resource"&gt;
+      &lt;stEvt:action&gt;saved&lt;/stEvt:action&gt;
+      &lt;stEvt:instanceID&gt;xmp.iid:def456&lt;/stEvt:instanceID&gt;
+      &lt;stEvt:when&gt;2024-01-15T14:30:00+01:00&lt;/stEvt:when&gt;
+      &lt;stEvt:softwareAgent&gt;Adobe Acrobat Pro DC&lt;/stEvt:softwareAgent&gt;
+      &lt;stEvt:changed&gt;/&lt;/stEvt:changed&gt;
+    &lt;/rdf:li&gt;
+  &lt;/rdf:Seq&gt;
+&lt;/xmpMM:History&gt;</code></pre>
+            
+            <h2>Key Fields</h2>
+            
+            <table>
+                <tr>
+                    <th>Field</th>
+                    <th>Meaning</th>
+                </tr>
+                <tr>
+                    <td><code>stEvt:action</code></td>
+                    <td>What happened (created, saved, converted, etc.)</td>
+                </tr>
+                <tr>
+                    <td><code>stEvt:when</code></td>
+                    <td>ISO 8601 timestamp</td>
+                </tr>
+                <tr>
+                    <td><code>stEvt:softwareAgent</code></td>
+                    <td>Tool used for this action</td>
+                </tr>
+                <tr>
+                    <td><code>stEvt:instanceID</code></td>
+                    <td>Unique ID for this version</td>
+                </tr>
+                <tr>
+                    <td><code>stEvt:changed</code></td>
+                    <td>What was modified (/ = root)</td>
+                </tr>
+            </table>
+        </div>
+        
+        <!-- DOCUMENT ID -->
+        <div id="documentid" class="section" style="display:none;">
+            <h1>Document ID Mismatch <span class="badge badge-found">MEDIUM</span></h1>
+            
+            <div class="warning">
+                <strong>What it means:</strong> Document IDs don't match between different locations, indicating the document was merged or extensively modified.
+            </div>
+            
+            <h2>Step 1: Find Trailer ID</h2>
+            
+            <p>Search for <code>/ID</code> near the end of file:</p>
+            <pre><code>/ID [&lt;A1B2C3D4E5F6...&gt; &lt;F6E5D4C3B2A1...&gt;]
+     ^                   ^
+     |                   |
+     Original Doc ID     Instance ID (changes each save)</code></pre>
+            
+            <h2>Step 2: Compare IDs</h2>
+            
+            <p>If the two hex strings are different, the file was saved at least once after creation.</p>
+            
+            <h2>Step 3: Find XMP IDs</h2>
+            
+            <pre><code>&lt;xmpMM:DocumentID&gt;uuid:A1B2C3D4-E5F6-...&lt;/xmpMM:DocumentID&gt;
+&lt;xmpMM:InstanceID&gt;xmp.iid:F6E5D4C3-B2A1-...&lt;/xmpMM:InstanceID&gt;
+&lt;xmpMM:OriginalDocumentID&gt;uuid:ORIGINAL-ID&lt;/xmpMM:OriginalDocumentID&gt;</code></pre>
+            
+            <div class="info">
+                If <code>OriginalDocumentID</code> ≠ <code>DocumentID</code>, the document was derived from another file.
+            </div>
+        </div>
+        
+        <!-- MULTIPLE STARTXREF -->
+        <div id="startxref" class="section" style="display:none;">
+            <h1>Multiple startxref <span class="badge badge-found">MEDIUM</span></h1>
+            
+            <div class="warning">
+                <strong>What it means:</strong> Multiple cross-reference tables exist, indicating incremental saves.
+            </div>
+            
+            <h2>How to Find</h2>
+            
+            <pre><code># Find all startxref positions
+grep -n "startxref" file.pdf
+
+# Or show values
+grep -A1 "startxref" file.pdf</code></pre>
+            
+            <h2>Understanding the Structure</h2>
+            
+            <pre><code>startxref
+12345       ← Byte offset of this version's xref table
+%%EOF
+
+... (new content) ...
+
+startxref
+45678       ← Byte offset of newer xref table
+%%EOF</code></pre>
+            
+            <h2>Following the Chain</h2>
+            
+            <ol>
+                <li>Go to the byte offset indicated by <code>startxref</code></li>
+                <li>Find <code>/Prev XXXXX</code> in the trailer</li>
+                <li>Go to that offset for the previous xref</li>
+                <li>Repeat until no more <code>/Prev</code> entries</li>
+            </ol>
+        </div>
+        
+        <!-- GENERATION > 0 -->
+        <div id="generation" class="section" style="display:none;">
+            <h1>Objects with Generation > 0 <span class="badge badge-found">MEDIUM</span></h1>
+            
+            <div class="warning">
+                <strong>What it means:</strong> Objects were deleted and their numbers reused, indicating editing.
+            </div>
+            
+            <h2>Understanding Generations</h2>
+            
+            <pre><code>15 0 obj     ← Object 15, generation 0 (original)
+15 1 obj     ← Object 15, generation 1 (modified once)
+15 2 obj     ← Object 15, generation 2 (modified twice)</code></pre>
+            
+            <h2>In the XRef Table</h2>
+            
+            <pre><code>xref
+0 20
+0000000000 65535 f    ← Free object
+0000000015 00000 n    ← Object at offset 15, gen 0
+0000001234 00002 n    ← Object at offset 1234, gen 2 = MODIFIED
+           ^^^^^
+           Generation number</code></pre>
+            
+            <h2>Search Command</h2>
+            
+            <pre><code># Find objects with generation > 0
+grep -oP '\d+ [1-9]\d* obj' file.pdf</code></pre>
+        </div>
+        
+        <!-- WHITE RECTANGLE -->
+        <div id="whiterect" class="section" style="display:none;">
+            <h1>White Rectangle Overlay <span class="badge badge-found">MEDIUM</span></h1>
+            
+            <div class="warning">
+                <strong>What it means:</strong> White rectangles are drawn to hide content beneath them—a common forgery technique.
+            </div>
+            
+            <h2>Step 1: Decompress the PDF</h2>
+            
+            <pre><code>qpdf --qdf --object-streams=disable input.pdf readable.pdf</code></pre>
+            
+            <h2>Step 2: Search for White Color + Rectangle</h2>
+            
+            <p>Pattern to find in content streams:</p>
+            <pre><code>1 1 1 rg           ← Set fill color to white (RGB)
+100 200 50 30 re   ← Rectangle at x=100, y=200, w=50, h=30
+f                  ← Fill the rectangle</code></pre>
+            
+            <h2>Hex Pattern</h2>
+            
+            <div class="hex-display">
+                <span class="hex-bytes">31 20 31 20 31 20 72 67</span>
+                <span class="hex-ascii">= "1 1 1 rg" (white fill)</span>
+            </div>
+            
+            <h2>Map to Page Coordinates</h2>
+            
+            <p>Rectangle format: <code>x y width height re</code></p>
+            <ul>
+                <li>Coordinates are in PDF points (1/72 inch)</li>
+                <li>Origin (0,0) is bottom-left of page</li>
+                <li>Compare position to visible content to see what's covered</li>
+            </ul>
+        </div>
+        
+        <!-- INVISIBLE TEXT -->
+        <div id="invisible" class="section" style="display:none;">
+            <h1>Invisible Text (Rendering Mode 3) <span class="badge badge-found">MEDIUM</span></h1>
+            
+            <div class="warning">
+                <strong>What it means:</strong> Text exists in the document but is not rendered—hidden content.
+            </div>
+            
+            <h2>Search for Rendering Mode</h2>
+            
+            <p>In content streams, search for <code>Tr</code> operator:</p>
+            <pre><code>3 Tr                    ← Rendering mode 3 = INVISIBLE
+(Hidden text here) Tj   ← This text won't display
+0 Tr                    ← Back to normal rendering</code></pre>
+            
+            <h2>All Rendering Modes</h2>
+            
+            <table>
+                <tr>
+                    <th>Mode</th>
+                    <th>Effect</th>
+                </tr>
+                <tr><td>0</td><td>Fill text (normal)</td></tr>
+                <tr><td>1</td><td>Stroke text (outline only)</td></tr>
+                <tr><td>2</td><td>Fill then stroke</td></tr>
+                <tr><td><strong>3</strong></td><td><strong>Invisible (hidden!)</strong></td></tr>
+                <tr><td>4</td><td>Fill and add to clipping</td></tr>
+                <tr><td>5</td><td>Stroke and add to clipping</td></tr>
+                <tr><td>6</td><td>Fill, stroke, clip</td></tr>
+                <tr><td>7</td><td>Add to clipping only</td></tr>
+            </table>
+        </div>
+        
+        <!-- DIGITAL SIGNATURE -->
+        <div id="signature" class="section" style="display:none;">
+            <h1>Digital Signature <span class="badge badge-found">MEDIUM</span></h1>
+            
+            <div class="warning">
+                <strong>What it means:</strong> Document was digitally signed. A broken/invalid signature indicates modification after signing.
+            </div>
+            
+            <h2>Step 1: Find Signature Object</h2>
+            
+            <p>Search for <code>/Type /Sig</code>:</p>
+            <pre><code>/Type /Sig
+/Filter /Adobe.PPKLite
+/SubFilter /adbe.pkcs7.detached
+/ByteRange [0 1000 5000 10000]
+/Contents &lt;308204...&gt;</code></pre>
+            
+            <h2>Step 2: Understand ByteRange</h2>
+            
+            <p><code>/ByteRange [start1 len1 start2 len2]</code></p>
+            <ul>
+                <li>Bytes 0-999 (first 1000 bytes) are signed</li>
+                <li>Bytes 1000-4999 contain the signature (excluded)</li>
+                <li>Bytes 5000-14999 are signed</li>
+            </ul>
+            
+            <h2>Step 3: Check for Post-Signature Changes</h2>
+            
+            <p>If there are <code>%%EOF</code> markers AFTER the signature's ByteRange ends, the document was modified after signing!</p>
+            
+            <h2>Verify with pdfsig</h2>
+            
+            <pre><code># Check signature validity
+pdfsig file.pdf
+
+# Examine certificate
+openssl pkcs7 -in signature.p7s -inform DER -print_certs</code></pre>
+        </div>
+        
+        <!-- TIMESTAMP FORMATS -->
+        <div id="timestamps" class="section" style="display:none;">
+            <h1>Timestamp Format Reference</h1>
+            
+            <h2>PDF Date Format (Info Dictionary)</h2>
+            
+            <p>Format: <code>D:YYYYMMDDHHmmSS±HH'mm'</code></p>
+            
+            <pre><code>Example: D:20240115143052+01'00'
+
+D:     = Prefix (required)
+2024   = Year
+01     = Month (January)
+15     = Day
+14     = Hour (24h format)
+30     = Minute
+52     = Second
++01'00'= Timezone offset (UTC+1)</code></pre>
+            
+            <h2>XMP Date Format (ISO 8601)</h2>
+            
+            <p>Format: <code>YYYY-MM-DDTHH:mm:SS±HH:MM</code></p>
+            
+            <pre><code>Example: 2024-01-15T14:30:52+01:00
+
+2024-01-15 = Date
+T          = Separator
+14:30:52   = Time
++01:00     = Timezone (or Z for UTC)</code></pre>
+            
+            <h2>Timezone Indicators</h2>
+            
+            <table>
+                <tr>
+                    <th>Format</th>
+                    <th>Meaning</th>
+                </tr>
+                <tr><td><code>Z</code></td><td>UTC+0 (Zulu time)</td></tr>
+                <tr><td><code>+01'00'</code></td><td>UTC+1 (Central European)</td></tr>
+                <tr><td><code>-05'00'</code></td><td>UTC-5 (Eastern US)</td></tr>
+                <tr><td><code>+02:00</code></td><td>UTC+2 (XMP format)</td></tr>
+            </table>
+        </div>
+        
+        <!-- XREF TABLES -->
+        <div id="xref" class="section" style="display:none;">
+            <h1>Cross-Reference Table Reference</h1>
+            
+            <h2>Standard XRef Format</h2>
+            
+            <pre><code>xref
+0 6                          ← Start at object 0, 6 entries
+0000000000 65535 f           ← Object 0: free, gen 65535
+0000000017 00000 n           ← Object 1: at byte 17, gen 0
+0000000081 00000 n           ← Object 2: at byte 81
+0000000000 00001 f           ← Object 3: deleted (free), gen 1
+0000000331 00000 n           ← Object 4: at byte 331
+0000000409 00000 n           ← Object 5: at byte 409
+
+trailer
+&lt;&lt;
+  /Size 6                    ← Total object count
+  /Root 1 0 R                ← Document catalog
+  /Info 5 0 R                ← Info dictionary
+  /ID [&lt;abc&gt; &lt;def&gt;]         ← Document IDs
+  /Prev 12345                ← Previous xref (incremental)
+&gt;&gt;
+startxref
+500                          ← Byte offset of this xref
+%%EOF</code></pre>
+            
+            <h2>Entry Format</h2>
+            
+            <p><code>OOOOOOOOOO GGGGG n/f</code></p>
+            <ul>
+                <li>OOOOOOOOOO = 10-digit byte offset</li>
+                <li>GGGGG = 5-digit generation number</li>
+                <li>n = in use, f = free (deleted)</li>
+            </ul>
+            
+            <h2>Compressed XRef Stream (PDF 1.5+)</h2>
+            
+            <pre><code>10 0 obj
+&lt;&lt;
+  /Type /XRef
+  /Size 100
+  /W [1 3 1]          ← Column widths in bytes
+  /Root 1 0 R
+  /Info 5 0 R
+&gt;&gt;
+stream
+[binary data]
+endstream
+endobj</code></pre>
+        </div>
+        
+        <!-- PDF OPERATORS -->
+        <div id="operators" class="section" style="display:none;">
+            <h1>PDF Content Stream Operators</h1>
+            
+            <h2>Text Operators</h2>
+            
+            <table>
+                <tr>
+                    <th>Operator</th>
+                    <th>Example</th>
+                    <th>Meaning</th>
+                </tr>
+                <tr><td>BT</td><td><code>BT</code></td><td>Begin text block</td></tr>
+                <tr><td>ET</td><td><code>ET</code></td><td>End text block</td></tr>
+                <tr><td>Tf</td><td><code>/F1 12 Tf</code></td><td>Set font F1 at 12pt</td></tr>
+                <tr><td>Td</td><td><code>100 200 Td</code></td><td>Move to position (100, 200)</td></tr>
+                <tr><td>Tm</td><td><code>1 0 0 1 100 200 Tm</code></td><td>Set text matrix</td></tr>
+                <tr><td>Tj</td><td><code>(Hello) Tj</code></td><td>Show text "Hello"</td></tr>
+                <tr><td>TJ</td><td><code>[(Hel) -10 (lo)] TJ</code></td><td>Show text with kerning</td></tr>
+                <tr><td>Tr</td><td><code>3 Tr</code></td><td>Set rendering mode (3=invisible)</td></tr>
+            </table>
+            
+            <h2>Graphics Operators</h2>
+            
+            <table>
+                <tr>
+                    <th>Operator</th>
+                    <th>Example</th>
+                    <th>Meaning</th>
+                </tr>
+                <tr><td>q / Q</td><td><code>q ... Q</code></td><td>Save/restore graphics state</td></tr>
+                <tr><td>cm</td><td><code>1 0 0 1 10 20 cm</code></td><td>Transform matrix</td></tr>
+                <tr><td>re</td><td><code>100 200 50 30 re</code></td><td>Rectangle (x y w h)</td></tr>
+                <tr><td>m</td><td><code>100 200 m</code></td><td>Move to point</td></tr>
+                <tr><td>l</td><td><code>150 250 l</code></td><td>Line to point</td></tr>
+                <tr><td>c</td><td><code>x1 y1 x2 y2 x3 y3 c</code></td><td>Bézier curve</td></tr>
+                <tr><td>f / F</td><td><code>f</code></td><td>Fill path</td></tr>
+                <tr><td>S</td><td><code>S</code></td><td>Stroke path</td></tr>
+                <tr><td>rg</td><td><code>1 0 0 rg</code></td><td>Set fill color (RGB)</td></tr>
+                <tr><td>RG</td><td><code>0 0 1 RG</code></td><td>Set stroke color (RGB)</td></tr>
+            </table>
+        </div>
+        
+        <!-- COMMAND REFERENCE -->
+        <div id="commands" class="section" style="display:none;">
+            <h1>Command Line Reference</h1>
+            
+            <h2>PDF Decompression</h2>
+            <pre><code># Make PDF readable (decompress streams)
+qpdf --qdf --object-streams=disable input.pdf readable.pdf</code></pre>
+            
+            <h2>Text Extraction</h2>
+            <pre><code># Extract all text preserving layout
+pdftotext -layout file.pdf output.txt</code></pre>
+            
+            <h2>Object Inspection</h2>
+            <pre><code># Show trailer/catalog
+mutool show file.pdf trailer
+
+# Show xref table
+mutool show file.pdf xref
+
+# Show specific object
+mutool show file.pdf 15</code></pre>
+            
+            <h2>Image Extraction</h2>
+            <pre><code># Extract all images
+pdfimages -all file.pdf prefix_</code></pre>
+            
+            <h2>Metadata</h2>
+            <pre><code># Complete metadata dump
+exiftool -a -G -s file.pdf</code></pre>
+            
+            <h2>Signature Verification</h2>
+            <pre><code># Check digital signatures
+pdfsig file.pdf</code></pre>
+            
+            <h2>Pattern Searching</h2>
+            <pre><code># Find specific byte patterns (hex view)
+xxd file.pdf | grep -i "pattern"
+
+# Count %%EOF markers
+grep -c "%%EOF" file.pdf
+
+# Find all %%EOF positions
+grep -boa "%%EOF" file.pdf
+
+# Extract bytes at offset
+dd if=file.pdf bs=1 skip=OFFSET count=LENGTH
+
+# Find TouchUp marker
+grep -l "TouchUp_TextEdit" *.pdf
+
+# Find all JavaScript
+grep -oP '/JS\s*\([^)]+\)' file.pdf</code></pre>
+            
+            <h2>Revision Extraction</h2>
+            <pre><code># Find %%EOF positions
+grep -boa "%%EOF" file.pdf
+
+# Extract first N bytes (to first %%EOF)
+head -c 45005 file.pdf > revision1.pdf</code></pre>
+        </div>
+    </div>
+    
+    <script>
+        function showSection(sectionId) {
+            // Hide all sections
+            document.querySelectorAll('.section').forEach(s => s.style.display = 'none');
+            
+            // Show selected section
+            document.getElementById(sectionId).style.display = 'block';
+            
+            // Update active menu item
+            document.querySelectorAll('#nav li').forEach(li => {
+                if (!li.classList.contains('section-header')) {
+                    li.classList.remove('active');
+                }
+            });
+            event.target.classList.add('active');
+            
+            // Scroll to top
+            document.getElementById('content').scrollTop = 0;
+        }
+        
+        // Simple search functionality
+        document.getElementById('search').addEventListener('input', function(e) {
+            const query = e.target.value.toLowerCase();
+            
+            if (query.length < 2) return;
+            
+            // Search through all sections
+            const sections = document.querySelectorAll('.section');
+            sections.forEach(section => {
+                const text = section.textContent.toLowerCase();
+                if (text.includes(query)) {
+                    // Show matching section
+                    document.querySelectorAll('.section').forEach(s => s.style.display = 'none');
+                    section.style.display = 'block';
+                    
+                    // Update menu
+                    document.querySelectorAll('#nav li').forEach(li => li.classList.remove('active'));
+                }
+            });
+        });
+    </script>
+</body>
+</html>

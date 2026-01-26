@@ -2183,7 +2183,28 @@ class PDFReconApp:
 
     def show_license(self):
         """Displays the license information from 'license.txt' in a popup."""
-        license_path = self._resolve_path("license.txt", base_is_parent=True)
+        # Try multiple locations for license.txt
+        possible_paths = []
+        if getattr(sys, 'frozen', False):
+            # Frozen: check _MEIPASS first, then next to exe
+            meipass = getattr(sys, '_MEIPASS', '')
+            if meipass:
+                possible_paths.append(Path(meipass) / "license.txt")
+            possible_paths.append(Path(sys.executable).parent / "license.txt")
+        else:
+            # Script: check project root
+            possible_paths.append(Path(__file__).resolve().parent.parent / "license.txt")
+        
+        license_path = None
+        for p in possible_paths:
+            if p.exists():
+                license_path = p
+                break
+        
+        if not license_path:
+            messagebox.showerror(self._("license_error_title"), self._("license_error_message"))
+            return
+            
         try:
             with open(license_path, 'r', encoding='utf-8') as f: license_text = f.read()
         except FileNotFoundError:
@@ -4269,21 +4290,51 @@ class PDFReconApp:
         import os
         import webbrowser
         
-        # Try to find HTML help file
-        # First check in same directory as app.py
-        script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        html_path = os.path.join(script_dir, 'PDFRecon_Help.html')
+        lang_suffix = "da" if self.current_language == "da" else "en"
+        manual_paths_to_try = []
         
-        # If not found, try current working directory
-        if not os.path.exists(html_path):
-            html_path = os.path.join(os.getcwd(), 'PDFRecon_Help.html')
+        # When frozen, check _MEIPASS first (bundled data)
+        if getattr(sys, 'frozen', False):
+            meipass = getattr(sys, '_MEIPASS', '')
+            if meipass:
+                manual_paths_to_try.append(os.path.join(meipass, 'lang', f'manual_{lang_suffix}.html'))
+                manual_paths_to_try.append(os.path.join(meipass, 'lang', 'manual_en.html'))
+                manual_paths_to_try.append(os.path.join(meipass, 'PDFRecon_Help.html'))
+            # Also check next to exe
+            exe_dir = os.path.dirname(sys.executable)
+            manual_paths_to_try.append(os.path.join(exe_dir, 'lang', f'manual_{lang_suffix}.html'))
+            manual_paths_to_try.append(os.path.join(exe_dir, 'PDFRecon_Help.html'))
+        else:
+            # Running as script - check project root
+            script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            manual_paths_to_try.append(os.path.join(script_dir, 'lang', f'manual_{lang_suffix}.html'))
+            manual_paths_to_try.append(os.path.join(script_dir, 'lang', 'manual_en.html'))
+            manual_paths_to_try.append(os.path.join(script_dir, 'PDFRecon_Help.html'))
         
-        # If found, open in browser
-        if os.path.exists(html_path):
-            webbrowser.open('file://' + os.path.abspath(html_path))
-            return
+        # Also try current working directory
+        manual_paths_to_try.append(os.path.join(os.getcwd(), 'lang', f'manual_{lang_suffix}.html'))
+        manual_paths_to_try.append(os.path.join(os.getcwd(), 'PDFRecon_Help.html'))
         
-        # Fallback: show old-style popup if HTML not found
+        for html_path in manual_paths_to_try:
+            if os.path.exists(html_path):
+                try:
+                    # Use file:/// with forward slashes for proper URL
+                    file_url = Path(html_path).as_uri()
+                    webbrowser.open(file_url)
+                    return
+                except Exception as e:
+                    logging.error(f"Failed to open manual: {e}")
+                    continue
+        
+        # Show error if no manual found
+        searched_paths = "\n".join(manual_paths_to_try[:5])  # Show first 5 paths
+        messagebox.showwarning(
+            "Manual Not Found",
+            f"Could not find the forensic manual.\n\nSearched locations:\n{searched_paths}"
+        )
+        return
+        
+        # Fallback: show old-style popup if HTML not found (unreachable now)
         manual_popup = Toplevel(self.root)
         manual_popup.title(self._("manual_title"))
         
