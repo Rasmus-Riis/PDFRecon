@@ -8,7 +8,7 @@ import re
 import os
 
 # --- Application Version ---
-APP_VERSION = "17.3.5"
+APP_VERSION = "17.3.6"
 
 # --- UI Configuration Constants ---
 UI_COLORS = {
