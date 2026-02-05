@@ -530,7 +530,7 @@ class PDFReconApp:
         # Clear existing handlers to avoid duplicate logs
         if logger.hasHandlers():
             logger.handlers.clear()
-        
+            
         # Try multiple locations for the log file
         log_locations = [
             self._resolve_path("pdfrecon.log", base_is_parent=True),  # App directory
@@ -552,6 +552,7 @@ class PDFReconApp:
         # If no file logging worked, add a NullHandler to prevent errors (console still works via print)
         if self.log_file_path is None:
             logger.addHandler(logging.NullHandler())
+
     def _autoload_case_in_reader(self):
         """If in reader mode, finds and opens a .prc file in the executable's directory."""
         try:
@@ -1478,7 +1479,7 @@ class PDFReconApp:
         context_menu.add_separator()
         context_menu.add_command(label="Open File Location", command=lambda: self.open_file_location(item_id))
         
-        context_menu.tk_popup(event.x_root, event.y_root)
+        context_menu.tk_popup(event.x_root, event.y_root)  
 
     def _navigate_to_file(self, path_str):
         """Navigates to and selects a file in the treeview by its path."""
@@ -2018,18 +2019,32 @@ class PDFReconApp:
                 self.root.update()
 
                 with fitz.open(popup.path_orig) as doc_orig, fitz.open(popup.path_rev) as doc_rev:
-                    page_orig = doc_orig.load_page(page_num)
-                    page_rev = doc_rev.load_page(page_num)
+                    # Check if the revision has this page
+                    if page_num >= doc_rev.page_count:
+                        # Revision has fewer pages - show original with "no revision page" message
+                        page_orig = doc_orig.load_page(page_num)
+                        pix_orig = page_orig.get_pixmap(dpi=150)
+                        img_orig = Image.frombytes("RGB", [pix_orig.width, pix_orig.height], pix_orig.samples)
+                        img_rev = Image.new('RGB', img_orig.size, (200, 200, 200))  # Gray placeholder
+                        final_diff = Image.new('RGB', img_orig.size, (100, 100, 100))  # Dark gray - no comparison possible
+                    else:
+                        page_orig = doc_orig.load_page(page_num)
+                        page_rev = doc_rev.load_page(page_num)
 
-                    pix_orig = page_orig.get_pixmap(dpi=150)
-                    pix_rev = page_rev.get_pixmap(dpi=150)
-                
-                img_orig = Image.frombytes("RGB", [pix_orig.width, pix_orig.height], pix_orig.samples)
-                img_rev = Image.frombytes("RGB", [pix_rev.width, pix_rev.height], pix_rev.samples)
+                        pix_orig = page_orig.get_pixmap(dpi=150)
+                        pix_rev = page_rev.get_pixmap(dpi=150)
+                    
+                        img_orig = Image.frombytes("RGB", [pix_orig.width, pix_orig.height], pix_orig.samples)
+                        img_rev = Image.frombytes("RGB", [pix_rev.width, pix_rev.height], pix_rev.samples)
 
-                diff = ImageChops.difference(img_orig, img_rev)
-                mask = diff.convert('L').point(lambda x: 255 if x > 20 else 0)
-                final_diff = Image.composite(Image.new('RGB', img_orig.size, 'red'), ImageOps.grayscale(img_orig).convert('RGB'), mask)
+                        # Ensure both images are the same size for comparison
+                        if img_orig.size != img_rev.size:
+                            # Resize revision image to match original size
+                            img_rev = img_rev.resize(img_orig.size, Image.Resampling.LANCZOS)
+
+                        diff = ImageChops.difference(img_orig, img_rev)
+                        mask = diff.convert('L').point(lambda x: 255 if x > 20 else 0)
+                        final_diff = Image.composite(Image.new('RGB', img_orig.size, 'red'), ImageOps.grayscale(img_orig).convert('RGB'), mask)
                 
                 screen_w, screen_h = popup.winfo_screenwidth(), popup.winfo_screenheight()
                 max_img_w, max_img_h = (screen_w * 0.95) / 3, screen_h * 0.8
@@ -3242,24 +3257,36 @@ class PDFReconApp:
             with ThreadPoolExecutor(max_workers=PDFReconConfig.MAX_WORKER_THREADS) as executor:
                 # Pass the scan root 'folder' to each file processing job
                 future_to_path = {executor.submit(self._process_single_file, fp, folder): fp for fp in pdf_files}
-                for future in as_completed(future_to_path, timeout=FILE_TIMEOUT):
-                    path = future_to_path[future]
-                    files_processed += 1
-                    try:
-                        results = future.result(timeout=FILE_TIMEOUT)
-                        for result_data in results:
-                            q.put(("file_row", result_data))
-                    except TimeoutError:
-                        logging.error(f"TIMEOUT processing file {path.name} - exceeded {FILE_TIMEOUT} seconds")
-                        q.put(("file_row", {"path": path, "status": "error", "error_type": "processing_timeout", "error_message": f"File processing timed out after {FILE_TIMEOUT} seconds"}))
-                    except Exception as e:
-                        logging.error(f"Unexpected error from thread pool for file {path.name}: {e}")
-                        q.put(("file_row", {"path": path, "status": "error", "error_type": "unknown_error", "error_message": str(e)}))
-                    
-                    elapsed_time = time.time() - self.scan_start_time
-                    fps = files_processed / elapsed_time if elapsed_time > 0 else 0
-                    eta_seconds = (len(pdf_files) - files_processed) / fps if fps > 0 else 0
-                    q.put(("detailed_progress", {"file": path.name, "fps": fps, "eta": time.strftime('%M:%S', time.gmtime(eta_seconds))}))
+                
+                # Process completed futures without a global timeout
+                # Use individual future.result() timeouts instead
+                try:
+                    for future in as_completed(future_to_path):
+                        path = future_to_path[future]
+                        files_processed += 1
+                        try:
+                            results = future.result(timeout=FILE_TIMEOUT)
+                            for result_data in results:
+                                q.put(("file_row", result_data))
+                        except TimeoutError:
+                            logging.error(f"TIMEOUT processing file {path.name} - exceeded {FILE_TIMEOUT} seconds")
+                            q.put(("file_row", {"path": path, "status": "error", "error_type": "processing_timeout", "error_message": f"File processing timed out after {FILE_TIMEOUT} seconds"}))
+                        except Exception as e:
+                            logging.error(f"Unexpected error from thread pool for file {path.name}: {e}")
+                            q.put(("file_row", {"path": path, "status": "error", "error_type": "unknown_error", "error_message": str(e)}))
+                        
+                        elapsed_time = time.time() - self.scan_start_time
+                        fps = files_processed / elapsed_time if elapsed_time > 0 else 0
+                        eta_seconds = (len(pdf_files) - files_processed) / fps if fps > 0 else 0
+                        q.put(("detailed_progress", {"file": path.name, "fps": fps, "eta": time.strftime('%M:%S', time.gmtime(eta_seconds))}))
+                except TimeoutError as te:
+                    # Handle case where as_completed itself times out (shouldn't happen now without timeout param)
+                    logging.warning(f"Some futures did not complete: {te}")
+                    # Process any remaining unfinished futures
+                    for future, path in future_to_path.items():
+                        if not future.done():
+                            future.cancel()
+                            q.put(("file_row", {"path": path, "status": "error", "error_type": "cancelled", "error_message": "Processing was cancelled due to timeout"}))
 
         except Exception as e:
             logging.error(f"Error in scan worker: {e}")
@@ -4441,11 +4468,19 @@ class PDFReconApp:
                             is_identical = True
                             for i in range(pages_to_compare):
                                 page_orig, page_rev = doc_orig.load_page(i), doc_rev.load_page(i)
-                                if page_orig.rect != page_rev.rect: is_identical = False; break
+                                if page_orig.rect != page_rev.rect: 
+                                    is_identical = False
+                                    break
                                 pix_orig, pix_rev = page_orig.get_pixmap(dpi=96), page_rev.get_pixmap(dpi=96)
                                 img_orig = Image.frombytes("RGB", [pix_orig.width, pix_orig.height], pix_orig.samples)
                                 img_rev = Image.frombytes("RGB", [pix_rev.width, pix_rev.height], pix_rev.samples)
-                                if ImageChops.difference(img_orig, img_rev).getbbox() is not None: is_identical = False; break
+                                # Ensure images are same size before comparison
+                                if img_orig.size != img_rev.size:
+                                    is_identical = False
+                                    break
+                                if ImageChops.difference(img_orig, img_rev).getbbox() is not None: 
+                                    is_identical = False
+                                    break
                 except Exception as e:
                     logging.warning(f"Could not visually compare {rev_path.name}, keeping it. Error: {e}")
                 
@@ -4914,7 +4949,7 @@ class PDFReconApp:
         found_text = {}
         if not doc or doc.is_closed:
             return found_text
-
+            
         for xref in range(1, doc.xref_length()):
             try:
                 obj_source = doc.xref_object(xref, compressed=False)
@@ -5036,7 +5071,7 @@ class PDFReconApp:
             logging.warning(f"Error finding TouchUp regions on page {page_num}: {e}")
         
         return regions
-
+            
     def show_pdf_viewer_popup(self, item_id):
         """Displays a simple PDF viewer for the selected file, with TouchUp text highlighted in red."""
         self.root.config(cursor="watch")
