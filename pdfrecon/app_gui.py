@@ -57,33 +57,12 @@ requests = _import_with_fallback('requests', 'requests', 'requests')
 # --- Import configuration and version ---
 from .config import PDFReconConfig, PDFProcessingError, PDFCorruptionError, \
     PDFTooLargeError, PDFEncryptedError, APP_VERSION, UI_COLORS, UI_FONTS, UI_DIMENSIONS
+from .pdf_processor import count_layers
 
 # --- OCG (layers) detection helpers ---
-_LAYER_OCGS_BLOCK_RE = re.compile(rb"/OCGs\s*\[(.*?)\]", re.S)
-_OBJ_REF_RE          = re.compile(rb"(\d+)\s+(\d+)\s+R")
-_LAYER_OC_REF_RE     = re.compile(rb"/OC\s+(\d+)\s+(\d+)\s+R")
 _PDF_DATE_PATTERN    = re.compile(r"\/([A-Z][a-zA-Z0-9_]+)\s*\(\s*D:(\d{14})")
 _KV_PATTERN          = re.compile(r'^\[(?P<group>[^\]]+)\]\s*(?P<tag>[\w\-/ ]+?)\s*:\s*(?P<value>.+)$')
 _DATE_TZ_PATTERN     = re.compile(r"^(?P<date>\d{4}[-:]\d{2}[-:]\d{2}[ T]\d{2}:\d{2}:\d{2})(?:\.\d+)?(?P<tz>[+\-]\d{2}:\d{2}|Z)?")
-
-def count_layers(pdf_bytes: bytes) -> int:
-    """
-    Conservatively counts OCGs (layers) in PDF bytes.
-    1) Finds /OCGs [ ... ] and collects all indirect refs "n m R".
-    2) Also finds /OC n m R in content/resources.
-    3) Deduplicates (n, gen).
-    """
-    refs = set()
-
-    m = _LAYER_OCGS_BLOCK_RE.search(pdf_bytes)
-    if m:
-        for n, g in _OBJ_REF_RE.findall(m.group(1)):
-            refs.add((int(n), int(g)))
-
-    for n, g in _LAYER_OC_REF_RE.findall(pdf_bytes):
-        refs.add((int(n), int(g)))
-
-    return len(refs)
 
 
 # --- PHASE 1/3: Configuration and Custom Exceptions ---
