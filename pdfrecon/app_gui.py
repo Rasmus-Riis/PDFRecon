@@ -4035,20 +4035,30 @@ class PDFReconApp:
             {'Calibri': {'ABC+Calibri', 'DEF+Calibri-Bold'}}
             """
             font_subsets = {}
-            # Iterate through each page to get the fonts used
-            for page_num in range(len(doc)):
-                fonts_on_page = doc.get_page_fonts(page_num)
-                for font_info in fonts_on_page:
-                    basefont_name = font_info[3]
-                    if "+" in basefont_name:
-                        try:
-                            _, actual_base_font = basefont_name.split("+", 1)
-                            normalized_base = actual_base_font.split('-')[0]
-                            if normalized_base not in font_subsets:
-                                font_subsets[normalized_base] = set()
-                            font_subsets[normalized_base].add(basefont_name)
-                        except ValueError:
-                            continue
+            # Efficiently iterate through font objects instead of pages
+            for xref in range(1, doc.xref_length()):
+                if doc.xref_is_font(xref):
+                    try:
+                        # Use xref_get_key if available (PyMuPDF 1.18.14+)
+                        key_info = doc.xref_get_key(xref, "BaseFont")
+                        if key_info[0] == "name":
+                            basefont_name = key_info[1]
+                            # Strip leading slash common in PDF names
+                            if basefont_name.startswith("/"):
+                                basefont_name = basefont_name[1:]
+
+                            if "+" in basefont_name:
+                                try:
+                                    _, actual_base_font = basefont_name.split("+", 1)
+                                    normalized_base = actual_base_font.split('-')[0]
+                                    if normalized_base not in font_subsets:
+                                        font_subsets[normalized_base] = set()
+                                    font_subsets[normalized_base].add(basefont_name)
+                                except ValueError:
+                                    continue
+                    except Exception:
+                        # Fallback or ignore if key retrieval fails
+                        continue
             
             # Filter for only those fonts that actually have multiple subsets
             conflicting_fonts = {base: subsets for base, subsets in font_subsets.items() if len(subsets) > 1}
