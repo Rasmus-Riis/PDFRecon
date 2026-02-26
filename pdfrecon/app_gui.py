@@ -3746,12 +3746,12 @@ class PDFReconApp:
         
         return data
         
-    def _detect_tool_change_from_exif(self, exiftool_output: str):
+    def _detect_tool_change_from_exif(self, exiftool_output: str, parsed_data=None):
         """
         Determines if the primary tool changed between creation and last modification.
         This function is now a lightweight wrapper around _parse_exif_data.
         """
-        data = self._parse_exif_data(exiftool_output)
+        data = parsed_data if parsed_data else self._parse_exif_data(exiftool_output)
         
         create_tool = data["producer_pdf"] or data["producer_xmppdf"] or data["application"] or data["software"] or data["creatortool"] or ""
         modify_tool = data["softwareagent"] or data["producer_pdf"] or data["producer_xmppdf"] or data["application"] or data["software"] or data["creatortool"] or ""
@@ -3777,12 +3777,12 @@ class PDFReconApp:
             "reason": reason
         }
 
-    def _parse_exiftool_timeline(self, exiftool_output):
+    def _parse_exiftool_timeline(self, exiftool_output, parsed_data=None):
         """
         Generates a list of timeline events from parsed EXIF data.
         """
         events = []
-        data = self._parse_exif_data(exiftool_output)
+        data = parsed_data if parsed_data else self._parse_exif_data(exiftool_output)
 
         create_tool = data["producer_pdf"] or data["producer_xmppdf"] or data["application"] or data["software"] or data["creatortool"] or ""
         modify_tool = data["softwareagent"] or create_tool # Fallback to create_tool if no specific modify tool
@@ -3925,20 +3925,24 @@ class PDFReconApp:
         s = s.replace("\x00", "")
         return s
 
-    def generate_comprehensive_timeline(self, filepath, raw_file_content, exiftool_output):
+    def generate_comprehensive_timeline(self, filepath, raw_file_content, exiftool_output, parsed_exif_data=None):
         """
         Combines events from all sources, separating them into timezone-aware and naive lists.
         """
         all_events = []
 
+        # Parse EXIF data once if not provided
+        if parsed_exif_data is None:
+            parsed_exif_data = self._parse_exif_data(exiftool_output)
+
         # 1) Get File System, ExifTool, and Raw Content timestamps
         all_events.extend(self._get_filesystem_times(filepath))
-        all_events.extend(self._parse_exiftool_timeline(exiftool_output))
+        all_events.extend(self._parse_exiftool_timeline(exiftool_output, parsed_data=parsed_exif_data))
         all_events.extend(self._parse_raw_content_timeline(raw_file_content))
 
         # 2) Add a special event if a tool change was detected
         try:
-            info = self._detect_tool_change_from_exif(exiftool_output)
+            info = self._detect_tool_change_from_exif(exiftool_output, parsed_data=parsed_exif_data)
             if info.get("changed"):
                 when = info.get("modify_dt")
                 if not when and all_events:
@@ -4442,6 +4446,7 @@ class PDFReconApp:
                     tmp_path = Path(tmp_file.name)
                 
                 rev_exif = self.exiftool_output(tmp_path, detailed=True)
+                rev_parsed_exif = self._parse_exif_data(rev_exif)
 
                 # Conditionally copy revisions with invalid XREF tables if the setting is enabled
                 if PDFReconConfig.EXPORT_INVALID_XREF and "Warning" in rev_exif and "Invalid xref table" in rev_exif:
@@ -4457,7 +4462,7 @@ class PDFReconApp:
                 
                 rev_md5 = hashlib.md5(rev_raw).hexdigest()
                 rev_txt = self.extract_text(rev_raw)
-                revision_timeline = self.generate_comprehensive_timeline(rev_path, rev_txt, rev_exif)
+                revision_timeline = self.generate_comprehensive_timeline(rev_path, rev_txt, rev_exif, parsed_exif_data=rev_parsed_exif)
 
                 # Perform a visual comparison to see if the revision is identical to the original
                 is_identical = False
@@ -4528,6 +4533,7 @@ class PDFReconApp:
             logging.info(f"Computing MD5 and EXIF for {fp.name}...")
             md5_hash = md5_file(fp)
             exif = self.exiftool_output(fp, detailed=True)
+            parsed_exif = self._parse_exif_data(exif)
 
             # Conditionally submit invalid XREF originals to the copy pool if setting is enabled
             if PDFReconConfig.EXPORT_INVALID_XREF and "Warning" in exif and "Invalid xref table" in exif:
@@ -4536,12 +4542,12 @@ class PDFReconApp:
                 if self.copy_executor:
                     self.copy_executor.submit(self._perform_copy, fp, dest_path)
 
-            tool_change_info = self._detect_tool_change_from_exif(exif)
+            tool_change_info = self._detect_tool_change_from_exif(exif, parsed_data=parsed_exif)
             if tool_change_info.get("changed"):
                 indicators['ToolChange'] = {}
             
             logging.info(f"Generating timeline for {fp.name}...")
-            original_timeline = self.generate_comprehensive_timeline(fp, txt, exif)
+            original_timeline = self.generate_comprehensive_timeline(fp, txt, exif, parsed_exif_data=parsed_exif)
             
             logging.info(f"Extracting revisions from {fp.name}...")
             potential_revisions = self.extract_revisions(raw, fp)
