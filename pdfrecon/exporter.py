@@ -57,25 +57,83 @@ def format_indicator_details(key: str, details: dict) -> str:
     Returns:
         str: Formatted indicator string
     """
-    if not details:
-        return key
+    if key == 'TouchUp_TextEdit':
+        found_text_str = ""
+        diff_str = ""
+        if details and details.get('found_text'):
+            found_text = details['found_text']
+            # Handle both dict (new format) and list (legacy format)
+            if isinstance(found_text, dict):
+                # New format: {page_num: [text1, text2, ...]}
+                lines = ["(Note: │ separates individual text operations)"]
+                for page_num in sorted(found_text.keys()):
+                    texts = found_text[page_num]
+                    if page_num == 0:
+                        lines.append("\nExtracted text:")  # Legacy fallback has no page info
+                    else:
+                        lines.append(f"\nSide {page_num}:")
+                    for idx, text in enumerate(texts, 1):
+                        lines.append(f"  [{idx}] {text}")
+                found_text_str = "\n".join(lines)
+            elif isinstance(found_text, list):
+                # Legacy format: ["Side 1: text1", "Side 1: text2", ...]
+                found_text_str = "\n".join(found_text)
+        if details and details.get('text_diff'):
+            diff_str = "A text comparison to a previous version is available."
+
+        if found_text_str and diff_str:
+            return f"TouchUp TextEdit:\n{found_text_str}\n\n({diff_str})"
+        elif found_text_str:
+            return f"TouchUp TextEdit:\n{found_text_str}"
+        elif diff_str:
+            return f"TouchUp TextEdit ({diff_str})"
+        else:
+            return "TouchUp TextEdit (Flag found, but no specific text or revisions to compare)"
+
+    if key == 'MultipleCreators':
+        return f"Multiple Creators (Found {details['count']}): " + ", ".join(f'"{v}"' for v in details['values'])
+    if key == 'MultipleProducers':
+        return f"Multiple Producers (Found {details['count']}): " + ", ".join(f'"{v}"' for v in details['values'])
+    if key == 'MultipleFontSubsets':
+        font_details = []
+        for base_font, subsets in details['fonts'].items():
+            font_details.append(f"'{base_font}': {{{{{', '.join(subsets)}}}}}")
+        return f"Multiple Font Subsets: " + "; ".join(font_details)
+    if key == 'CreateDateMismatch':
+        return f"Creation Date Mismatch: Info='{details['info']}', XMP='{details['xmp']}'"
+    if key == 'ModifyDateMismatch':
+        return f"Modify Date Mismatch: Info='{details['info']}', XMP='{details['xmp']}'"
+    if key == 'TrailerIDChange':
+        return f"Trailer ID Changed: From [{details['from']}] to [{details['to']}]"
+    if key == 'XMPIDChange':
+        return f"XMP DocumentID Changed: From [{details['from']}] to [{details['to']}]"
+    if key == 'MultipleStartxref':
+        return f"Multiple startxref (Found {details['count']})"
+    if key == 'IncrementalUpdates':
+        return f"Incremental updates (Found {details['count']} versions)"
+    if key == 'ObjGenGtZero':
+        return f"Objects with generation > 0 (Found {details['count']} objects)"
+    if key == 'HasLayers':
+        return f"Has Layers (Found {details['count']})"
+    if key == 'MoreLayersThanPages':
+        return f"More Layers ({details['layers']}) Than Pages ({details['pages']})"
+    if key == 'RelatedFiles':
+        count = details.get('count', 0)
+        files = details.get('files', [])
+        lines = [f"Related Files Found ({count}):"]
+        for f in files:
+            rel_type = f.get('type', 'related')
+            name = f.get('name', 'Unknown')
+            if rel_type == 'derived_from':
+                lines.append(f"  ← Derived from: {name}")
+            elif rel_type == 'parent_of':
+                lines.append(f"  → Parent of: {name}")
+            else:
+                lines.append(f"  ↔ Related to: {name}")
+        return "\n".join(lines)
     
-    if isinstance(details, dict):
-        # Handle count-based indicators
-        if 'count' in details:
-            return f"{key} ({details['count']})"
-        # Handle text-based indicators
-        if 'text' in details:
-            return f"{key}: {details['text'][:50]}..."
-        # Handle font indicators
-        if 'fonts' in details:
-            font_count = len(details['fonts'])
-            return f"{key} ({font_count} fonts)"
-        # Handle list indicators
-        if 'items' in details and isinstance(details['items'], list):
-            return f"{key} ({len(details['items'])} items)"
-    
-    return key
+    # Fallback for simple indicators with no details
+    return key.replace("_", " ")
 
 
 def export_to_excel(file_path, report_data: list, all_scan_data: dict, file_annotations: dict, 
@@ -306,7 +364,7 @@ def export_to_html(file_path, report_data: list, file_annotations: dict, all_sca
         headers = "".join(f"<th>{h}</th>" for h in headers_list)
         
         if not tag_map:
-            tag_map = {"red_row": "red-row", "yellow_row": "yellow-row", "blue_row": "blue-row", "gray_row": "gray-row"}
+            tag_map = {"red_row": "red-row", "yellow_row": "yellow-row", "blue_row": "blue-row", "purple_row": "purple-row", "gray_row": "gray-row"}
         
         rows = ""
         
