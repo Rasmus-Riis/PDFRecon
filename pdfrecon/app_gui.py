@@ -57,6 +57,7 @@ requests = _import_with_fallback('requests', 'requests', 'requests')
 # --- Import configuration and version ---
 from .config import PDFReconConfig, PDFProcessingError, PDFCorruptionError, \
     PDFTooLargeError, PDFEncryptedError, APP_VERSION, UI_COLORS, UI_FONTS, UI_DIMENSIONS
+from .utils import CaseEncoder, case_decoder
 
 # --- OCG (layers) detection helpers ---
 _LAYER_OCGS_BLOCK_RE = re.compile(rb"/OCGs\s*\[(.*?)\]", re.S)
@@ -2578,8 +2579,20 @@ class PDFReconApp:
             return
 
         try:
-            with open(filepath, 'rb') as f:
-                case_data = pickle.load(f)
+            try:
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    case_data = json.load(f, object_hook=case_decoder)
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                if not messagebox.askyesno(
+                    self._("case_legacy_warning_title"),
+                    self._("case_legacy_warning_msg"),
+                    icon='warning'
+                ):
+                    return
+
+                with open(filepath, 'rb') as f:
+                    case_data = pickle.load(f)
+                logging.warning(f"Loaded legacy pickle case file: {filepath}")
 
             # --- Restore State from Case File ---
             self._reset_state()
@@ -2636,8 +2649,8 @@ class PDFReconApp:
             'revision_counter': self.revision_counter,
             'evidence_hashes': self.evidence_hashes,
         }
-        with open(filepath, 'wb') as f:
-            pickle.dump(case_data, f)
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(case_data, f, cls=CaseEncoder)
     
     def _hash_file(self, filepath):
         """Calculates the SHA-256 hash of a file."""
@@ -2866,8 +2879,8 @@ class PDFReconApp:
                 'revision_counter': self.revision_counter,
                 'evidence_hashes': new_hashes,
             }
-            with open(dest_case_file, 'wb') as f:
-                pickle.dump(case_payload, f)
+            with open(dest_case_file, 'w', encoding='utf-8') as f:
+                json.dump(case_payload, f, cls=CaseEncoder)
 
             source_exe = Path(sys.executable)
             reader_exe_name = f"{source_exe.stem}_Reader{source_exe.suffix}"
