@@ -57,6 +57,7 @@ requests = _import_with_fallback('requests', 'requests', 'requests')
 # --- Import configuration and version ---
 from .config import PDFReconConfig, PDFProcessingError, PDFCorruptionError, \
     PDFTooLargeError, PDFEncryptedError, APP_VERSION, UI_COLORS, UI_FONTS, UI_DIMENSIONS
+from .utils import md5_file
 
 # --- OCG (layers) detection helpers ---
 _LAYER_OCGS_BLOCK_RE = re.compile(rb"/OCGs\s*\[(.*?)\]", re.S)
@@ -112,20 +113,6 @@ class PDFEncryptedError(PDFProcessingError):
     """Exception for encrypted files that cannot be read."""
     pass
 # --- End Phase 1/3 ---
-def md5_file(fp: Path, buf_size: int = 4 * 1024 * 1024) -> str:
-    """
-    Fast MD5 with reusable buffer (fewer allocations).
-    """
-    h = hashlib.md5()
-    with fp.open("rb", buffering=0) as f:
-        buf = bytearray(buf_size)
-        mv = memoryview(buf)
-        while True:
-            n = f.readinto(mv)
-            if not n:
-                break
-            h.update(mv[:n])
-    return h.hexdigest()
 
 
 def fmt_times_pair(ts: float):
