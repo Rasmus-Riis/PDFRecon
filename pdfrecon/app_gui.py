@@ -4061,9 +4061,10 @@ class PDFReconApp:
         Searches for indicators, now with an integrated text-diff feature for TouchUp edits.
         """
         indicators = {}
+        txt_lower = txt.lower()
 
         # --- High-Confidence Indicators ---
-        if re.search(r"touchup_textedit", txt, re.I):
+        if "touchup_textedit" in txt_lower:
             found_text = self._extract_touchup_text(doc)
             details = {'found_text': found_text, 'text_diff': None}
 
@@ -4087,15 +4088,17 @@ class PDFReconApp:
             indicators['TouchUp_TextEdit'] = details
 
         # --- Metadata Indicators ---
-        creators = set(re.findall(r"/Creator\s*\((.*?)\)", txt, re.I))
-        if len(creators) > 1:
-            indicators['MultipleCreators'] = {'count': len(creators), 'values': list(creators)}
+        if "/creator" in txt_lower:
+            creators = set(re.findall(r"/Creator\s*\((.*?)\)", txt, re.I))
+            if len(creators) > 1:
+                indicators['MultipleCreators'] = {'count': len(creators), 'values': list(creators)}
         
-        producers = set(re.findall(r"/Producer\s*\((.*?)\)", txt, re.I))
-        if len(producers) > 1:
-            indicators['MultipleProducers'] = {'count': len(producers), 'values': list(producers)}
+        if "/producer" in txt_lower:
+            producers = set(re.findall(r"/Producer\s*\((.*?)\)", txt, re.I))
+            if len(producers) > 1:
+                indicators['MultipleProducers'] = {'count': len(producers), 'values': list(producers)}
 
-        if re.search(r'<xmpMM:History>', txt, re.I | re.S):
+        if "<xmpmm:history>" in txt_lower:
             indicators['XMPHistory'] = {}
 
         # --- Structural and Content Indicators ---
@@ -4109,31 +4112,44 @@ class PDFReconApp:
         if (hasattr(doc, 'is_xfa') and doc.is_xfa) or "/XFA" in txt:
             indicators['HasXFAForm'] = {}
 
-        if re.search(r"/Type\s*/Sig\b", txt):
-            indicators['HasDigitalSignature'] = {}
+        if "/type" in txt_lower and "/sig" in txt_lower:
+            if re.search(r"/Type\s*/Sig\b", txt):
+                indicators['HasDigitalSignature'] = {}
 
         # --- Incremental Update Indicators ---
-        startxref_count = txt.lower().count("startxref")
+        startxref_count = txt_lower.count("startxref")
         if startxref_count > 1:
             indicators['MultipleStartxref'] = {'count': startxref_count}
         
-        prevs = re.findall(r"/Prev\s+\d+", txt)
-        if prevs:
-            indicators['IncrementalUpdates'] = {'count': len(prevs) + 1}
+        prevs = []
+        if "/prev" in txt_lower:
+            prevs = re.findall(r"/Prev\s+\d+", txt)
+            if prevs:
+                indicators['IncrementalUpdates'] = {'count': len(prevs) + 1}
         
-        if re.search(r"/Linearized\s+\d+", txt):
-            indicators['Linearized'] = {}
-            if startxref_count > 1 or prevs:
-                indicators['LinearizedUpdated'] = {}
+        if "/linearized" in txt_lower:
+            if re.search(r"/Linearized\s+\d+", txt):
+                indicators['Linearized'] = {}
+
+        if 'Linearized' in indicators and (startxref_count > 1 or prevs):
+            indicators['LinearizedUpdated'] = {}
 
         # --- Feature Indicators ---
-        if re.search(r"/Redact\b", txt, re.I): indicators['HasRedactions'] = {}
-        if re.search(r"/Annots\b", txt, re.I): indicators['HasAnnotations'] = {}
-        if re.search(r"/PieceInfo\b", txt, re.I): indicators['HasPieceInfo'] = {}
-        if re.search(r"/AcroForm\b", txt, re.I):
-            indicators['HasAcroForm'] = {}
-            if re.search(r"/NeedAppearances\s+true\b", txt, re.I):
-                indicators['AcroFormNeedAppearances'] = {}
+        if "/redact" in txt_lower:
+            if re.search(r"/Redact\b", txt, re.I): indicators['HasRedactions'] = {}
+
+        if "/annots" in txt_lower:
+            if re.search(r"/Annots\b", txt, re.I): indicators['HasAnnotations'] = {}
+
+        if "/pieceinfo" in txt_lower:
+            if re.search(r"/PieceInfo\b", txt, re.I): indicators['HasPieceInfo'] = {}
+
+        if "/acroform" in txt_lower:
+            if re.search(r"/AcroForm\b", txt, re.I):
+                indicators['HasAcroForm'] = {}
+                if "/needappearances" in txt_lower:
+                    if re.search(r"/NeedAppearances\s+true\b", txt, re.I):
+                        indicators['AcroFormNeedAppearances'] = {}
 
         gen_gt_zero_matches = [m for m in re.finditer(r"\b(\d+)\s+(\d+)\s+obj\b", txt) if int(m.group(2)) > 0]
         if gen_gt_zero_matches:
@@ -4145,21 +4161,36 @@ class PDFReconApp:
             s = str(x).strip().upper()
             return re.sub(r"^(URN:UUID:|UUID:|XMP\.IID:|XMP\.DID:)", "", s).strip("<>")
 
-        xmp_orig = _norm_uuid(re.search(r"xmpMM:OriginalDocumentID(?:>|=\")([^<\"]+)", txt, re.I).group(1) if re.search(r"xmpMM:OriginalDocumentID", txt, re.I) else None)
-        xmp_doc = _norm_uuid(re.search(r"xmpMM:DocumentID(?:>|=\")([^<\"]+)", txt, re.I).group(1) if re.search(r"xmpMM:DocumentID", txt, re.I) else None)
+        xmp_orig = None
+        if "xmpmm:originaldocumentid" in txt_lower:
+             m = re.search(r"xmpMM:OriginalDocumentID(?:>|=\")([^<\"]+)", txt, re.I)
+             if m: xmp_orig = _norm_uuid(m.group(1))
+
+        xmp_doc = None
+        if "xmpmm:documentid" in txt_lower:
+             m = re.search(r"xmpMM:DocumentID(?:>|=\")([^<\"]+)", txt, re.I)
+             if m: xmp_doc = _norm_uuid(m.group(1))
         
         if xmp_orig and xmp_doc and xmp_doc != xmp_orig:
             indicators['XMPIDChange'] = {'from': xmp_orig, 'to': xmp_doc}
 
-        trailer_match = re.search(r"/ID\s*\[\s*<\s*([0-9A-Fa-f]+)\s*>\s*<\s*([0-9A-Fa-f]+)\s*>\s*\]", txt)
-        if trailer_match:
-            trailer_orig, trailer_curr = _norm_uuid(trailer_match.group(1)), _norm_uuid(trailer_match.group(2))
-            if trailer_orig and trailer_curr and trailer_curr != trailer_orig:
-                indicators['TrailerIDChange'] = {'from': trailer_orig, 'to': trailer_curr}
+        trailer_orig = None
+        trailer_curr = None
+        if "/id" in txt_lower:
+            trailer_match = re.search(r"/ID\s*\[\s*<\s*([0-9A-Fa-f]+)\s*>\s*<\s*([0-9A-Fa-f]+)\s*>\s*\]", txt)
+            if trailer_match:
+                trailer_orig, trailer_curr = _norm_uuid(trailer_match.group(1)), _norm_uuid(trailer_match.group(2))
+                if trailer_orig and trailer_curr and trailer_curr != trailer_orig:
+                    indicators['TrailerIDChange'] = {'from': trailer_orig, 'to': trailer_curr}
         
         # --- Date Mismatch ---
-        info_dates = dict(re.findall(r"/(ModDate|CreationDate)\s*\(\s*D:(\d{8,14})", txt))
-        xmp_dates = {k: v for k, v in re.findall(r"<xmp:(ModifyDate|CreateDate)>([^<]+)</xmp:\1>", txt)}
+        info_dates = {}
+        if "/moddate" in txt_lower or "/creationdate" in txt_lower:
+            info_dates = dict(re.findall(r"/(ModDate|CreationDate)\s*\(\s*D:(\d{8,14})", txt))
+
+        xmp_dates = {}
+        if "modifydate" in txt_lower or "createdate" in txt_lower:
+            xmp_dates = {k: v for k, v in re.findall(r"<xmp:(ModifyDate|CreateDate)>([^<]+)</xmp:\1>", txt)}
 
         def _short(d: str) -> str: return re.sub(r"[-:TZ]", "", d)[:14]
 
