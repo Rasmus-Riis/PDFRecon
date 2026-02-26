@@ -57,6 +57,7 @@ requests = _import_with_fallback('requests', 'requests', 'requests')
 # --- Import configuration and version ---
 from .config import PDFReconConfig, PDFProcessingError, PDFCorruptionError, \
     PDFTooLargeError, PDFEncryptedError, APP_VERSION, UI_COLORS, UI_FONTS, UI_DIMENSIONS
+from . import exporter
 
 # --- OCG (layers) detection helpers ---
 _LAYER_OCGS_BLOCK_RE = re.compile(rb"/OCGs\s*\[(.*?)\]", re.S)
@@ -3907,24 +3908,6 @@ class PDFReconApp:
             except (ValueError, IndexError):
                 continue
         return events        
-    def _clean_cell_value(self, value):
-        """Fjerner tegn, der kan give XLSX/XML-fejl (BOM/mojibake/kontroltegn)."""
-        import re
-        if value is None:
-            return ""
-        s = str(value)
-        # ulovlige XML-kontroltegn (tillader \t \n \r)
-        s = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F]", "", s)
-        # reelle BOM-tegn
-        if s.startswith("\ufeff") or s.startswith("\ufffe"):
-            s = s.lstrip("\ufeff\ufffe")
-        # typisk mojibake for BOM ('þÿ'/'ÿþ')
-        if s.startswith("þÿ") or s.startswith("ÿþ"):
-            s = s[2:]
-        # fjern NUL
-        s = s.replace("\x00", "")
-        return s
-
     def generate_comprehensive_timeline(self, filepath, raw_file_content, exiftool_output):
         """
         Combines events from all sources, separating them into timezone-aware and naive lists.
@@ -4642,210 +4625,49 @@ class PDFReconApp:
 
     def _export_to_excel(self, file_path):
         """Exports the displayed data to XLSX with a frozen header and word wrap enabled."""
-        import logging
-        from openpyxl import Workbook
-        from openpyxl.styles import Font, PatternFill, Alignment
-
-        logging.info(f"Exporting report to Excel file: {file_path}")
-
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "PDFRecon Results"
-
-        headers = [self._(key) for key in self.columns_keys]
-        if len(headers) >= 10:
-            headers[9] = f"{self._('col_indicators')} {self._('excel_indicators_overview')}"
-
-        for col_num, header in enumerate(headers, 1):
-            cell = ws.cell(row=1, column=col_num, value=self._clean_cell_value(header))
-            cell.font = Font(bold=True)
-            cell.fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
-            cell.alignment = Alignment(wrap_text=True, horizontal="center", vertical="center")
-        
-        ws.freeze_panes = 'A2'
-
-        # --- OPTIMIZATION ---
-        # Create a lookup dictionary once to avoid repeated searches in the main loop.
-        # This significantly improves performance for large datasets.
-        indicators_by_path = {}
-        for item in getattr(self, "all_scan_data", {}).values():
-            path_str = str(item.get("path"))
-            indicator_dict = item.get("indicator_keys") or {}
-            if indicator_dict:
-                lines = [self._format_indicator_details(key, details) for key, details in indicator_dict.items()]
-                indicators_by_path[path_str] = "• " + "\n• ".join(lines)
-            else:
-                indicators_by_path[path_str] = ""
-
-        for row_idx, row_data in enumerate(getattr(self, "report_data", []), start=2):
-            try:
-                path = row_data[4] # Path is now at index 4
-            except IndexError:
-                path = ""
-
-            exif_text = self.exif_outputs.get(path, "")
-            # Use the fast lookup dictionary instead of the slow nested function
-            indicators_full = indicators_by_path.get(path, "")
-            note_text = self.file_annotations.get(path, "")
-
-            row_out = list(row_data)
-            
-            while len(row_out) < len(headers):
-                row_out.append("")
-            
-            row_out[8] = exif_text         # EXIF is at index 8
-            if indicators_full:
-                row_out[9] = indicators_full # Indicators is at index 9
-            row_out[10] = note_text        # Note is at index 10
-
-            for col_idx, value in enumerate(row_out, start=1):
-                cell = ws.cell(row=row_idx, column=col_idx, value=self._clean_cell_value(value))
-                cell.alignment = Alignment(wrap_text=True, vertical="top")
-
-        for col in ws.columns:
-            try:
-                max_len = max(len(str(c.value).split('\n')[0]) for c in col if c.value)
-                ws.column_dimensions[col[0].column_letter].width = min(max_len + 2, 60)
-            except (ValueError, TypeError):
-                pass
-
-        wb.save(file_path)
+        exporter.export_to_excel(
+            file_path,
+            self.report_data,
+            self.all_scan_data,
+            self.file_annotations,
+            self.exif_outputs,
+            self.columns_keys,
+            get_translation=self._
+        )
         
     def _export_to_csv(self, file_path):
         """Exports the displayed data to a CSV file."""
-        headers = [self._(key) for key in self.columns_keys]
-        
-        def _indicators_for_path(path_str: str) -> str:
-            """Helper function to get a semicolon-separated string of indicators."""
-            # Fast O(1) lookup instead of O(n) search
-            rec = self.all_scan_data.get(path_str)
-            if not rec: return ""
-            indicator_dict = rec.get('indicator_keys') or {}
-            if not indicator_dict: return ""
-
-            lines = [self._format_indicator_details(key, details) for key, details in indicator_dict.items()]
-            return "; ".join(lines)
-
-        # Prepare data with full EXIF output + full indicators
-        data_for_export = []
-        for row_data in self.report_data:
-            new_row = list(row_data)
-            path = new_row[4] # Path is at index 4
-            exif_output = self.exif_outputs.get(path, "")
-            indicators_full = _indicators_for_path(path)
-            note_text = self.file_annotations.get(path, "")
-            
-            while len(new_row) < len(headers):
-                new_row.append("")
-
-            new_row[8] = exif_output      # EXIF is at index 8
-            if indicators_full:
-                new_row[9] = indicators_full # Indicators is at index 9
-            new_row[10] = note_text      # Note is at index 10
-  
-            data_for_export.append(new_row)
-
-        # Use utf-8-sig for better Excel compatibility with special characters
-        with open(file_path, 'w', newline='', encoding='utf-8-sig') as f:
-            writer = csv.writer(f)
-            writer.writerow(headers)
-            writer.writerows(data_for_export)
+        exporter.export_to_csv(
+            file_path,
+            self.report_data,
+            self.all_scan_data,
+            self.file_annotations,
+            self.exif_outputs,
+            self.columns_keys,
+            get_translation=self._
+        )
 
     def _export_to_json(self, file_path):
         """Exports a more detailed report of all scanned data and notes to a JSON file."""
-        scan_data_export = []
-        for item in self.all_scan_data.values():
-            path_str = str(item['path'])
-            item_copy = item.copy()
-            item_copy['path'] = path_str # Convert Path object to string
-            if 'original_path' in item_copy:
-                item_copy['original_path'] = str(item_copy['original_path'])
-            
-            if 'indicator_keys' in item_copy:
-                serializable_indicators = {}
-                for key, details in item_copy['indicator_keys'].items():
-                    if 'fonts' in details:
-                        serializable_details = details.copy()
-                        serializable_details['fonts'] = {k: list(v) for k, v in details['fonts'].items()}
-                        serializable_indicators[key] = serializable_details
-                    else:
-                        serializable_indicators[key] = details
-                item_copy['indicator_keys'] = serializable_indicators
-
-            item_copy['exif_data'] = self.exif_outputs.get(path_str, "")
-            scan_data_export.append(item_copy)
-        
-        full_export_payload = {
-            'scan_results': scan_data_export,
-            'file_annotations': self.file_annotations
-        }
-        
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(full_export_payload, f, indent=4, default=str)
+        exporter.export_to_json(
+            file_path,
+            self.all_scan_data,
+            self.file_annotations,
+            self.exif_outputs
+        )
             
     def _export_to_html(self, file_path):
         """Exports a simple, color-coded HTML report."""
-        import html
-        html_template = """
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <title>PDFRecon Report</title>
-            <style>
-                body {{ font-family: sans-serif; }}
-                table {{ border-collapse: collapse; width: 100%; }}
-                th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; word-break: break-all; }}
-                th {{ background-color: #f2f2f2; }}
-                .red-row {{ background-color: #FFDDDD; }}
-                .yellow-row {{ background-color: #FFFFCC; }}
-                .blue-row {{ background-color: #CCE5FF; }}
-                .purple-row {{ background-color: #E8CCFF; }}
-                .gray-row {{ background-color: #E0E0E0; }}
-            </style>
-        </head>
-        <body>
-            <h1>PDFRecon Report</h1>
-            <p>Generated on {date}</p>
-            <table>
-                <thead><tr>{headers}</tr></thead>
-                <tbody>{rows}</tbody>
-            </table>
-        </body>
-        </html>
-        """
-        headers = "".join(f"<th>{self._(key)}</th>" for key in self.columns_keys)
-        rows = ""
-        tag_map = {"red_row": "red-row", "yellow_row": "yellow-row", "blue_row": "blue-row", "purple_row": "purple-row", "gray_row": "gray-row"}
-        
-        # --- Generate Table Rows ---
-        for i, values in enumerate(self.report_data):
-            tag_class = ""
-            try:
-                matching_id = next((item_id for item_id in self.tree.get_children() if self.tree.item(item_id, "values")[4] == values[4]), None)
-                if matching_id:
-                    tags = self.tree.item(matching_id, "tags")
-                    if tags:
-                        tag_class = tag_map.get(tags[0], "")
-            except (IndexError, StopIteration):
-                 pass
-            
-            path_str = values[4]
-            note_text = html.escape(self.file_annotations.get(path_str, "")).replace('\n', '<br>')
-            
-            row_values = [html.escape(str(v)) for v in values]
-            while len(row_values) < len(self.columns_keys):
-                row_values.append("")
-            row_values[10] = note_text
-
-            rows += f'<tr class="{tag_class}">' + "".join(f"<td>{v}</td>" for v in row_values) + "</tr>"
-
-        with open(file_path, 'w', encoding='utf-8') as f:
-            f.write(html_template.format(
-                date=datetime.now().strftime("%d-%m-%Y %H:%M:%S"),
-                headers=headers,
-                rows=rows
-            ))
+        exporter.export_to_html(
+            file_path,
+            self.report_data,
+            self.file_annotations,
+            self.all_scan_data,
+            self.columns_keys,
+            tree_get_children=self.tree.get_children,
+            tree_item=self.tree.item,
+            get_translation=self._
+        )
    
     def _extract_touchup_text(self, doc):
         """
@@ -5234,82 +5056,7 @@ class PDFReconApp:
     
     def _format_indicator_details(self, key, details):
         """Generates a human-readable string for an indicator and its details."""
-        if key == 'TouchUp_TextEdit':
-            found_text_str = ""
-            diff_str = ""
-            if details and details.get('found_text'):
-                found_text = details['found_text']
-                # Handle both dict (new format) and list (legacy format)
-                if isinstance(found_text, dict):
-                    # New format: {page_num: [text1, text2, ...]}
-                    lines = ["(Note: │ separates individual text operations)"]
-                    for page_num in sorted(found_text.keys()):
-                        texts = found_text[page_num]
-                        if page_num == 0:
-                            lines.append("\nExtracted text:")  # Legacy fallback has no page info
-                        else:
-                            lines.append(f"\nSide {page_num}:")
-                        for idx, text in enumerate(texts, 1):
-                            lines.append(f"  [{idx}] {text}")
-                    found_text_str = "\n".join(lines)
-                elif isinstance(found_text, list):
-                    # Legacy format: ["Side 1: text1", "Side 1: text2", ...]
-                    found_text_str = "\n".join(found_text)
-            if details and details.get('text_diff'):
-                diff_str = "A text comparison to a previous version is available."
-            
-            if found_text_str and diff_str:
-                return f"TouchUp TextEdit:\n{found_text_str}\n\n({diff_str})"
-            elif found_text_str:
-                return f"TouchUp TextEdit:\n{found_text_str}"
-            elif diff_str:
-                return f"TouchUp TextEdit ({diff_str})"
-            else:
-                return "TouchUp TextEdit (Flag found, but no specific text or revisions to compare)"
-
-        if key == 'MultipleCreators':
-            return f"Multiple Creators (Found {details['count']}): " + ", ".join(f'"{v}"' for v in details['values'])
-        if key == 'MultipleProducers':
-            return f"Multiple Producers (Found {details['count']}): " + ", ".join(f'"{v}"' for v in details['values'])
-        if key == 'MultipleFontSubsets':
-            font_details = []
-            for base_font, subsets in details['fonts'].items():
-                font_details.append(f"'{base_font}': {{{{{', '.join(subsets)}}}}}")
-            return f"Multiple Font Subsets: " + "; ".join(font_details)
-        if key == 'CreateDateMismatch':
-            return f"Creation Date Mismatch: Info='{details['info']}', XMP='{details['xmp']}'"
-        if key == 'ModifyDateMismatch':
-            return f"Modify Date Mismatch: Info='{details['info']}', XMP='{details['xmp']}'"
-        if key == 'TrailerIDChange':
-            return f"Trailer ID Changed: From [{details['from']}] to [{details['to']}]"
-        if key == 'XMPIDChange':
-            return f"XMP DocumentID Changed: From [{details['from']}] to [{details['to']}]"
-        if key == 'MultipleStartxref':
-            return f"Multiple startxref (Found {details['count']})"
-        if key == 'IncrementalUpdates':
-            return f"Incremental updates (Found {details['count']} versions)"
-        if key == 'ObjGenGtZero':
-            return f"Objects with generation > 0 (Found {details['count']} objects)"
-        if key == 'HasLayers':
-            return f"Has Layers (Found {details['count']})"
-        if key == 'MoreLayersThanPages':
-            return f"More Layers ({details['layers']}) Than Pages ({details['pages']})"
-        if key == 'RelatedFiles':
-            count = details.get('count', 0)
-            files = details.get('files', [])
-            lines = [f"Related Files Found ({count}):"]
-            for f in files:
-                rel_type = f.get('type', 'related')
-                name = f.get('name', 'Unknown')
-                if rel_type == 'derived_from':
-                    lines.append(f"  ← Derived from: {name}")
-                elif rel_type == 'parent_of':
-                    lines.append(f"  → Parent of: {name}")
-                else:
-                    lines.append(f"  ↔ Related to: {name}")
-            return "\n".join(lines)
-        # Fallback for simple indicators with no details
-        return key.replace("_", " ")
+        return exporter.format_indicator_details(key, details)
         
 if __name__ == "__main__":
     # Ensure multiprocessing works correctly when the app is frozen (e.g., by PyInstaller).
