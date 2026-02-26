@@ -86,32 +86,6 @@ def count_layers(pdf_bytes: bytes) -> int:
     return len(refs)
 
 
-# --- PHASE 1/3: Configuration and Custom Exceptions ---
-class PDFReconConfig:
-    """Configuration settings for PDFRecon. Values are loaded from config.ini."""
-    MAX_FILE_SIZE = 1000 * 1024 * 1024  # 500MB
-    MAX_REVISIONS = 100
-    EXIFTOOL_TIMEOUT = 30
-    MAX_WORKER_THREADS = min(16, (os.cpu_count() or 4) * 2)
-    VISUAL_DIFF_PAGE_LIMIT = 15
-    EXPORT_INVALID_XREF = False
-
-class PDFProcessingError(Exception):
-    """Base exception for PDF processing errors."""
-    pass
-
-class PDFCorruptionError(PDFProcessingError):
-    """Exception for corrupt or unreadable PDF files."""
-    pass
-
-class PDFTooLargeError(PDFProcessingError):
-    """Exception for files that exceed the size limit."""
-    pass
-
-class PDFEncryptedError(PDFProcessingError):
-    """Exception for encrypted files that cannot be read."""
-    pass
-# --- End Phase 1/3 ---
 def md5_file(fp: Path, buf_size: int = 4 * 1024 * 1024) -> str:
     """
     Fast MD5 with reusable buffer (fewer allocations).
