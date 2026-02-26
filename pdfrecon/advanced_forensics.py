@@ -7,6 +7,7 @@ encryption status, hidden text patterns, attachments, OCR layers, multimedia, et
 import re
 import logging
 import hashlib
+import datetime
 from pathlib import Path
 from .jpeg_forensics import analyze_pdf_images_qt
 
@@ -308,11 +309,11 @@ def detect_3d_and_multimedia(txt: str, indicators: dict):
         logging.debug(f"Error detecting 3D/multimedia: {e}")
 
 
-def detect_temporal_anomalies(txt: str, indicators: dict):
+def detect_temporal_anomalies(txt: str, indicators: dict, now=None):
     """Detect future-dated timestamps and temporal inconsistencies."""
     try:
-        import datetime
-        now = datetime.datetime.now()
+        if now is None:
+            now = datetime.datetime.now()
         
         # Extract timestamps from PDF
         # Pattern: D:YYYYMMDDHHmmSS or D:YYYYMMDD
