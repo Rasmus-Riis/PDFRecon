@@ -4980,7 +4980,7 @@ class PDFReconApp:
         full_text = []
         doc = None
         try:
-            if isinstance(source, bytes):
+            if isinstance(source, (bytes, bytearray, memoryview)):
                 doc = fitz.open(stream=source, filetype="pdf")
             else:
                 resolved_path = self._resolve_case_path(source) # Resolve the path

@@ -73,9 +73,11 @@ def extract_revisions(raw: bytes, original_path: Path):
         # Define subdirectory for potential revisions
         altered_dir = original_path.parent / "Altered_files"
         
+        raw_mv = memoryview(raw)
+
         for i, offset in enumerate(valid_offsets, start=1):
             # The revision is the content from the start to the EOF marker
-            rev_bytes = raw[:offset + 5]
+            rev_bytes = raw_mv[:offset + 5]
             rev_filename = f"{original_path.stem}_rev{i}_@{offset}.pdf"
             rev_path = altered_dir / rev_filename
             revisions.append((rev_path, original_path.name, rev_bytes))
