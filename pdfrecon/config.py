@@ -65,6 +65,10 @@ class PDFReconConfig:
     VISUAL_DIFF_PAGE_LIMIT = 15
     EXPORT_INVALID_XREF = False
     
+    # Security Configuration
+    EXIFTOOL_PATH = None  # Path to ExifTool executable (optional, overrides default search)
+    EXIFTOOL_HASH = None  # SHA256 hash of ExifTool executable (optional, enforces integrity)
+
     # File processing timeouts (from hang prevention improvements)
     TEXT_EXTRACTION_TIMEOUT = 15  # seconds
     FILE_PROCESSING_TIMEOUT = 60  # seconds
