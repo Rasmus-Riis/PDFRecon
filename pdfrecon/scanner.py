@@ -485,6 +485,7 @@ def _detect_image_anomalies(doc, filepath: Path, indicators: dict):
     try:
         image_info = {}
         duplicate_check = {}
+        image_cache = {}  # Cache to store processed image data: xref -> (hash, has_exif)
         
         for page_num in range(len(doc)):
             try:
@@ -492,32 +493,39 @@ def _detect_image_anomalies(doc, filepath: Path, indicators: dict):
                 for img_index, img in enumerate(images):
                     xref = img[0]  # Image xref number
                     
-                    # Extract image data
-                    try:
-                        base_image = doc.extract_image(xref)
-                        img_bytes = base_image["image"]
-                        img_hash = hashlib.md5(img_bytes).hexdigest()
-                        
-                        # Check for duplicate images with different compression
-                        if img_hash in duplicate_check:
-                            prev_xref = duplicate_check[img_hash]
-                            if prev_xref != xref:
-                                indicators['DuplicateImagesWithDifferentXrefs'] = {
-                                    'hash': img_hash,
-                                    'xrefs': [prev_xref, xref]
-                                }
-                        else:
-                            duplicate_check[img_hash] = xref
-                        
-                        # Check if image has EXIF data
-                        if b"Exif" in img_bytes[:1000]:  # Check header
-                            if 'ImagesWithEXIF' not in indicators:
-                                indicators['ImagesWithEXIF'] = {'count': 0}
-                            indicators['ImagesWithEXIF']['count'] += 1
+                    # Check cache first
+                    if xref in image_cache:
+                        img_hash, has_exif = image_cache[xref]
+                    else:
+                        # Extract image data
+                        try:
+                            # Use xref_stream_raw for faster access without decoding
+                            # This retrieves the raw compressed stream as stored in the PDF
+                            img_bytes = doc.xref_stream_raw(xref)
+                            img_hash = hashlib.md5(img_bytes).hexdigest()
+                            has_exif = b"Exif" in img_bytes[:1000]
+                            image_cache[xref] = (img_hash, has_exif)
                             
-                    except Exception as e:
-                        logging.debug(f"Could not extract image {xref}: {e}")
-                        continue
+                        except Exception as e:
+                            logging.debug(f"Could not extract image {xref}: {e}")
+                            continue
+
+                    # Check for duplicate images with different compression
+                    if img_hash in duplicate_check:
+                        prev_xref = duplicate_check[img_hash]
+                        if prev_xref != xref:
+                            indicators['DuplicateImagesWithDifferentXrefs'] = {
+                                'hash': img_hash,
+                                'xrefs': [prev_xref, xref]
+                            }
+                    else:
+                        duplicate_check[img_hash] = xref
+
+                    # Check if image has EXIF data
+                    if has_exif:
+                        if 'ImagesWithEXIF' not in indicators:
+                            indicators['ImagesWithEXIF'] = {'count': 0}
+                        indicators['ImagesWithEXIF']['count'] += 1
                         
             except Exception as e:
                 logging.debug(f"Error analyzing images on page {page_num}: {e}")
