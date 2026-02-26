@@ -306,7 +306,7 @@ def export_to_html(file_path, report_data: list, file_annotations: dict, all_sca
         headers = "".join(f"<th>{h}</th>" for h in headers_list)
         
         if not tag_map:
-            tag_map = {"red_row": "red-row", "yellow_row": "yellow-row", "blue_row": "blue-row", "gray_row": "gray-row"}
+            tag_map = {"red_row": "red-row", "yellow_row": "yellow-row", "blue_row": "blue-row", "purple_row": "purple-row", "gray_row": "gray-row"}
         
         rows = ""
         
@@ -350,6 +350,7 @@ def export_to_html(file_path, report_data: list, file_annotations: dict, all_sca
         .red-row {{ background-color: #FFDDDD; }}
         .yellow-row {{ background-color: #FFFFCC; }}
         .blue-row {{ background-color: #CCE5FF; }}
+        .purple-row {{ background-color: #E8CCFF; }}
         .gray-row {{ background-color: #E0E0E0; }}
         h1 {{ color: #333; }}
         .report-date {{ color: #666; font-style: italic; }}
