@@ -4785,67 +4785,19 @@ class PDFReconApp:
             
     def _export_to_html(self, file_path):
         """Exports a simple, color-coded HTML report."""
-        import html
-        html_template = """
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <title>PDFRecon Report</title>
-            <style>
-                body {{ font-family: sans-serif; }}
-                table {{ border-collapse: collapse; width: 100%; }}
-                th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; word-break: break-all; }}
-                th {{ background-color: #f2f2f2; }}
-                .red-row {{ background-color: #FFDDDD; }}
-                .yellow-row {{ background-color: #FFFFCC; }}
-                .blue-row {{ background-color: #CCE5FF; }}
-                .purple-row {{ background-color: #E8CCFF; }}
-                .gray-row {{ background-color: #E0E0E0; }}
-            </style>
-        </head>
-        <body>
-            <h1>PDFRecon Report</h1>
-            <p>Generated on {date}</p>
-            <table>
-                <thead><tr>{headers}</tr></thead>
-                <tbody>{rows}</tbody>
-            </table>
-        </body>
-        </html>
-        """
-        headers = "".join(f"<th>{self._(key)}</th>" for key in self.columns_keys)
-        rows = ""
-        tag_map = {"red_row": "red-row", "yellow_row": "yellow-row", "blue_row": "blue-row", "purple_row": "purple-row", "gray_row": "gray-row"}
+        from . import exporter
         
-        # --- Generate Table Rows ---
-        for i, values in enumerate(self.report_data):
-            tag_class = ""
-            try:
-                matching_id = next((item_id for item_id in self.tree.get_children() if self.tree.item(item_id, "values")[4] == values[4]), None)
-                if matching_id:
-                    tags = self.tree.item(matching_id, "tags")
-                    if tags:
-                        tag_class = tag_map.get(tags[0], "")
-            except (IndexError, StopIteration):
-                 pass
-            
-            path_str = values[4]
-            note_text = html.escape(self.file_annotations.get(path_str, "")).replace('\n', '<br>')
-            
-            row_values = [html.escape(str(v)) for v in values]
-            while len(row_values) < len(self.columns_keys):
-                row_values.append("")
-            row_values[10] = note_text
-
-            rows += f'<tr class="{tag_class}">' + "".join(f"<td>{v}</td>" for v in row_values) + "</tr>"
-
-        with open(file_path, 'w', encoding='utf-8') as f:
-            f.write(html_template.format(
-                date=datetime.now().strftime("%d-%m-%Y %H:%M:%S"),
-                headers=headers,
-                rows=rows
-            ))
+        exporter.export_to_html(
+            file_path,
+            self.report_data,
+            self.file_annotations,
+            self.all_scan_data,
+            self.columns_keys,
+            tree_get_children=self.tree.get_children,
+            tree_item=self.tree.item,
+            tag_map={"red_row": "red-row", "yellow_row": "yellow-row", "blue_row": "blue-row", "purple_row": "purple-row", "gray_row": "gray-row"},
+            get_translation=self._
+        )
    
     def _extract_touchup_text(self, doc):
         """
