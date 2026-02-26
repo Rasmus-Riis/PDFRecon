@@ -65,3 +65,26 @@ def sha256_file(filepath: Path) -> str:
         return ""
     except Exception as e:
         return f"Error: {str(e)}"
+
+def resolve_path(filename, base_is_parent=False):
+    """
+    Resolves the correct path for a resource file, whether running as a script
+    or as a frozen executable (e.g., with PyInstaller).
+    """
+    if getattr(sys, 'frozen', False):
+        # If the app is frozen, the base path is the folder containing the exe.
+        base_path = Path(sys.executable).parent
+        # When frozen and base_is_parent=True, look for the file next to the exe (e.g., exiftool.exe)
+        if base_is_parent:
+            return base_path / filename
+        # Otherwise, look in _MEIPASS for bundled data files (translations, etc.)
+        return Path(getattr(sys, '_MEIPASS', base_path)) / filename
+    else:
+        # If running as a normal script, the base path is the script's folder.
+        base_path = Path(__file__).resolve().parent
+
+    # If base_is_parent=True, go up one level to project root
+    if base_is_parent:
+        base_path = base_path.parent
+
+    return base_path / filename
