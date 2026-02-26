@@ -57,6 +57,7 @@ requests = _import_with_fallback('requests', 'requests', 'requests')
 # --- Import configuration and version ---
 from .config import PDFReconConfig, PDFProcessingError, PDFCorruptionError, \
     PDFTooLargeError, PDFEncryptedError, APP_VERSION, UI_COLORS, UI_FONTS, UI_DIMENSIONS
+from .scanner import detect_indicators
 
 # --- OCG (layers) detection helpers ---
 _LAYER_OCGS_BLOCK_RE = re.compile(rb"/OCGs\s*\[(.*?)\]", re.S)
@@ -2344,7 +2345,7 @@ class PDFReconApp:
             document_ids = self._extract_all_document_ids(txt, exif)
             
             # Detect indicators
-            indicator_keys = self.detect_indicators(fp, txt, doc)
+            indicator_keys = detect_indicators(fp, txt, doc)
             
             # Calculate MD5
             md5_hash = hashlib.md5(raw).hexdigest()
@@ -4056,119 +4057,6 @@ class PDFReconApp:
                 logging.info(f"Multiple font subsets found in {filepath.name}: {conflicting_fonts}")
 
             return conflicting_fonts
-    def detect_indicators(self, filepath, txt: str, doc):
-        """
-        Searches for indicators, now with an integrated text-diff feature for TouchUp edits.
-        """
-        indicators = {}
-
-        # --- High-Confidence Indicators ---
-        if re.search(r"touchup_textedit", txt, re.I):
-            found_text = self._extract_touchup_text(doc)
-            details = {'found_text': found_text, 'text_diff': None}
-
-            # Check for revisions to perform a text diff
-            revisions = self.extract_revisions(doc.write(), filepath)
-            if revisions:
-                latest_rev_path, _, latest_rev_bytes = revisions[0] # Compare against the most recent revision
-                logging.info(f"TouchUp found with revisions. Performing text diff for {filepath.name}.")
-                
-                original_text = self._get_text_for_comparison(filepath)
-                revision_text = self._get_text_for_comparison(latest_rev_bytes)
-
-                if original_text and revision_text:
-                    diff = difflib.unified_diff(
-                        revision_text.splitlines(keepends=True),
-                        original_text.splitlines(keepends=True),
-                        fromfile='Previous Version',
-                        tofile='Final Version',
-                    )
-                    details['text_diff'] = list(diff)
-            indicators['TouchUp_TextEdit'] = details
-
-        # --- Metadata Indicators ---
-        creators = set(re.findall(r"/Creator\s*\((.*?)\)", txt, re.I))
-        if len(creators) > 1:
-            indicators['MultipleCreators'] = {'count': len(creators), 'values': list(creators)}
-        
-        producers = set(re.findall(r"/Producer\s*\((.*?)\)", txt, re.I))
-        if len(producers) > 1:
-            indicators['MultipleProducers'] = {'count': len(producers), 'values': list(producers)}
-
-        if re.search(r'<xmpMM:History>', txt, re.I | re.S):
-            indicators['XMPHistory'] = {}
-
-        # --- Structural and Content Indicators ---
-        try:
-            conflicting_fonts = self.analyze_fonts(filepath, doc)
-            if conflicting_fonts:
-                indicators['MultipleFontSubsets'] = {'fonts': conflicting_fonts}
-        except Exception as e:
-            logging.error(f"Error analyzing fonts for {filepath.name}: {e}")
-
-        if (hasattr(doc, 'is_xfa') and doc.is_xfa) or "/XFA" in txt:
-            indicators['HasXFAForm'] = {}
-
-        if re.search(r"/Type\s*/Sig\b", txt):
-            indicators['HasDigitalSignature'] = {}
-
-        # --- Incremental Update Indicators ---
-        startxref_count = txt.lower().count("startxref")
-        if startxref_count > 1:
-            indicators['MultipleStartxref'] = {'count': startxref_count}
-        
-        prevs = re.findall(r"/Prev\s+\d+", txt)
-        if prevs:
-            indicators['IncrementalUpdates'] = {'count': len(prevs) + 1}
-        
-        if re.search(r"/Linearized\s+\d+", txt):
-            indicators['Linearized'] = {}
-            if startxref_count > 1 or prevs:
-                indicators['LinearizedUpdated'] = {}
-
-        # --- Feature Indicators ---
-        if re.search(r"/Redact\b", txt, re.I): indicators['HasRedactions'] = {}
-        if re.search(r"/Annots\b", txt, re.I): indicators['HasAnnotations'] = {}
-        if re.search(r"/PieceInfo\b", txt, re.I): indicators['HasPieceInfo'] = {}
-        if re.search(r"/AcroForm\b", txt, re.I):
-            indicators['HasAcroForm'] = {}
-            if re.search(r"/NeedAppearances\s+true\b", txt, re.I):
-                indicators['AcroFormNeedAppearances'] = {}
-
-        gen_gt_zero_matches = [m for m in re.finditer(r"\b(\d+)\s+(\d+)\s+obj\b", txt) if int(m.group(2)) > 0]
-        if gen_gt_zero_matches:
-            indicators['ObjGenGtZero'] = {'count': len(gen_gt_zero_matches)}
-
-        # --- ID Comparison ---
-        def _norm_uuid(x):
-            if x is None: return None
-            s = str(x).strip().upper()
-            return re.sub(r"^(URN:UUID:|UUID:|XMP\.IID:|XMP\.DID:)", "", s).strip("<>")
-
-        xmp_orig = _norm_uuid(re.search(r"xmpMM:OriginalDocumentID(?:>|=\")([^<\"]+)", txt, re.I).group(1) if re.search(r"xmpMM:OriginalDocumentID", txt, re.I) else None)
-        xmp_doc = _norm_uuid(re.search(r"xmpMM:DocumentID(?:>|=\")([^<\"]+)", txt, re.I).group(1) if re.search(r"xmpMM:DocumentID", txt, re.I) else None)
-        
-        if xmp_orig and xmp_doc and xmp_doc != xmp_orig:
-            indicators['XMPIDChange'] = {'from': xmp_orig, 'to': xmp_doc}
-
-        trailer_match = re.search(r"/ID\s*\[\s*<\s*([0-9A-Fa-f]+)\s*>\s*<\s*([0-9A-Fa-f]+)\s*>\s*\]", txt)
-        if trailer_match:
-            trailer_orig, trailer_curr = _norm_uuid(trailer_match.group(1)), _norm_uuid(trailer_match.group(2))
-            if trailer_orig and trailer_curr and trailer_curr != trailer_orig:
-                indicators['TrailerIDChange'] = {'from': trailer_orig, 'to': trailer_curr}
-        
-        # --- Date Mismatch ---
-        info_dates = dict(re.findall(r"/(ModDate|CreationDate)\s*\(\s*D:(\d{8,14})", txt))
-        xmp_dates = {k: v for k, v in re.findall(r"<xmp:(ModifyDate|CreateDate)>([^<]+)</xmp:\1>", txt)}
-
-        def _short(d: str) -> str: return re.sub(r"[-:TZ]", "", d)[:14]
-
-        if "CreationDate" in info_dates and "CreateDate" in xmp_dates and _short(info_dates["CreationDate"]) != _short(xmp_dates["CreateDate"]):
-            indicators['CreateDateMismatch'] = {'info': info_dates["CreationDate"], 'xmp': xmp_dates["CreateDate"]}
-        if "ModDate" in info_dates and "ModifyDate" in xmp_dates and _short(info_dates["ModDate"]) != _short(xmp_dates["ModifyDate"]):
-            indicators['ModifyDateMismatch'] = {'info': info_dates["ModDate"], 'xmp': xmp_dates["ModifyDate"]}
-        
-        return indicators
 
     def get_flag(self, indicators_dict, is_revision, parent_id=None):
         """
@@ -4847,154 +4735,6 @@ class PDFReconApp:
                 rows=rows
             ))
    
-    def _extract_touchup_text(self, doc):
-        """
-        Parses a PDF's internal objects to find any text associated with a TouchUp_TextEdit flag.
-        Returns a list of extracted text strings.
-        """
-        def _clean_text_segment(raw_bytes):
-            try:
-                text = raw_bytes.decode("latin-1", errors="ignore")
-                replacements = {"Õ": "å", "ã": "å", "°": "ø", "¯": "ø", "µ": "æ", "\xa0": " "}
-                for old, new in replacements.items():
-                    text = text.replace(old, new)
-                text = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", text)
-                text = re.sub(r" +", " ", text)
-                return text.strip()
-            except Exception:
-                return ""
-
-        def _is_probably_junk(text):
-            if not text or len(text) < 3:
-                return True
-            allowed = 0
-            for ch in text:
-                if ch.isalnum() or ch.isspace() or ch in ".,:;!?-()'\"/":
-                    allowed += 1
-            if allowed / max(len(text), 1) < 0.7:
-                return True
-            if len(set(text)) <= 3 and len(text) > 10:
-                return True
-            return False
-
-        # First try pikepdf-based extraction (TouchUp blocks).
-        try:
-            import pikepdf
-            from pikepdf import String
-            from io import BytesIO
-
-            results = []
-            pdf = None
-            try:
-                original_filepath = doc.name if doc and hasattr(doc, "name") else None
-                if original_filepath and Path(original_filepath).exists():
-                    pdf = pikepdf.open(original_filepath)
-                elif doc and not doc.is_closed and hasattr(doc, "write"):
-                    pdf = pikepdf.open(BytesIO(doc.write()))
-            except Exception as e:
-                logging.debug(f"Pikepdf open failed for TouchUp extraction: {e}")
-                pdf = None
-
-            if pdf is not None:
-                # Group results by page number: {page_num: [text1, text2, ...]}
-                page_results = {}
-                with pdf:
-                    for i, page in enumerate(pdf.pages):
-                        page_num = i + 1
-                        try:
-                            commands = pikepdf.parse_content_stream(page)
-                        except Exception:
-                            continue
-
-                        active_search = False
-                        current_block_buffer = []
-
-                        for operands, operator in commands:
-                            op_name = str(operator)
-                            if any("TouchUp" in str(arg) for arg in operands):
-                                active_search = True
-                            elif active_search and op_name in ["Tj", "TJ"]:
-                                chunks = operands[0] if op_name == "TJ" else operands
-                                for chunk in chunks:
-                                    if isinstance(chunk, String):
-                                        try:
-                                            raw_text = chunk.decode()
-                                            cleaned = _clean_text_segment(raw_text.encode("latin-1", errors="ignore"))
-                                        except Exception:
-                                            cleaned = _clean_text_segment(bytes(chunk))
-                                        if cleaned and not _is_probably_junk(cleaned):
-                                            current_block_buffer.append(cleaned)
-                            elif op_name in ["ET", "EMC"]:
-                                if active_search and current_block_buffer:
-                                    # Join with visible separator so user can see segment boundaries
-                                    # Use │ (box drawing character) as delimiter
-                                    combined = " │ ".join([b for b in current_block_buffer if b])
-                                    if combined:
-                                        if page_num not in page_results:
-                                            page_results[page_num] = []
-                                        page_results[page_num].append(combined)
-                                    current_block_buffer = []
-                                active_search = False
-
-                if page_results:
-                    # Return as dictionary grouped by page
-                    return page_results
-        except ImportError:
-            logging.debug("pikepdf not installed, falling back to legacy TouchUp extraction.")
-        except Exception as e:
-            logging.warning(f"TouchUp pikepdf extraction failed: {e}")
-
-        # Fallback: legacy extraction from xref streams.
-        # Returns dict format: {0: [text1, text2, ...]} (page 0 = unknown page)
-        found_text = {}
-        if not doc or doc.is_closed:
-            return found_text
-            
-        for xref in range(1, doc.xref_length()):
-            try:
-                obj_source = doc.xref_object(xref, compressed=False)
-                if "/TouchUp_TextEdit" in obj_source:
-                    stream = doc.xref_stream(xref)
-                    if stream:
-                        matches = re.findall(rb"\((.*?)\)\s*Tj", stream)
-                        for match in matches:
-                            try:
-                                decoded_text = fitz.utils.pdfdoc_decode(match)
-                                if decoded_text.strip():
-                                    # Use page 0 as "unknown page" for legacy extraction
-                                    if 0 not in found_text:
-                                        found_text[0] = []
-                                    found_text[0].append(decoded_text.strip())
-                            except Exception:
-                                continue
-            except Exception as e:
-                logging.warning(f"Could not process object {xref} for TouchUp text: {e}")
-                continue
-        return found_text
-    
-    def _get_text_for_comparison(self, source):
-        """
-        Performs a robust, layout-preserving text extraction on a PDF.
-        Source can be bytes, a string path, or a Path object.
-        """
-        full_text = []
-        doc = None
-        try:
-            if isinstance(source, bytes):
-                doc = fitz.open(stream=source, filetype="pdf")
-            else:
-                resolved_path = self._resolve_case_path(source) # Resolve the path
-                doc = fitz.open(resolved_path)
-
-            for page in doc:
-                full_text.append(page.get_text("text", sort=True))
-            return "\n".join(full_text)
-        except Exception as e:
-            logging.error(f"Robust text extraction failed: {e}")
-            return ""
-        finally:
-            if doc:
-                doc.close()    
         
             
     def _get_touchup_regions_for_page(self, fitz_doc, page_num, touchup_texts):

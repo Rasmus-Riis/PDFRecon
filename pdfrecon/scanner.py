@@ -17,6 +17,7 @@ import difflib
 import hashlib
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import fitz
 
 from .config import (
     PDFReconConfig, PDFProcessingError, PDFCorruptionError, 
@@ -84,7 +85,7 @@ def extract_revisions(raw: bytes, original_path: Path):
     return revisions
 
 
-def detect_indicators(filepath: Path, txt: str, doc, exif_output: str = "", app_instance=None):
+def detect_indicators(filepath: Path, txt: str, doc, exif_output: str = ""):
     """
     Detects forensic indicators of PDF alteration.
     
@@ -107,7 +108,6 @@ def detect_indicators(filepath: Path, txt: str, doc, exif_output: str = "", app_
         txt (str): Extracted text content from PDF
         doc: PyMuPDF document object
         exif_output (str): EXIF output (optional)
-        app_instance: PDFReconApp instance (for callbacks, optional)
         
     Returns:
         dict: Dictionary of detected indicators with details
@@ -117,19 +117,19 @@ def detect_indicators(filepath: Path, txt: str, doc, exif_output: str = "", app_
     try:
         # --- High-Confidence Indicators ---
         if re.search(r"touchup_textedit", txt, re.I):
-            found_text = None
+            found_text = extract_touchup_text(doc)
             details = {'found_text': found_text, 'text_diff': None}
             
             # Try to extract TouchUp text and compute diff if revisions exist
-            if doc and hasattr(doc, 'write') and app_instance:
+            if doc and hasattr(doc, 'write'):
                 try:
                     revisions = extract_revisions(doc.write(), filepath)
-                    if revisions and hasattr(app_instance, '_get_text_for_comparison'):
+                    if revisions:
                         latest_rev_path, _, latest_rev_bytes = revisions[0]
                         logging.info(f"TouchUp found with revisions. Performing text diff for {filepath.name}.")
                         
-                        original_text = app_instance._get_text_for_comparison(filepath)
-                        revision_text = app_instance._get_text_for_comparison(latest_rev_bytes)
+                        original_text = get_text_for_comparison(filepath)
+                        revision_text = get_text_for_comparison(latest_rev_bytes)
 
                         if original_text and revision_text:
                             diff = difflib.unified_diff(
@@ -628,3 +628,151 @@ def _detect_bookmark_anomalies(doc, indicators: dict):
 # - _process_and_validate_revisions() - Validate and process revision PDFs
 # 
 # These will be moved in subsequent refactoring passes to complete Phase 5.
+
+def extract_touchup_text(doc):
+    """
+    Parses a PDF's internal objects to find any text associated with a TouchUp_TextEdit flag.
+    Returns a dictionary of extracted text strings grouped by page.
+    """
+    def _clean_text_segment(raw_bytes):
+        try:
+            text = raw_bytes.decode("latin-1", errors="ignore")
+            replacements = {"Õ": "å", "ã": "å", "°": "ø", "¯": "ø", "µ": "æ", "\xa0": " "}
+            for old, new in replacements.items():
+                text = text.replace(old, new)
+            text = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", text)
+            text = re.sub(r" +", " ", text)
+            return text.strip()
+        except Exception:
+            return ""
+
+    def _is_probably_junk(text):
+        if not text or len(text) < 3:
+            return True
+        allowed = 0
+        for ch in text:
+            if ch.isalnum() or ch.isspace() or ch in ".,:;!?-()'\"/":
+                allowed += 1
+        if allowed / max(len(text), 1) < 0.7:
+            return True
+        if len(set(text)) <= 3 and len(text) > 10:
+            return True
+        return False
+
+    # First try pikepdf-based extraction (TouchUp blocks).
+    try:
+        import pikepdf
+        from pikepdf import String
+        from io import BytesIO
+
+        pdf = None
+        try:
+            original_filepath = doc.name if doc and hasattr(doc, "name") else None
+            if original_filepath and Path(original_filepath).exists():
+                pdf = pikepdf.open(original_filepath)
+            elif doc and not doc.is_closed and hasattr(doc, "write"):
+                pdf = pikepdf.open(BytesIO(doc.write()))
+        except Exception as e:
+            logging.debug(f"Pikepdf open failed for TouchUp extraction: {e}")
+            pdf = None
+
+        if pdf is not None:
+            # Group results by page number: {page_num: [text1, text2, ...]}
+            page_results = {}
+            with pdf:
+                for i, page in enumerate(pdf.pages):
+                    page_num = i + 1
+                    try:
+                        commands = pikepdf.parse_content_stream(page)
+                    except Exception:
+                        continue
+
+                    active_search = False
+                    current_block_buffer = []
+
+                    for operands, operator in commands:
+                        op_name = str(operator)
+                        if any("TouchUp" in str(arg) for arg in operands):
+                            active_search = True
+                        elif active_search and op_name in ["Tj", "TJ"]:
+                            chunks = operands[0] if op_name == "TJ" else operands
+                            for chunk in chunks:
+                                if isinstance(chunk, String):
+                                    try:
+                                        raw_text = chunk.decode()
+                                        cleaned = _clean_text_segment(raw_text.encode("latin-1", errors="ignore"))
+                                    except Exception:
+                                        cleaned = _clean_text_segment(bytes(chunk))
+                                    if cleaned and not _is_probably_junk(cleaned):
+                                        current_block_buffer.append(cleaned)
+                        elif op_name in ["ET", "EMC"]:
+                            if active_search and current_block_buffer:
+                                # Join with visible separator so user can see segment boundaries
+                                # Use │ (box drawing character) as delimiter
+                                combined = " │ ".join([b for b in current_block_buffer if b])
+                                if combined:
+                                    if page_num not in page_results:
+                                        page_results[page_num] = []
+                                    page_results[page_num].append(combined)
+                                current_block_buffer = []
+                            active_search = False
+
+            if page_results:
+                # Return as dictionary grouped by page
+                return page_results
+    except ImportError:
+        logging.debug("pikepdf not installed, falling back to legacy TouchUp extraction.")
+    except Exception as e:
+        logging.warning(f"TouchUp pikepdf extraction failed: {e}")
+
+    # Fallback: legacy extraction from xref streams.
+    # Returns dict format: {0: [text1, text2, ...]} (page 0 = unknown page)
+    found_text = {}
+    if not doc or doc.is_closed:
+        return found_text
+
+    for xref in range(1, doc.xref_length()):
+        try:
+            obj_source = doc.xref_object(xref, compressed=False)
+            if "/TouchUp_TextEdit" in obj_source:
+                stream = doc.xref_stream(xref)
+                if stream:
+                    matches = re.findall(rb"\((.*?)\)\s*Tj", stream)
+                    for match in matches:
+                        try:
+                            decoded_text = fitz.utils.pdfdoc_decode(match)
+                            if decoded_text.strip():
+                                # Use page 0 as "unknown page" for legacy extraction
+                                if 0 not in found_text:
+                                    found_text[0] = []
+                                found_text[0].append(decoded_text.strip())
+                        except Exception:
+                            continue
+        except Exception as e:
+            logging.warning(f"Could not process object {xref} for TouchUp text: {e}")
+            continue
+    return found_text
+
+def get_text_for_comparison(source):
+    """
+    Performs a robust, layout-preserving text extraction on a PDF.
+    Source can be bytes, a string path, or a Path object.
+    """
+    full_text = []
+    doc = None
+    try:
+        if isinstance(source, bytes):
+            doc = fitz.open(stream=source, filetype="pdf")
+        else:
+            # Assuming source is a valid path string or Path object
+            doc = fitz.open(str(source))
+
+        for page in doc:
+            full_text.append(page.get_text("text", sort=True))
+        return "\n".join(full_text)
+    except Exception as e:
+        logging.error(f"Robust text extraction failed: {e}")
+        return ""
+    finally:
+        if doc:
+            doc.close()
