@@ -57,6 +57,7 @@ requests = _import_with_fallback('requests', 'requests', 'requests')
 # --- Import configuration and version ---
 from .config import PDFReconConfig, PDFProcessingError, PDFCorruptionError, \
     PDFTooLargeError, PDFEncryptedError, APP_VERSION, UI_COLORS, UI_FONTS, UI_DIMENSIONS
+from .utils import safe_stat_times
 
 # --- OCG (layers) detection helpers ---
 _LAYER_OCGS_BLOCK_RE = re.compile(rb"/OCGs\s*\[(.*?)\]", re.S)
@@ -133,14 +134,6 @@ def fmt_times_pair(ts: float):
     local = datetime.fromtimestamp(ts).astimezone()
     utc = datetime.fromtimestamp(ts, tz=timezone.utc)
     return local.strftime("%d-%m-%Y %H:%M:%S%z"), utc.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-def safe_stat_times(path: Path):
-    try:
-        st = path.stat()
-        return st.st_ctime, st.st_mtime
-    except Exception:
-        return None, None
-
 
 
 class PDFReconApp:
@@ -3389,15 +3382,13 @@ class PDFReconApp:
 
                     # Add data from File Created and File Modified columns
                     if not data.get('is_revision'):
-                        try:
-                            # Resolve path to be absolute before calling .stat()
-                            resolved_path = self._resolve_case_path(data['path'])
-                            if resolved_path and resolved_path.exists():
-                                stat = resolved_path.stat()
-                                searchable_items.append(datetime.fromtimestamp(stat.st_ctime).strftime("%d-%m-%Y %H:%M:%S"))
-                                searchable_items.append(datetime.fromtimestamp(stat.st_mtime).strftime("%d-%m-%Y %H:%M:%S"))
-                        except (FileNotFoundError, KeyError, AttributeError):
-                            pass # Safely ignore if file not found or path is not valid
+                        # Resolve path to be absolute before calling .stat()
+                        resolved_path = self._resolve_case_path(data.get('path'))
+                        times = safe_stat_times(resolved_path) if resolved_path else None
+                        if times:
+                            _, mtime, ctime = times
+                            searchable_items.append(datetime.fromtimestamp(ctime).strftime("%d-%m-%Y %H:%M:%S"))
+                            searchable_items.append(datetime.fromtimestamp(mtime).strftime("%d-%m-%Y %H:%M:%S"))
 
                     # Add data from the 'Altered' column
                     is_rev = data.get("is_revision", False)
@@ -3480,12 +3471,14 @@ class PDFReconApp:
                 revisions_count = indicator_keys.get("HasRevisions", {}).get("count", 0)
                 revisions_display = str(revisions_count) if revisions_count > 0 else ""
                 indicators_display = "✔" if indicator_keys else ""
-                try:
-                    full_path = self._resolve_case_path(path_obj)
-                    st = full_path.stat()
-                    created_time = datetime.fromtimestamp(st.st_ctime).strftime("%d-%m-%Y %H:%M:%S")
-                    modified_time = datetime.fromtimestamp(st.st_mtime).strftime("%d-%m-%Y %H:%M:%S")
-                except Exception:
+
+                full_path = self._resolve_case_path(path_obj)
+                times = safe_stat_times(full_path) if full_path else None
+                if times:
+                    _, mtime, ctime = times
+                    created_time = datetime.fromtimestamp(ctime).strftime("%d-%m-%Y %H:%M:%S")
+                    modified_time = datetime.fromtimestamp(mtime).strftime("%d-%m-%Y %H:%M:%S")
+                else:
                     created_time, modified_time = "", ""
 
             row_values = [
@@ -3628,16 +3621,15 @@ class PDFReconApp:
     def _get_filesystem_times(self, filepath):
             """Helper function to get created/modified timestamps from the file system."""
             events = []
-            try:
-                stat = filepath.stat()
+            times = safe_stat_times(filepath)
+            if times:
+                _, mtime_ts, ctime_ts = times
                 # Make the datetime object timezone-aware using the system's local timezone
-                mtime = datetime.fromtimestamp(stat.st_mtime).astimezone()
+                mtime = datetime.fromtimestamp(mtime_ts).astimezone()
                 events.append((mtime, f"File System: {self._('col_modified')}"))
                 # Make the datetime object timezone-aware using the system's local timezone
-                ctime = datetime.fromtimestamp(stat.st_ctime).astimezone()
+                ctime = datetime.fromtimestamp(ctime_ts).astimezone()
                 events.append((ctime, f"File System: {self._('col_created')}"))
-            except FileNotFoundError:
-                pass
             return events
             
     def _parse_exif_data(self, exiftool_output: str):
