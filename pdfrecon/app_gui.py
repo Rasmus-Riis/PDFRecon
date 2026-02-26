@@ -57,6 +57,7 @@ requests = _import_with_fallback('requests', 'requests', 'requests')
 # --- Import configuration and version ---
 from .config import PDFReconConfig, PDFProcessingError, PDFCorruptionError, \
     PDFTooLargeError, PDFEncryptedError, APP_VERSION, UI_COLORS, UI_FONTS, UI_DIMENSIONS
+from .scanner import extract_revisions as scanner_extract_revisions
 
 # --- OCG (layers) detection helpers ---
 _LAYER_OCGS_BLOCK_RE = re.compile(rb"/OCGs\s*\[(.*?)\]", re.S)
@@ -3555,26 +3556,7 @@ class PDFReconApp:
         Extracts previous versions (revisions) of a PDF from its raw byte content
         by looking for '%%EOF' markers. It prepares potential paths but does not write files.
         """
-        revisions = []
-        offsets = []
-        pos = len(raw)
-        # Find all '%%EOF' markers from the end of the file backwards
-        while (pos := raw.rfind(b"%%EOF", 0, pos)) != -1: offsets.append(pos)
-        
-        # Filter out invalid or unlikely offsets
-        valid_offsets = [o for o in sorted(offsets) if 1000 <= o <= len(raw) - 500]
-        if valid_offsets:
-            # Define the subdirectory for potential revisions
-            altered_dir = original_path.parent / "Altered_files"
-            
-            for i, offset in enumerate(valid_offsets, start=1):
-                rev_bytes = raw[:offset + 5] # The revision is the content from the start to the EOF marker
-                rev_filename = f"{original_path.stem}_rev{i}_@{offset}.pdf"
-                rev_path = altered_dir / rev_filename
-                # Package the data for later validation without writing the file.
-                revisions.append((rev_path, original_path.name, rev_bytes))
-                
-        return revisions
+        return scanner_extract_revisions(raw, original_path)
 
     def exiftool_output(self, path, detailed=False):
         """Runs ExifTool safely with a timeout and improved error handling."""
