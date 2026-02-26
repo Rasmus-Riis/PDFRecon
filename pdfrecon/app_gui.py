@@ -4035,20 +4035,32 @@ class PDFReconApp:
             {'Calibri': {'ABC+Calibri', 'DEF+Calibri-Bold'}}
             """
             font_subsets = {}
-            # Iterate through each page to get the fonts used
-            for page_num in range(len(doc)):
-                fonts_on_page = doc.get_page_fonts(page_num)
-                for font_info in fonts_on_page:
-                    basefont_name = font_info[3]
-                    if "+" in basefont_name:
-                        try:
-                            _, actual_base_font = basefont_name.split("+", 1)
-                            normalized_base = actual_base_font.split('-')[0]
-                            if normalized_base not in font_subsets:
-                                font_subsets[normalized_base] = set()
-                            font_subsets[normalized_base].add(basefont_name)
-                        except ValueError:
-                            continue
+            # Iterate through xrefs instead of pages to find fonts.
+            # This avoids O(N) page iteration and parsing, which is slow for large docs.
+            try:
+                for xref in range(1, doc.xref_length()):
+                    if doc.xref_is_font(xref):
+                        res = doc.xref_get_key(xref, "BaseFont")
+                        if res[0] == "name":
+                            basefont_name = res[1]
+                            # PDF names usually start with /, strip it
+                            if basefont_name.startswith("/"):
+                                basefont_name = basefont_name[1:]
+
+                            # Decode PDF name (e.g. #20 -> space)
+                            basefont_name = re.sub(r"#([0-9A-Fa-f]{2})", lambda m: chr(int(m.group(1), 16)), basefont_name)
+
+                            if "+" in basefont_name:
+                                try:
+                                    _, actual_base_font = basefont_name.split("+", 1)
+                                    normalized_base = actual_base_font.split('-')[0]
+                                    if normalized_base not in font_subsets:
+                                        font_subsets[normalized_base] = set()
+                                    font_subsets[normalized_base].add(basefont_name)
+                                except ValueError:
+                                    continue
+            except Exception as e:
+                logging.warning(f"Error iterating fonts via xref: {e}")
             
             # Filter for only those fonts that actually have multiple subsets
             conflicting_fonts = {base: subsets for base, subsets in font_subsets.items() if len(subsets) > 1}
