@@ -57,6 +57,7 @@ requests = _import_with_fallback('requests', 'requests', 'requests')
 # --- Import configuration and version ---
 from .config import PDFReconConfig, PDFProcessingError, PDFCorruptionError, \
     PDFTooLargeError, PDFEncryptedError, APP_VERSION, UI_COLORS, UI_FONTS, UI_DIMENSIONS
+from .exporter import clean_cell_value
 
 # --- OCG (layers) detection helpers ---
 _LAYER_OCGS_BLOCK_RE = re.compile(rb"/OCGs\s*\[(.*?)\]", re.S)
@@ -3907,24 +3908,6 @@ class PDFReconApp:
             except (ValueError, IndexError):
                 continue
         return events        
-    def _clean_cell_value(self, value):
-        """Fjerner tegn, der kan give XLSX/XML-fejl (BOM/mojibake/kontroltegn)."""
-        import re
-        if value is None:
-            return ""
-        s = str(value)
-        # ulovlige XML-kontroltegn (tillader \t \n \r)
-        s = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F]", "", s)
-        # reelle BOM-tegn
-        if s.startswith("\ufeff") or s.startswith("\ufffe"):
-            s = s.lstrip("\ufeff\ufffe")
-        # typisk mojibake for BOM ('þÿ'/'ÿþ')
-        if s.startswith("þÿ") or s.startswith("ÿþ"):
-            s = s[2:]
-        # fjern NUL
-        s = s.replace("\x00", "")
-        return s
-
     def generate_comprehensive_timeline(self, filepath, raw_file_content, exiftool_output):
         """
         Combines events from all sources, separating them into timezone-aware and naive lists.
@@ -4657,7 +4640,7 @@ class PDFReconApp:
             headers[9] = f"{self._('col_indicators')} {self._('excel_indicators_overview')}"
 
         for col_num, header in enumerate(headers, 1):
-            cell = ws.cell(row=1, column=col_num, value=self._clean_cell_value(header))
+            cell = ws.cell(row=1, column=col_num, value=clean_cell_value(header))
             cell.font = Font(bold=True)
             cell.fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
             cell.alignment = Alignment(wrap_text=True, horizontal="center", vertical="center")
@@ -4699,7 +4682,7 @@ class PDFReconApp:
             row_out[10] = note_text        # Note is at index 10
 
             for col_idx, value in enumerate(row_out, start=1):
-                cell = ws.cell(row=row_idx, column=col_idx, value=self._clean_cell_value(value))
+                cell = ws.cell(row=row_idx, column=col_idx, value=clean_cell_value(value))
                 cell.alignment = Alignment(wrap_text=True, vertical="top")
 
         for col in ws.columns:
