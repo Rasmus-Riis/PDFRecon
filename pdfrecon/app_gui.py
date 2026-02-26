@@ -58,6 +58,9 @@ requests = _import_with_fallback('requests', 'requests', 'requests')
 from .config import PDFReconConfig, PDFProcessingError, PDFCorruptionError, \
     PDFTooLargeError, PDFEncryptedError, APP_VERSION, UI_COLORS, UI_FONTS, UI_DIMENSIONS
 
+# --- Utilities ---
+from .utils import md5_file
+
 # --- OCG (layers) detection helpers ---
 _LAYER_OCGS_BLOCK_RE = re.compile(rb"/OCGs\s*\[(.*?)\]", re.S)
 _OBJ_REF_RE          = re.compile(rb"(\d+)\s+(\d+)\s+R")
@@ -112,35 +115,6 @@ class PDFEncryptedError(PDFProcessingError):
     """Exception for encrypted files that cannot be read."""
     pass
 # --- End Phase 1/3 ---
-def md5_file(fp: Path, buf_size: int = 4 * 1024 * 1024) -> str:
-    """
-    Fast MD5 with reusable buffer (fewer allocations).
-    """
-    h = hashlib.md5()
-    with fp.open("rb", buffering=0) as f:
-        buf = bytearray(buf_size)
-        mv = memoryview(buf)
-        while True:
-            n = f.readinto(mv)
-            if not n:
-                break
-            h.update(mv[:n])
-    return h.hexdigest()
-
-
-def fmt_times_pair(ts: float):
-    """Return ('DD-MM-YYYY HH:MM:SS±ZZZZ', 'YYYY-mm-ddTHH:MM:SSZ')."""
-    local = datetime.fromtimestamp(ts).astimezone()
-    utc = datetime.fromtimestamp(ts, tz=timezone.utc)
-    return local.strftime("%d-%m-%Y %H:%M:%S%z"), utc.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-def safe_stat_times(path: Path):
-    try:
-        st = path.stat()
-        return st.st_ctime, st.st_mtime
-    except Exception:
-        return None, None
-
 
 
 class PDFReconApp:
