@@ -57,6 +57,7 @@ requests = _import_with_fallback('requests', 'requests', 'requests')
 # --- Import configuration and version ---
 from .config import PDFReconConfig, PDFProcessingError, PDFCorruptionError, \
     PDFTooLargeError, PDFEncryptedError, APP_VERSION, UI_COLORS, UI_FONTS, UI_DIMENSIONS
+from .pdf_processor import validate_pdf_file
 
 # --- OCG (layers) detection helpers ---
 _LAYER_OCGS_BLOCK_RE = re.compile(rb"/OCGs\s*\[(.*?)\]", re.S)
@@ -2900,36 +2901,6 @@ class PDFReconApp:
                 if fn.lower().endswith(".pdf"):
                     yield Path(base) / fn
 
-    def validate_pdf_file(self, filepath):
-        """
-        Validates a PDF file based on size, header, and encryption.
-        Returns True if valid, otherwise raises an appropriate exception.
-        """
-        try:
-            # Check file size
-            if filepath.stat().st_size > PDFReconConfig.MAX_FILE_SIZE:
-                raise PDFTooLargeError(f"File exceeds {PDFReconConfig.MAX_FILE_SIZE // (1024*1024)}MB size limit.")
-
-            # Check PDF header
-            with open(filepath, 'rb') as f:
-                if f.read(5) != b'%PDF-':
-                    raise PDFCorruptionError("Invalid PDF header. Not a PDF file.")
-            
-            # Check for encryption
-            with fitz.open(filepath) as doc:
-                if doc.is_encrypted:
-                    # Try authenticating with an empty password
-                    if not doc.authenticate(""):
-                         raise PDFEncryptedError("File is encrypted and cannot be processed.")
-            
-            return True
-        except PDFProcessingError:
-            # Re-raise our custom exceptions
-            raise
-        except Exception as e:
-            # Wrap other exceptions in our custom error type
-            raise PDFCorruptionError(f"Could not validate file: {e}")
-
     def _process_large_file_streaming(self, filepath):
         """(Placeholder) Processes a large PDF file using streaming to save memory."""
         logging.info(f"Streaming processing is not yet implemented. Processing {filepath.name} normally.")
@@ -4501,7 +4472,7 @@ class PDFReconApp:
         Processes a single PDF file, submitting copy jobs to a dedicated thread pool.
         """
         try:
-            self.validate_pdf_file(fp)
+            validate_pdf_file(fp)
 
             raw = fp.read_bytes()
             logging.info(f"Processing file: {fp.name} ({len(raw) / (1024*1024):.1f}MB)")
