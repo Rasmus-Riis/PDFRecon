@@ -57,6 +57,7 @@ requests = _import_with_fallback('requests', 'requests', 'requests')
 # --- Import configuration and version ---
 from .config import PDFReconConfig, PDFProcessingError, PDFCorruptionError, \
     PDFTooLargeError, PDFEncryptedError, APP_VERSION, UI_COLORS, UI_FONTS, UI_DIMENSIONS
+from .pdf_processor import safe_pdf_open
 
 # --- OCG (layers) detection helpers ---
 _LAYER_OCGS_BLOCK_RE = re.compile(rb"/OCGs\s*\[(.*?)\]", re.S)
@@ -351,18 +352,6 @@ class PDFReconApp:
                 self.file_menu.entryconfig(menu_item_index, state=state)
         except Exception as e:
             logging.debug(f"Could not update menu state: {e}")
-
-    def _safe_pdf_open(self, filepath, raw_bytes=None, timeout_seconds=10):
-        """Safely open a PDF with timeout protection."""
-        try:
-            if raw_bytes:
-                doc = fitz.open(stream=raw_bytes, filetype="pdf")
-            else:
-                doc = fitz.open(filepath)
-            return doc
-        except Exception as e:
-            logging.error(f"Error opening PDF {filepath}: {e}")
-            raise PDFCorruptionError(f"Could not open PDF: {str(e)}")
 
     def _safe_extract_text(self, raw_bytes=None, doc=None, max_size_mb=50, timeout_seconds=15):
         """Safely extract text from PDF with size limits and timeout to prevent hangs."""
@@ -2332,7 +2321,7 @@ class PDFReconApp:
             
             # Read file and open PDF
             raw = fp.read_bytes()
-            doc = self._safe_pdf_open(fp, raw_bytes=raw)
+            doc = safe_pdf_open(fp, raw_bytes=raw)
             
             # Extract text for indicator detection
             txt = self.extract_text(raw)
@@ -4508,7 +4497,7 @@ class PDFReconApp:
             
             # Use safer PDF opening
             try:
-                doc = self._safe_pdf_open(fp, raw_bytes=raw)
+                doc = safe_pdf_open(fp, raw_bytes=raw)
             except Exception as e:
                 logging.error(f"Failed to open PDF {fp.name}: {e}")
                 raise PDFCorruptionError(f"Cannot open PDF: {str(e)}")
