@@ -57,6 +57,7 @@ requests = _import_with_fallback('requests', 'requests', 'requests')
 # --- Import configuration and version ---
 from .config import PDFReconConfig, PDFProcessingError, PDFCorruptionError, \
     PDFTooLargeError, PDFEncryptedError, APP_VERSION, UI_COLORS, UI_FONTS, UI_DIMENSIONS
+from . import exporter
 
 # --- OCG (layers) detection helpers ---
 _LAYER_OCGS_BLOCK_RE = re.compile(rb"/OCGs\s*\[(.*?)\]", re.S)
@@ -4753,35 +4754,7 @@ class PDFReconApp:
 
     def _export_to_json(self, file_path):
         """Exports a more detailed report of all scanned data and notes to a JSON file."""
-        scan_data_export = []
-        for item in self.all_scan_data.values():
-            path_str = str(item['path'])
-            item_copy = item.copy()
-            item_copy['path'] = path_str # Convert Path object to string
-            if 'original_path' in item_copy:
-                item_copy['original_path'] = str(item_copy['original_path'])
-            
-            if 'indicator_keys' in item_copy:
-                serializable_indicators = {}
-                for key, details in item_copy['indicator_keys'].items():
-                    if 'fonts' in details:
-                        serializable_details = details.copy()
-                        serializable_details['fonts'] = {k: list(v) for k, v in details['fonts'].items()}
-                        serializable_indicators[key] = serializable_details
-                    else:
-                        serializable_indicators[key] = details
-                item_copy['indicator_keys'] = serializable_indicators
-
-            item_copy['exif_data'] = self.exif_outputs.get(path_str, "")
-            scan_data_export.append(item_copy)
-        
-        full_export_payload = {
-            'scan_results': scan_data_export,
-            'file_annotations': self.file_annotations
-        }
-        
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(full_export_payload, f, indent=4, default=str)
+        exporter.export_to_json(file_path, self.all_scan_data, self.file_annotations, self.exif_outputs)
             
     def _export_to_html(self, file_path):
         """Exports a simple, color-coded HTML report."""
