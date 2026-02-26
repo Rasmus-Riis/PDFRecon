@@ -86,32 +86,6 @@ def count_layers(pdf_bytes: bytes) -> int:
     return len(refs)
 
 
-# --- PHASE 1/3: Configuration and Custom Exceptions ---
-class PDFReconConfig:
-    """Configuration settings for PDFRecon. Values are loaded from config.ini."""
-    MAX_FILE_SIZE = 1000 * 1024 * 1024  # 500MB
-    MAX_REVISIONS = 100
-    EXIFTOOL_TIMEOUT = 30
-    MAX_WORKER_THREADS = min(16, (os.cpu_count() or 4) * 2)
-    VISUAL_DIFF_PAGE_LIMIT = 15
-    EXPORT_INVALID_XREF = False
-
-class PDFProcessingError(Exception):
-    """Base exception for PDF processing errors."""
-    pass
-
-class PDFCorruptionError(PDFProcessingError):
-    """Exception for corrupt or unreadable PDF files."""
-    pass
-
-class PDFTooLargeError(PDFProcessingError):
-    """Exception for files that exceed the size limit."""
-    pass
-
-class PDFEncryptedError(PDFProcessingError):
-    """Exception for encrypted files that cannot be read."""
-    pass
-# --- End Phase 1/3 ---
 def md5_file(fp: Path, buf_size: int = 4 * 1024 * 1024) -> str:
     """
     Fast MD5 with reusable buffer (fewer allocations).
@@ -497,6 +471,13 @@ class PDFReconApp:
                 PDFReconConfig.MAX_WORKER_THREADS = settings.getint('MaxWorkerThreads', PDFReconConfig.MAX_WORKER_THREADS)
                 PDFReconConfig.VISUAL_DIFF_PAGE_LIMIT = settings.getint('VisualDiffPageLimit', 5)
                 PDFReconConfig.EXPORT_INVALID_XREF = settings.getboolean('ExportInvalidXREF', False)
+
+                # Load security settings (optional)
+                PDFReconConfig.EXIFTOOL_PATH = settings.get('ExifToolPath', None)
+                if PDFReconConfig.EXIFTOOL_PATH == "": PDFReconConfig.EXIFTOOL_PATH = None
+                PDFReconConfig.EXIFTOOL_HASH = settings.get('ExifToolHash', None)
+                if PDFReconConfig.EXIFTOOL_HASH == "": PDFReconConfig.EXIFTOOL_HASH = None
+
                 self.default_language = settings.get('Language', 'en')
                 self._config_writable = True
                 return
@@ -3578,8 +3559,74 @@ class PDFReconApp:
 
     def exiftool_output(self, path, detailed=False):
         """Runs ExifTool safely with a timeout and improved error handling."""
-        exe_path = self._resolve_path("exiftool.exe", base_is_parent=True)
-        if not exe_path.is_file(): return self._("exif_err_notfound")
+
+        # --- Security Fix: Secure ExifTool Resolution ---
+        exe_path = None
+        is_safe_location = False
+
+        # 1. Check Configured Path
+        if PDFReconConfig.EXIFTOOL_PATH:
+            p = Path(PDFReconConfig.EXIFTOOL_PATH)
+            if p.is_file():
+                exe_path = p
+                is_safe_location = True # User manually configured it
+
+        # 2. Check System Path (if not configured)
+        if not exe_path:
+            system_path = shutil.which("exiftool")
+            if system_path:
+                exe_path = Path(system_path)
+                is_safe_location = True # System paths are generally trusted
+
+        # 3. Check Bundled Path (if frozen/packaged)
+        if not exe_path:
+            bundled_path = self._resolve_path("exiftool.exe", base_is_parent=False)
+            if bundled_path.is_file():
+                exe_path = bundled_path
+                # If frozen, it's in a temp dir controlled by bootloader => Safe
+                if getattr(sys, 'frozen', False):
+                    is_safe_location = True
+                else:
+                    # Running as script: treat as unsafe unless hash matches
+                    is_safe_location = False
+
+        # 4. Check Local Path (External/Portable)
+        if not exe_path:
+            local_path = self._resolve_path("exiftool.exe", base_is_parent=True)
+            if local_path.is_file():
+                exe_path = local_path
+                is_safe_location = False # Definitely unsafe (next to exe)
+
+        # 5. Not Found
+        if not exe_path:
+            return self._("exif_err_notfound")
+
+        # --- Integrity Check ---
+        # Calculate Hash if configured OR if location is unsafe
+        if PDFReconConfig.EXIFTOOL_HASH or not is_safe_location:
+            try:
+                sha256_hash = hashlib.sha256()
+                with open(exe_path, "rb") as f:
+                    for byte_block in iter(lambda: f.read(4096), b""):
+                        sha256_hash.update(byte_block)
+                file_hash = sha256_hash.hexdigest()
+
+                if PDFReconConfig.EXIFTOOL_HASH:
+                    if file_hash.lower() != PDFReconConfig.EXIFTOOL_HASH.lower():
+                         return f"Error: ExifTool hash mismatch. Expected {PDFReconConfig.EXIFTOOL_HASH}, got {file_hash}."
+
+                elif not is_safe_location:
+                     msg = "Security Error: ExifTool found in untrusted location without integrity verification.\n" \
+                           "To fix this, either:\n" \
+                           "1. Install ExifTool to a system path (e.g. PATH),\n" \
+                           "2. Configure 'ExifToolPath' in config.ini to a trusted location, or\n" \
+                           "3. Configure 'ExifToolHash' in config.ini with the SHA256 hash of the local executable."
+                     logging.error(msg)
+                     return msg
+
+            except Exception as e:
+                logging.error(f"Error verifying ExifTool integrity: {e}")
+                return f"Error verifying ExifTool integrity: {e}"
         
         try:
             file_content = path.read_bytes()
