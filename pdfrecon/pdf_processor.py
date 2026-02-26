@@ -156,9 +156,7 @@ def count_layers(pdf_bytes: bytes) -> int:
     """
     Conservatively counts OCGs (layers) in PDF bytes.
     
-    1) Finds /OCGs [ ... ] and collects all indirect refs "n m R".
-    2) Also finds /OC n m R in content/resources.
-    3) Deduplicates (n, gen).
+    Uses PyMuPDF to inspect the document structure instead of regex scan.
     
     Args:
         pdf_bytes: Raw PDF file bytes
@@ -166,16 +164,10 @@ def count_layers(pdf_bytes: bytes) -> int:
     Returns:
         int: Count of unique layers found
     """
-    from .config import LAYER_OCGS_BLOCK_RE, OBJ_REF_RE, LAYER_OC_REF_RE
-    
-    refs = set()
-    
-    m = LAYER_OCGS_BLOCK_RE.search(pdf_bytes)
-    if m:
-        for n, g in OBJ_REF_RE.findall(m.group(1)):
-            refs.add((int(n), int(g)))
-    
-    for n, g in LAYER_OC_REF_RE.findall(pdf_bytes):
-        refs.add((int(n), int(g)))
-    
-    return len(refs)
+    try:
+        with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
+            ocgs = doc.get_ocgs()
+            return len(ocgs)
+    except Exception as e:
+        logging.warning(f"Error counting layers with PyMuPDF: {e}")
+        return 0
