@@ -3909,7 +3909,6 @@ class PDFReconApp:
         return events        
     def _clean_cell_value(self, value):
         """Fjerner tegn, der kan give XLSX/XML-fejl (BOM/mojibake/kontroltegn)."""
-        import re
         if value is None:
             return ""
         s = str(value)
@@ -5043,7 +5042,6 @@ class PDFReconApp:
                 if not text:
                     continue
                 # Split by any non-alphanumeric and look for word-like patterns
-                import re
                 words = re.findall(r'[A-Za-zÀ-ÿ]{3,}', text)  # Words with 3+ letters including Danish chars
                 searchable_fragments.extend(words)
             
