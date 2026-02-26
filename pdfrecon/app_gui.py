@@ -30,14 +30,7 @@ import json
 import time
 
 # --- Helper function for safe dependency imports ---
-def _import_with_fallback(module_name, import_name, install_cmd):
-    """Safely import optional dependencies with user-friendly error messages."""
-    try:
-        return __import__(module_name, fromlist=[import_name])
-    except ImportError:
-        error_msg = f"The {import_name} library is not installed.\n\nPlease run 'pip install {install_cmd}' in your terminal to use this program."
-        messagebox.showerror("Missing Library", error_msg)
-        sys.exit(1)
+from .utils import _import_with_fallback
 
 # --- Optional library imports with error handling ---
 PIL = _import_with_fallback('PIL', 'Image', 'Pillow')
