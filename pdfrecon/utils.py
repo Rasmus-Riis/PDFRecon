@@ -6,6 +6,7 @@ Helper functions for file operations, imports, and data formatting.
 
 import hashlib
 import sys
+import json
 from pathlib import Path
 from datetime import datetime, timezone
 from tkinter import messagebox
@@ -65,3 +66,26 @@ def sha256_file(filepath: Path) -> str:
         return ""
     except Exception as e:
         return f"Error: {str(e)}"
+
+
+class CaseEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Path):
+            return {"__type__": "Path", "value": str(obj)}
+        if isinstance(obj, datetime):
+            return {"__type__": "datetime", "value": obj.isoformat()}
+        if isinstance(obj, set):
+            return {"__type__": "set", "value": list(obj)}
+        return super().default(obj)
+
+
+def case_decoder(dct):
+    if "__type__" in dct:
+        t = dct["__type__"]
+        if t == "Path":
+            return Path(dct["value"])
+        if t == "datetime":
+            return datetime.fromisoformat(dct["value"])
+        if t == "set":
+            return set(dct["value"])
+    return dct
