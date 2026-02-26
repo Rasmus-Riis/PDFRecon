@@ -57,6 +57,7 @@ requests = _import_with_fallback('requests', 'requests', 'requests')
 # --- Import configuration and version ---
 from .config import PDFReconConfig, PDFProcessingError, PDFCorruptionError, \
     PDFTooLargeError, PDFEncryptedError, APP_VERSION, UI_COLORS, UI_FONTS, UI_DIMENSIONS
+from .scanner import analyze_fonts as scan_analyze_fonts
 
 # --- OCG (layers) detection helpers ---
 _LAYER_OCGS_BLOCK_RE = re.compile(rb"/OCGs\s*\[(.*?)\]", re.S)
@@ -4028,34 +4029,6 @@ class PDFReconApp:
 
         return "\n".join(txt_segments)
 
-    def analyze_fonts(self, filepath, doc):
-            """
-            Analyzes fonts to detect multiple subsets of the same base font.
-            Returns a dictionary of conflicting fonts, e.g.,
-            {'Calibri': {'ABC+Calibri', 'DEF+Calibri-Bold'}}
-            """
-            font_subsets = {}
-            # Iterate through each page to get the fonts used
-            for page_num in range(len(doc)):
-                fonts_on_page = doc.get_page_fonts(page_num)
-                for font_info in fonts_on_page:
-                    basefont_name = font_info[3]
-                    if "+" in basefont_name:
-                        try:
-                            _, actual_base_font = basefont_name.split("+", 1)
-                            normalized_base = actual_base_font.split('-')[0]
-                            if normalized_base not in font_subsets:
-                                font_subsets[normalized_base] = set()
-                            font_subsets[normalized_base].add(basefont_name)
-                        except ValueError:
-                            continue
-            
-            # Filter for only those fonts that actually have multiple subsets
-            conflicting_fonts = {base: subsets for base, subsets in font_subsets.items() if len(subsets) > 1}
-            if conflicting_fonts:
-                logging.info(f"Multiple font subsets found in {filepath.name}: {conflicting_fonts}")
-
-            return conflicting_fonts
     def detect_indicators(self, filepath, txt: str, doc):
         """
         Searches for indicators, now with an integrated text-diff feature for TouchUp edits.
@@ -4100,7 +4073,7 @@ class PDFReconApp:
 
         # --- Structural and Content Indicators ---
         try:
-            conflicting_fonts = self.analyze_fonts(filepath, doc)
+            conflicting_fonts = scan_analyze_fonts(filepath, doc)
             if conflicting_fonts:
                 indicators['MultipleFontSubsets'] = {'fonts': conflicting_fonts}
         except Exception as e:
