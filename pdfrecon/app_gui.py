@@ -4642,114 +4642,31 @@ class PDFReconApp:
 
     def _export_to_excel(self, file_path):
         """Exports the displayed data to XLSX with a frozen header and word wrap enabled."""
-        import logging
-        from openpyxl import Workbook
-        from openpyxl.styles import Font, PatternFill, Alignment
-
-        logging.info(f"Exporting report to Excel file: {file_path}")
-
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "PDFRecon Results"
-
-        headers = [self._(key) for key in self.columns_keys]
-        if len(headers) >= 10:
-            headers[9] = f"{self._('col_indicators')} {self._('excel_indicators_overview')}"
-
-        for col_num, header in enumerate(headers, 1):
-            cell = ws.cell(row=1, column=col_num, value=self._clean_cell_value(header))
-            cell.font = Font(bold=True)
-            cell.fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
-            cell.alignment = Alignment(wrap_text=True, horizontal="center", vertical="center")
-        
-        ws.freeze_panes = 'A2'
-
-        # --- OPTIMIZATION ---
-        # Create a lookup dictionary once to avoid repeated searches in the main loop.
-        # This significantly improves performance for large datasets.
-        indicators_by_path = {}
-        for item in getattr(self, "all_scan_data", {}).values():
-            path_str = str(item.get("path"))
-            indicator_dict = item.get("indicator_keys") or {}
-            if indicator_dict:
-                lines = [self._format_indicator_details(key, details) for key, details in indicator_dict.items()]
-                indicators_by_path[path_str] = "• " + "\n• ".join(lines)
-            else:
-                indicators_by_path[path_str] = ""
-
-        for row_idx, row_data in enumerate(getattr(self, "report_data", []), start=2):
-            try:
-                path = row_data[4] # Path is now at index 4
-            except IndexError:
-                path = ""
-
-            exif_text = self.exif_outputs.get(path, "")
-            # Use the fast lookup dictionary instead of the slow nested function
-            indicators_full = indicators_by_path.get(path, "")
-            note_text = self.file_annotations.get(path, "")
-
-            row_out = list(row_data)
-            
-            while len(row_out) < len(headers):
-                row_out.append("")
-            
-            row_out[8] = exif_text         # EXIF is at index 8
-            if indicators_full:
-                row_out[9] = indicators_full # Indicators is at index 9
-            row_out[10] = note_text        # Note is at index 10
-
-            for col_idx, value in enumerate(row_out, start=1):
-                cell = ws.cell(row=row_idx, column=col_idx, value=self._clean_cell_value(value))
-                cell.alignment = Alignment(wrap_text=True, vertical="top")
-
-        for col in ws.columns:
-            try:
-                max_len = max(len(str(c.value).split('\n')[0]) for c in col if c.value)
-                ws.column_dimensions[col[0].column_letter].width = min(max_len + 2, 60)
-            except (ValueError, TypeError):
-                pass
-
-        wb.save(file_path)
+        from .exporter import export_to_excel
+        export_to_excel(
+            file_path,
+            self.report_data,
+            self.all_scan_data,
+            self.file_annotations,
+            self.exif_outputs,
+            self.columns_keys,
+            get_translation=self._,
+            format_indicator=self._format_indicator_details
+        )
         
     def _export_to_csv(self, file_path):
         """Exports the displayed data to a CSV file."""
-        headers = [self._(key) for key in self.columns_keys]
-        
-        def _indicators_for_path(path_str: str) -> str:
-            """Helper function to get a semicolon-separated string of indicators."""
-            # Fast O(1) lookup instead of O(n) search
-            rec = self.all_scan_data.get(path_str)
-            if not rec: return ""
-            indicator_dict = rec.get('indicator_keys') or {}
-            if not indicator_dict: return ""
-
-            lines = [self._format_indicator_details(key, details) for key, details in indicator_dict.items()]
-            return "; ".join(lines)
-
-        # Prepare data with full EXIF output + full indicators
-        data_for_export = []
-        for row_data in self.report_data:
-            new_row = list(row_data)
-            path = new_row[4] # Path is at index 4
-            exif_output = self.exif_outputs.get(path, "")
-            indicators_full = _indicators_for_path(path)
-            note_text = self.file_annotations.get(path, "")
-            
-            while len(new_row) < len(headers):
-                new_row.append("")
-
-            new_row[8] = exif_output      # EXIF is at index 8
-            if indicators_full:
-                new_row[9] = indicators_full # Indicators is at index 9
-            new_row[10] = note_text      # Note is at index 10
-  
-            data_for_export.append(new_row)
-
-        # Use utf-8-sig for better Excel compatibility with special characters
-        with open(file_path, 'w', newline='', encoding='utf-8-sig') as f:
-            writer = csv.writer(f)
-            writer.writerow(headers)
-            writer.writerows(data_for_export)
+        from .exporter import export_to_csv
+        export_to_csv(
+            file_path,
+            self.report_data,
+            self.all_scan_data,
+            self.file_annotations,
+            self.exif_outputs,
+            self.columns_keys,
+            get_translation=self._,
+            format_indicator=self._format_indicator_details
+        )
 
     def _export_to_json(self, file_path):
         """Exports a more detailed report of all scanned data and notes to a JSON file."""

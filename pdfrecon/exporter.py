@@ -79,7 +79,7 @@ def format_indicator_details(key: str, details: dict) -> str:
 
 
 def export_to_excel(file_path, report_data: list, all_scan_data: dict, file_annotations: dict, 
-                   exif_outputs: dict, column_keys: list, get_translation=None):
+                   exif_outputs: dict, column_keys: list, get_translation=None, format_indicator=None):
     """
     Exports the displayed data to XLSX with a frozen header and word wrap enabled.
     Includes all indicators, EXIF data, and annotations.
@@ -92,6 +92,7 @@ def export_to_excel(file_path, report_data: list, all_scan_data: dict, file_anno
         exif_outputs: Dictionary of EXIF outputs
         column_keys: List of column translation keys
         get_translation: Function to translate column keys (optional)
+        format_indicator: Function to format indicator details (optional)
     """
     try:
         logging.info(f"Exporting report to Excel file: {file_path}")
@@ -117,13 +118,16 @@ def export_to_excel(file_path, report_data: list, all_scan_data: dict, file_anno
         
         ws.freeze_panes = 'A2'
 
+        # Use custom formatter if provided, otherwise use default
+        formatter = format_indicator or format_indicator_details
+
         # Create a lookup dictionary once to avoid repeated searches (optimization)
         indicators_by_path = {}
         for item in all_scan_data.values():
             path_str = str(item.get("path"))
             indicator_dict = item.get("indicator_keys") or {}
             if indicator_dict:
-                lines = [format_indicator_details(key, details) for key, details in indicator_dict.items()]
+                lines = [formatter(key, details) for key, details in indicator_dict.items()]
                 indicators_by_path[path_str] = "• " + "\n• ".join(lines)
             else:
                 indicators_by_path[path_str] = ""
@@ -168,7 +172,7 @@ def export_to_excel(file_path, report_data: list, all_scan_data: dict, file_anno
 
 
 def export_to_csv(file_path, report_data: list, all_scan_data: dict, file_annotations: dict,
-                 exif_outputs: dict, column_keys: list, get_translation=None):
+                 exif_outputs: dict, column_keys: list, get_translation=None, format_indicator=None):
     """
     Exports the displayed data to a CSV file with EXIF and indicator data.
     
@@ -180,6 +184,7 @@ def export_to_csv(file_path, report_data: list, all_scan_data: dict, file_annota
         exif_outputs: Dictionary of EXIF outputs
         column_keys: List of column translation keys
         get_translation: Function to translate column keys (optional)
+        format_indicator: Function to format indicator details (optional)
     """
     try:
         # Use translation function if provided
@@ -188,6 +193,9 @@ def export_to_csv(file_path, report_data: list, all_scan_data: dict, file_annota
         else:
             headers = column_keys
         
+        # Use custom formatter if provided, otherwise use default
+        formatter = format_indicator or format_indicator_details
+
         def _indicators_for_path(path_str: str) -> str:
             """Helper function to get a semicolon-separated string of indicators."""
             rec = all_scan_data.get(path_str)
@@ -196,7 +204,7 @@ def export_to_csv(file_path, report_data: list, all_scan_data: dict, file_annota
             indicator_dict = rec.get('indicator_keys') or {}
             if not indicator_dict:
                 return ""
-            lines = [format_indicator_details(key, details) for key, details in indicator_dict.items()]
+            lines = [formatter(key, details) for key, details in indicator_dict.items()]
             return "; ".join(lines)
 
         # Prepare data with full EXIF output + full indicators
