@@ -55,6 +55,7 @@ from openpyxl.styles import Font, Alignment, PatternFill
 requests = _import_with_fallback('requests', 'requests', 'requests')
 
 # --- Import configuration and version ---
+from .pdf_processor import safe_extract_text
 from .config import PDFReconConfig, PDFProcessingError, PDFCorruptionError, \
     PDFTooLargeError, PDFEncryptedError, APP_VERSION, UI_COLORS, UI_FONTS, UI_DIMENSIONS
 
@@ -363,59 +364,6 @@ class PDFReconApp:
         except Exception as e:
             logging.error(f"Error opening PDF {filepath}: {e}")
             raise PDFCorruptionError(f"Could not open PDF: {str(e)}")
-
-    def _safe_extract_text(self, raw_bytes=None, doc=None, max_size_mb=50, timeout_seconds=15):
-        """Safely extract text from PDF with size limits and timeout to prevent hangs."""
-        try:
-            # Skip if file is suspiciously large
-            if raw_bytes and len(raw_bytes) > max_size_mb * 1024 * 1024:
-                logging.warning(f"PDF too large for text extraction: {len(raw_bytes) / (1024*1024):.1f}MB")
-                return ""
-            
-            # Check for suspicious patterns in PDF that might cause hangs
-            if raw_bytes and (b"/ObjStm" in raw_bytes or raw_bytes.count(b"stream") > 100):
-                logging.warning(f"PDF contains suspicious patterns (streams or object streams), skipping full extraction")
-                return ""
-            
-            # If no doc provided, open it from raw_bytes
-            should_close_doc = False
-            if doc is None:
-                if not raw_bytes:
-                    return ""
-                doc = fitz.open(stream=raw_bytes, filetype="pdf")
-                should_close_doc = True
-            
-            start_time = time.time()
-            txt = ""
-            page_count = len(doc)
-            
-            # Limit extraction to first 1000 pages or first 50MB of text
-            for page_num in range(min(1000, page_count)):
-                # Check timeout every 10 pages
-                if page_num % 10 == 0 and time.time() - start_time > timeout_seconds:
-                    logging.warning(f"Text extraction timeout after {time.time() - start_time:.1f}s, stopping at page {page_num}/{page_count}")
-                    break
-                    
-                try:
-                    page = doc[page_num]
-                    page_text = page.get_text()
-                    txt += page_text
-                except Exception as page_error:
-                    logging.warning(f"Error extracting page {page_num}: {page_error}")
-                    continue
-                    
-                if len(txt) > 50 * 1024 * 1024:  # 50MB of text
-                    logging.warning(f"Text extraction exceeded 50MB limit, stopping at page {page_num}/{page_count}")
-                    break
-            
-            if should_close_doc and doc:
-                doc.close()
-                
-            logging.info(f"Successfully extracted {len(txt)} characters from {page_count} pages")
-            return txt
-        except Exception as e:
-            logging.warning(f"Could not extract text from PDF: {e}")
-            return ""
 
 
 
