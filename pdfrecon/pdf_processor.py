@@ -138,11 +138,17 @@ def validate_pdf_file(filepath: Path) -> bool:
         try:
             doc = fitz.open(str(filepath))
             if doc.is_encrypted:
-                doc.close()
-                raise PDFEncryptedError("PDF is password-encrypted and cannot be read")
+                # Try authenticating with an empty password
+                if not doc.authenticate(""):
+                    doc.close()
+                    raise PDFEncryptedError("File is encrypted and cannot be processed.")
             doc.close()
-        except fitz.FileError:
+        except fitz.FileDataError:
             raise PDFCorruptionError("File is not a valid PDF")
+        except Exception as e:
+            if isinstance(e, PDFProcessingError):
+                raise
+            raise PDFCorruptionError(f"File is not a valid PDF: {str(e)}")
         
         return True
         
