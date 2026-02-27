@@ -2415,51 +2415,6 @@ class PDFReconApp:
             logging.exception(f"Unexpected error processing file {fp.name}")
             return [{"path": fp, "status": "error", "error_type": "processing_error", "error_message": str(e)}]
 
-    def _scan_worker_parallel(self, folder, q):
-        """
-        Worker thread that finds and processes PDF files in parallel.
-        Sends results to the queue for UI updates.
-        """
-        try:
-            q.put(("scan_status", self._("preparing_analysis")))
-            
-            # Find all PDF files
-            pdf_files = list(self._find_pdf_files_generator(folder))
-            if not pdf_files:
-                q.put(("finished", None))
-                return
-            
-            q.put(("progress_mode_determinate", len(pdf_files)))
-            files_processed = 0
-            
-            # Process files in parallel using ThreadPoolExecutor
-            with ThreadPoolExecutor(max_workers=PDFReconConfig.MAX_WORKER_THREADS) as executor:
-                future_to_path = {executor.submit(self._process_single_file, fp): fp for fp in pdf_files}
-                
-                for future in as_completed(future_to_path):
-                    path = future_to_path[future]
-                    files_processed += 1
-                    
-                    try:
-                        results = future.result()
-                        for result_data in results:
-                            q.put(("file_row", result_data))
-                    except Exception as e:
-                        logging.error(f"Unexpected error from thread pool for file {path.name}: {e}")
-                        q.put(("file_row", {"path": path, "status": "error", "error_type": "unknown_error", "error_message": str(e)}))
-                    
-                    # Calculate progress stats
-                    elapsed_time = time.time() - self.scan_start_time
-                    fps = files_processed / elapsed_time if elapsed_time > 0 else 0
-                    eta_seconds = (len(pdf_files) - files_processed) / fps if fps > 0 else 0
-                    q.put(("detailed_progress", {"file": path.name, "fps": fps, "eta": time.strftime('%M:%S', time.gmtime(eta_seconds))}))
-        
-        except Exception as e:
-            logging.error(f"Error in scan worker: {e}")
-            q.put(("error", f"A critical error occurred: {e}"))
-        finally:
-            q.put(("finished", None))
-
     def _process_queue(self):
         """
         Processes messages from the scan queue and updates the UI.
