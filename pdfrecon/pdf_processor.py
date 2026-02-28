@@ -74,7 +74,8 @@ def safe_extract_text(raw_bytes=None, doc=None, max_size_mb=50, timeout_seconds=
             should_close_doc = True
         
         start_time = time.time()
-        txt = ""
+        text_chunks = []
+        current_length = 0
         page_count = len(doc)
         
         # Limit extraction to first 1000 pages or first 50MB of text
@@ -87,20 +88,22 @@ def safe_extract_text(raw_bytes=None, doc=None, max_size_mb=50, timeout_seconds=
             try:
                 page = doc[page_num]
                 page_text = page.get_text()
-                txt += page_text
+                text_chunks.append(page_text)
+                current_length += len(page_text)
             except Exception as page_error:
                 logging.warning(f"Error extracting page {page_num}: {page_error}")
                 continue
                 
-            if len(txt) > 50 * 1024 * 1024:  # 50MB of text
+            if current_length > 50 * 1024 * 1024:  # 50MB of text
                 logging.warning(f"Text extraction exceeded 50MB limit, stopping at page {page_num}/{page_count}")
                 break
         
         if should_close_doc and doc:
             doc.close()
             
-        logging.info(f"Successfully extracted {len(txt)} characters from {page_count} pages")
-        return txt
+        extracted_text = "".join(text_chunks)
+        logging.info(f"Successfully extracted {len(extracted_text)} characters from {page_count} pages")
+        return extracted_text
     except Exception as e:
         logging.warning(f"Could not extract text from PDF: {e}")
         return ""
