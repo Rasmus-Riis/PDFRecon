@@ -4062,8 +4062,13 @@ class PDFReconApp:
         """
         indicators = {}
 
+        # PERFORMANCE OPTIMIZATION (Bolt ⚡):
+        # Caching `txt.lower()` allows us to use fast 'in' substring checks to
+        # bypass expensive case-insensitive regex (re.I) scans on large PDF text.
+        txt_lower = txt.lower()
+
         # --- High-Confidence Indicators ---
-        if re.search(r"touchup_textedit", txt, re.I):
+        if "touchup_textedit" in txt_lower and re.search(r"touchup_textedit", txt, re.I):
             found_text = self._extract_touchup_text(doc)
             details = {'found_text': found_text, 'text_diff': None}
 
@@ -4087,15 +4092,19 @@ class PDFReconApp:
             indicators['TouchUp_TextEdit'] = details
 
         # --- Metadata Indicators ---
-        creators = set(re.findall(r"/Creator\s*\((.*?)\)", txt, re.I))
-        if len(creators) > 1:
-            indicators['MultipleCreators'] = {'count': len(creators), 'values': list(creators)}
+        creators = set()
+        if "creator" in txt_lower:
+            creators = set(re.findall(r"/Creator\s*\((.*?)\)", txt, re.I))
+            if len(creators) > 1:
+                indicators['MultipleCreators'] = {'count': len(creators), 'values': list(creators)}
         
-        producers = set(re.findall(r"/Producer\s*\((.*?)\)", txt, re.I))
-        if len(producers) > 1:
-            indicators['MultipleProducers'] = {'count': len(producers), 'values': list(producers)}
+        producers = set()
+        if "producer" in txt_lower:
+            producers = set(re.findall(r"/Producer\s*\((.*?)\)", txt, re.I))
+            if len(producers) > 1:
+                indicators['MultipleProducers'] = {'count': len(producers), 'values': list(producers)}
 
-        if re.search(r'<xmpMM:History>', txt, re.I | re.S):
+        if "xmpmm:history" in txt_lower and re.search(r'<xmpMM:History>', txt, re.I | re.S):
             indicators['XMPHistory'] = {}
 
         # --- Structural and Content Indicators ---
@@ -4109,28 +4118,30 @@ class PDFReconApp:
         if (hasattr(doc, 'is_xfa') and doc.is_xfa) or "/XFA" in txt:
             indicators['HasXFAForm'] = {}
 
-        if re.search(r"/Type\s*/Sig\b", txt):
+        if "/sig" in txt_lower and re.search(r"/Type\s*/Sig\b", txt):
             indicators['HasDigitalSignature'] = {}
 
         # --- Incremental Update Indicators ---
-        startxref_count = txt.lower().count("startxref")
+        startxref_count = txt_lower.count("startxref")
         if startxref_count > 1:
             indicators['MultipleStartxref'] = {'count': startxref_count}
         
-        prevs = re.findall(r"/Prev\s+\d+", txt)
-        if prevs:
-            indicators['IncrementalUpdates'] = {'count': len(prevs) + 1}
+        prevs = []
+        if "/prev" in txt_lower:
+            prevs = re.findall(r"/Prev\s+\d+", txt)
+            if prevs:
+                indicators['IncrementalUpdates'] = {'count': len(prevs) + 1}
         
-        if re.search(r"/Linearized\s+\d+", txt):
+        if "/linearized" in txt_lower and re.search(r"/Linearized\s+\d+", txt):
             indicators['Linearized'] = {}
             if startxref_count > 1 or prevs:
                 indicators['LinearizedUpdated'] = {}
 
         # --- Feature Indicators ---
-        if re.search(r"/Redact\b", txt, re.I): indicators['HasRedactions'] = {}
-        if re.search(r"/Annots\b", txt, re.I): indicators['HasAnnotations'] = {}
-        if re.search(r"/PieceInfo\b", txt, re.I): indicators['HasPieceInfo'] = {}
-        if re.search(r"/AcroForm\b", txt, re.I):
+        if "redact" in txt_lower and re.search(r"/Redact\b", txt, re.I): indicators['HasRedactions'] = {}
+        if "annots" in txt_lower and re.search(r"/Annots\b", txt, re.I): indicators['HasAnnotations'] = {}
+        if "pieceinfo" in txt_lower and re.search(r"/PieceInfo\b", txt, re.I): indicators['HasPieceInfo'] = {}
+        if "acroform" in txt_lower and re.search(r"/AcroForm\b", txt, re.I):
             indicators['HasAcroForm'] = {}
             if re.search(r"/NeedAppearances\s+true\b", txt, re.I):
                 indicators['AcroFormNeedAppearances'] = {}
