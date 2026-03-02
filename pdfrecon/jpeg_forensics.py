@@ -93,7 +93,7 @@ def extract_jpeg_qt_from_bytes(jpeg_bytes: bytes) -> dict:
         match = KNOWN_QT_SIGNATURES.get(signature, None)
         
         # Calculate hash of full QT for uniqueness
-        qt_hash = hashlib.md5(bytes(qt_values)).hexdigest()[:16]
+        qt_hash = hashlib.md5(bytes(qt_values), usedforsecurity=False).hexdigest()[:16]
         
         # Analyze QT characteristics
         qt_min = min(qt_values)

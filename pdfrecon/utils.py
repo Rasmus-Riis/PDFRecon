@@ -25,7 +25,7 @@ def md5_file(fp: Path, buf_size: int = 4 * 1024 * 1024) -> str:
     """
     Fast MD5 hash of a file with reusable buffer (fewer allocations).
     """
-    h = hashlib.md5()
+    h = hashlib.md5(usedforsecurity=False)
     with fp.open("rb", buffering=0) as f:
         buf = bytearray(buf_size)
         mv = memoryview(buf)
@@ -53,13 +53,18 @@ def safe_stat_times(path: Path) -> tuple or None:
         return None
 
 
-def sha256_file(filepath: Path) -> str:
-    """Calculates the SHA-256 hash of a file."""
+def sha256_file(filepath: Path, buf_size: int = 4 * 1024 * 1024) -> str:
+    """Calculates the SHA-256 hash of a file efficiently using a reusable buffer."""
     sha256_hash = hashlib.sha256()
     try:
-        with filepath.open("rb") as f:
-            for chunk in iter(lambda: f.read(4096), b""):
-                sha256_hash.update(chunk)
+        with filepath.open("rb", buffering=0) as f:
+            buf = bytearray(buf_size)
+            mv = memoryview(buf)
+            while True:
+                n = f.readinto(mv)
+                if not n:
+                    break
+                sha256_hash.update(mv[:n])
         return sha256_hash.hexdigest()
     except FileNotFoundError:
         return ""

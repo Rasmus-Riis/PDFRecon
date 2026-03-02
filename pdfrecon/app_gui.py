@@ -116,7 +116,7 @@ def md5_file(fp: Path, buf_size: int = 4 * 1024 * 1024) -> str:
     """
     Fast MD5 with reusable buffer (fewer allocations).
     """
-    h = hashlib.md5()
+    h = hashlib.md5(usedforsecurity=False)
     with fp.open("rb", buffering=0) as f:
         buf = bytearray(buf_size)
         mv = memoryview(buf)
@@ -2347,7 +2347,7 @@ class PDFReconApp:
             indicator_keys = self.detect_indicators(fp, txt, doc)
             
             # Calculate MD5
-            md5_hash = hashlib.md5(raw).hexdigest()
+            md5_hash = hashlib.md5(raw, usedforsecurity=False).hexdigest()
             
             # Generate timeline
             original_timeline = self.generate_comprehensive_timeline(fp, txt, exif)
@@ -2380,7 +2380,7 @@ class PDFReconApp:
             # Process each revision
             for rev_path, basefile, rev_raw in revisions:
                 try:
-                    rev_md5 = hashlib.md5(rev_raw).hexdigest()
+                    rev_md5 = hashlib.md5(rev_raw, usedforsecurity=False).hexdigest()
                     rev_exif = self.exiftool_output(rev_path, detailed=True)
                     rev_txt = self.extract_text(rev_raw)
                     revision_timeline = self.generate_comprehensive_timeline(rev_path, rev_txt, rev_exif)
@@ -4455,7 +4455,7 @@ class PDFReconApp:
                 rev_path.parent.mkdir(exist_ok=True)
                 rev_path.write_bytes(rev_raw)
                 
-                rev_md5 = hashlib.md5(rev_raw).hexdigest()
+                rev_md5 = hashlib.md5(rev_raw, usedforsecurity=False).hexdigest()
                 rev_txt = self.extract_text(rev_raw)
                 revision_timeline = self.generate_comprehensive_timeline(rev_path, rev_txt, rev_exif)
 
