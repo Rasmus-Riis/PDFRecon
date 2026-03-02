@@ -496,7 +496,7 @@ def _detect_image_anomalies(doc, filepath: Path, indicators: dict):
                     try:
                         base_image = doc.extract_image(xref)
                         img_bytes = base_image["image"]
-                        img_hash = hashlib.md5(img_bytes).hexdigest()
+                        img_hash = hashlib.md5(img_bytes, usedforsecurity=False).hexdigest()
                         
                         # Check for duplicate images with different compression
                         if img_hash in duplicate_check:
