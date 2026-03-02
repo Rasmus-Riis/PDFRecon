@@ -26,7 +26,15 @@ def detect_emails_and_urls(txt: str, indicators: dict):
         
         # URL pattern (http, https, ftp)
         url_pattern = r'https?://[^\s<>"{}|\\^`\[\]]+'
-        urls = set(re.findall(url_pattern, txt, re.IGNORECASE))
+        raw_urls = set(re.findall(url_pattern, txt, re.IGNORECASE))
+
+        # Clean URLs (remove trailing punctuation often caught by regex)
+        urls = set()
+        for url in raw_urls:
+            # Strip common trailing punctuation
+            clean_url = url.rstrip('.,;:?!)]')
+            if clean_url:
+                urls.add(clean_url)
         
         if urls and len(urls) > 0:
             # Categorize by domain
