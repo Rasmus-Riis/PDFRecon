@@ -37,7 +37,7 @@ def detect_emails_and_urls(txt: str, indicators: dict):
                     if domain not in domains:
                         domains[domain] = []
                     domains[domain].append(url)
-                except:
+                except Exception:
                     pass
             
             indicators['URLs'] = {
@@ -88,7 +88,7 @@ def detect_language(doc, indicators: dict):
             if catalog and catalog.get('/Lang'):
                 lang = str(catalog['/Lang'])
                 languages.add(lang)
-        except:
+        except Exception:
             pass
         
         if languages:
@@ -188,7 +188,7 @@ def detect_hidden_text_patterns(txt: str, doc, indicators: dict):
                                         'note': 'Text positioned outside visible page area'
                                     }
                                     return  # Found one, that's enough
-                except:
+                except Exception:
                     pass
                     
     except Exception as e:
@@ -258,7 +258,7 @@ def detect_ocr_layer(doc, txt: str, indicators: dict):
                             if bbox:
                                 img_area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
                                 image_area += img_area
-                        except:
+                        except Exception:
                             pass
                     
                     # Get page area
@@ -268,7 +268,7 @@ def detect_ocr_layer(doc, txt: str, indicators: dict):
                     if page_area > 0 and (image_area / page_area) > 0.8:
                         text_over_image_ratio += 1
                         
-            except:
+            except Exception:
                 pass
         
         # If multiple pages have text over large images, likely OCR
@@ -337,7 +337,7 @@ def detect_temporal_anomalies(txt: str, indicators: dict):
                                 'date': f"{year}-{month:02d}-{day:02d}",
                                 'days_ahead': days_ahead
                             })
-            except:
+            except Exception:
                 pass
         
         if future_dates:

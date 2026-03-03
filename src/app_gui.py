@@ -30,14 +30,7 @@ import json
 import time
 
 # --- Helper function for safe dependency imports ---
-def _import_with_fallback(module_name, import_name, install_cmd):
-    """Safely import optional dependencies with user-friendly error messages."""
-    try:
-        return __import__(module_name, fromlist=[import_name])
-    except ImportError:
-        error_msg = f"The {import_name} library is not installed.\n\nPlease run 'pip install {install_cmd}' in your terminal to use this program."
-        messagebox.showerror("Missing Library", error_msg)
-        sys.exit(1)
+from .utils import _import_with_fallback, md5_file
 
 # --- Optional library imports with error handling ---
 PIL = _import_with_fallback('PIL', 'Image', 'Pillow')
@@ -56,90 +49,11 @@ requests = _import_with_fallback('requests', 'requests', 'requests')
 
 # --- Import configuration and version ---
 from .config import PDFReconConfig, PDFProcessingError, PDFCorruptionError, \
-    PDFTooLargeError, PDFEncryptedError, APP_VERSION, UI_COLORS, UI_FONTS, UI_DIMENSIONS
+    PDFTooLargeError, PDFEncryptedError, APP_VERSION, UI_COLORS, UI_FONTS, UI_DIMENSIONS, \
+    KV_PATTERN, DATE_TZ_PATTERN
 
-# --- OCG (layers) detection helpers ---
-_LAYER_OCGS_BLOCK_RE = re.compile(rb"/OCGs\s*\[(.*?)\]", re.S)
-_OBJ_REF_RE          = re.compile(rb"(\d+)\s+(\d+)\s+R")
-_LAYER_OC_REF_RE     = re.compile(rb"/OC\s+(\d+)\s+(\d+)\s+R")
-_PDF_DATE_PATTERN    = re.compile(r"\/([A-Z][a-zA-Z0-9_]+)\s*\(\s*D:(\d{14})")
-_KV_PATTERN          = re.compile(r'^\[(?P<group>[^\]]+)\]\s*(?P<tag>[\w\-/ ]+?)\s*:\s*(?P<value>.+)$')
-_DATE_TZ_PATTERN     = re.compile(r"^(?P<date>\d{4}[-:]\d{2}[-:]\d{2}[ T]\d{2}:\d{2}:\d{2})(?:\.\d+)?(?P<tz>[+\-]\d{2}:\d{2}|Z)?")
-
-def count_layers(pdf_bytes: bytes) -> int:
-    """
-    Conservatively counts OCGs (layers) in PDF bytes.
-    1) Finds /OCGs [ ... ] and collects all indirect refs "n m R".
-    2) Also finds /OC n m R in content/resources.
-    3) Deduplicates (n, gen).
-    """
-    refs = set()
-
-    m = _LAYER_OCGS_BLOCK_RE.search(pdf_bytes)
-    if m:
-        for n, g in _OBJ_REF_RE.findall(m.group(1)):
-            refs.add((int(n), int(g)))
-
-    for n, g in _LAYER_OC_REF_RE.findall(pdf_bytes):
-        refs.add((int(n), int(g)))
-
-    return len(refs)
-
-
-# --- PHASE 1/3: Configuration and Custom Exceptions ---
-class PDFReconConfig:
-    """Configuration settings for PDFRecon. Values are loaded from config.ini."""
-    MAX_FILE_SIZE = 1000 * 1024 * 1024  # 500MB
-    MAX_REVISIONS = 100
-    EXIFTOOL_TIMEOUT = 30
-    MAX_WORKER_THREADS = min(16, (os.cpu_count() or 4) * 2)
-    VISUAL_DIFF_PAGE_LIMIT = 15
-    EXPORT_INVALID_XREF = False
-
-class PDFProcessingError(Exception):
-    """Base exception for PDF processing errors."""
-    pass
-
-class PDFCorruptionError(PDFProcessingError):
-    """Exception for corrupt or unreadable PDF files."""
-    pass
-
-class PDFTooLargeError(PDFProcessingError):
-    """Exception for files that exceed the size limit."""
-    pass
-
-class PDFEncryptedError(PDFProcessingError):
-    """Exception for encrypted files that cannot be read."""
-    pass
-# --- End Phase 1/3 ---
-def md5_file(fp: Path, buf_size: int = 4 * 1024 * 1024) -> str:
-    """
-    Fast MD5 with reusable buffer (fewer allocations).
-    """
-    h = hashlib.md5()
-    with fp.open("rb", buffering=0) as f:
-        buf = bytearray(buf_size)
-        mv = memoryview(buf)
-        while True:
-            n = f.readinto(mv)
-            if not n:
-                break
-            h.update(mv[:n])
-    return h.hexdigest()
-
-
-def fmt_times_pair(ts: float):
-    """Return ('DD-MM-YYYY HH:MM:SS±ZZZZ', 'YYYY-mm-ddTHH:MM:SSZ')."""
-    local = datetime.fromtimestamp(ts).astimezone()
-    utc = datetime.fromtimestamp(ts, tz=timezone.utc)
-    return local.strftime("%d-%m-%Y %H:%M:%S%z"), utc.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-def safe_stat_times(path: Path):
-    try:
-        st = path.stat()
-        return st.st_ctime, st.st_mtime
-    except Exception:
-        return None, None
+# --- Import modular functions ---
+from .pdf_processor import count_layers
 
 
 
@@ -1817,7 +1731,7 @@ class PDFReconApp:
                         version_label = f"Version {rev_num} (@{offset})"
                     else:
                         version_label = Path(rev_path_str).name
-                except:
+                except Exception:
                     version_label = Path(rev_path_str).name
                 
                 versions.append({
@@ -1836,7 +1750,7 @@ class PDFReconApp:
                 try:
                     num = int(name.split("Version ")[1].split(" ")[0])
                     return (num, name)
-                except:
+                except Exception:
                     pass
             return (0, name)
         
@@ -1946,7 +1860,7 @@ class PDFReconApp:
                     tool_part = description.split("Tool:")[1].strip()
                     if tool_part and not dates["tool"]:
                         dates["tool"] = tool_part[:50]  # Limit length
-                except:
+                except Exception:
                     pass
 
         return dates
@@ -3218,7 +3132,7 @@ class PDFReconApp:
                     # Get just the filename
                     try:
                         related_name = Path(related_path).name
-                    except:
+                    except Exception:
                         related_name = related_path
                     related_info.append({
                         "path": related_path,
@@ -3659,7 +3573,7 @@ class PDFReconApp:
 
         # --- First Pass: Collect Key-Value Pairs for Tools ---
         for ln in lines:
-            m = _KV_PATTERN.match(ln)
+            m = KV_PATTERN.match(ln)
             if not m: 
                 continue
             
@@ -3708,12 +3622,12 @@ class PDFReconApp:
                 continue
 
             # Generic date lines
-            kv_match = _KV_PATTERN.match(ln)
+            kv_match = KV_PATTERN.match(ln)
             if not kv_match: 
                 continue
 
             val_str = kv_match.group("value").strip()
-            match = _DATE_TZ_PATTERN.match(val_str)
+            match = DATE_TZ_PATTERN.match(val_str)
             
             if match:
                 parts = match.groupdict()

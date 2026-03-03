@@ -14,7 +14,7 @@ def main():
     
     # Import here to avoid issues with multiprocessing
     from tkinterdnd2 import TkinterDnD
-    from pdfrecon.app_gui import PDFReconApp
+    from src.app_gui import PDFReconApp
     
     root = TkinterDnD.Tk()
     app = PDFReconApp(root)
