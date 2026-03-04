@@ -115,8 +115,12 @@ def detect_indicators(filepath: Path, txt: str, doc, exif_output: str = "", app_
     indicators = {}
 
     try:
+        # BOLT OPTIMIZATION: Cache txt.lower() to avoid redundant lowercasing
+        # and enable fast O(n) substring pre-checks before running expensive case-insensitive regexes
+        txt_lower = txt.lower()
+
         # --- High-Confidence Indicators ---
-        if re.search(r"touchup_textedit", txt, re.I):
+        if "touchup_textedit" in txt_lower and re.search(r"touchup_textedit", txt, re.I):
             found_text = None
             details = {'found_text': found_text, 'text_diff': None}
             
@@ -145,19 +149,21 @@ def detect_indicators(filepath: Path, txt: str, doc, exif_output: str = "", app_
             indicators['TouchUp_TextEdit'] = details
 
         # --- Metadata Indicators ---
-        creators = set(re.findall(r"/Creator\s*\((.*?)\)", txt, re.I))
-        if len(creators) > 1:
-            indicators['MultipleCreators'] = {'count': len(creators), 'values': list(creators)}
+        if "/creator" in txt_lower:
+            creators = set(re.findall(r"/Creator\s*\((.*?)\)", txt, re.I))
+            if len(creators) > 1:
+                indicators['MultipleCreators'] = {'count': len(creators), 'values': list(creators)}
         
-        producers = set(re.findall(r"/Producer\s*\((.*?)\)", txt, re.I))
-        if len(producers) > 1:
-            indicators['MultipleProducers'] = {'count': len(producers), 'values': list(producers)}
+        if "/producer" in txt_lower:
+            producers = set(re.findall(r"/Producer\s*\((.*?)\)", txt, re.I))
+            if len(producers) > 1:
+                indicators['MultipleProducers'] = {'count': len(producers), 'values': list(producers)}
 
-        if re.search(r'<xmpMM:History>', txt, re.I | re.S):
+        if "<xmpmm:history>" in txt_lower and re.search(r'<xmpMM:History>', txt, re.I | re.S):
             indicators['XMPHistory'] = {}
             
         # NEW: Check for creator/producer mismatch with PDF features
-        _detect_metadata_inconsistencies(txt, doc, indicators)
+        _detect_metadata_inconsistencies(txt, txt_lower, doc, indicators)
 
         # --- Structural and Content Indicators ---
         try:
@@ -174,7 +180,7 @@ def detect_indicators(filepath: Path, txt: str, doc, exif_output: str = "", app_
             indicators['HasDigitalSignature'] = {}
 
         # --- Incremental Update Indicators ---
-        startxref_count = txt.lower().count("startxref")
+        startxref_count = txt_lower.count("startxref")
         if startxref_count > 1:
             indicators['MultipleStartxref'] = {'count': startxref_count}
         
@@ -188,15 +194,15 @@ def detect_indicators(filepath: Path, txt: str, doc, exif_output: str = "", app_
                 indicators['LinearizedUpdated'] = {}
 
         # --- Feature Indicators ---
-        if re.search(r"/Redact\b", txt, re.I): 
+        if "/redact" in txt_lower and re.search(r"/Redact\b", txt, re.I):
             indicators['HasRedactions'] = {}
-        if re.search(r"/Annots\b", txt, re.I): 
+        if "/annots" in txt_lower and re.search(r"/Annots\b", txt, re.I):
             indicators['HasAnnotations'] = {}
-        if re.search(r"/PieceInfo\b", txt, re.I): 
+        if "/pieceinfo" in txt_lower and re.search(r"/PieceInfo\b", txt, re.I):
             indicators['HasPieceInfo'] = {}
-        if re.search(r"/AcroForm\b", txt, re.I):
+        if "/acroform" in txt_lower and re.search(r"/AcroForm\b", txt, re.I):
             indicators['HasAcroForm'] = {}
-            if re.search(r"/NeedAppearances\s+true\b", txt, re.I):
+            if "needappearances" in txt_lower and re.search(r"/NeedAppearances\s+true\b", txt, re.I):
                 indicators['AcroFormNeedAppearances'] = {}
 
         gen_gt_zero_matches = [m for m in re.finditer(r"\b(\d+)\s+(\d+)\s+obj\b", txt) if int(m.group(2)) > 0]
@@ -212,7 +218,7 @@ def detect_indicators(filepath: Path, txt: str, doc, exif_output: str = "", app_
         _detect_object_anomalies(txt, indicators)
         
         # JavaScript detection
-        _detect_javascript(txt, indicators)
+        _detect_javascript(txt, txt_lower, indicators)
         
         # Image forensics
         if doc:
@@ -324,19 +330,24 @@ def analyze_fonts(filepath: Path, doc):
     return conflicting_fonts
 
 
-def _detect_metadata_inconsistencies(txt: str, doc, indicators: dict):
+def _detect_metadata_inconsistencies(txt: str, txt_lower: str, doc, indicators: dict):
     """
     Detects inconsistencies between metadata claims and actual PDF features.
     
     Args:
         txt (str): Raw PDF content as text
+        txt_lower (str): Lowercased raw PDF content for fast checks
         doc: PyMuPDF document object
         indicators (dict): Dictionary to add indicators to
     """
     try:
         # Check if metadata claims a specific creator but features suggest otherwise
-        creator_match = re.search(r"/Creator\s*\((.*?)\)", txt, re.I)
-        producer_match = re.search(r"/Producer\s*\((.*?)\)", txt, re.I)
+        creator_match = None
+        producer_match = None
+        if "/creator" in txt_lower:
+            creator_match = re.search(r"/Creator\s*\((.*?)\)", txt, re.I)
+        if "/producer" in txt_lower:
+            producer_match = re.search(r"/Producer\s*\((.*?)\)", txt, re.I)
         
         if creator_match or producer_match:
             creator = creator_match.group(1) if creator_match else ""
@@ -443,25 +454,26 @@ def _detect_object_anomalies(txt: str, indicators: dict):
         logging.debug(f"Error detecting object anomalies: {e}")
 
 
-def _detect_javascript(txt: str, indicators: dict):
+def _detect_javascript(txt: str, txt_lower: str, indicators: dict):
     """
     Detects JavaScript code in PDFs which can hide malicious alterations.
     
     Args:
         txt (str): Raw PDF content as text
+        txt_lower (str): Lowercased raw PDF content for fast checks
         indicators (dict): Dictionary to add indicators to
     """
     try:
         # Check for JavaScript in the PDF
-        if re.search(r"/JavaScript\b", txt, re.I):
+        if "/javascript" in txt_lower and re.search(r"/JavaScript\b", txt, re.I):
             indicators['ContainsJavaScript'] = {}
             
             # Check for OpenAction (auto-execute on open)
-            if re.search(r"/OpenAction\b", txt, re.I):
+            if "/openaction" in txt_lower and re.search(r"/OpenAction\b", txt, re.I):
                 indicators['JavaScriptAutoExecute'] = {}
             
             # Check for AA (Additional Actions)
-            if re.search(r"/AA\s*<<", txt, re.I):
+            if "/aa" in txt_lower and re.search(r"/AA\s*<<", txt, re.I):
                 indicators['AdditionalActions'] = {}
             
             # Try to count JavaScript actions
