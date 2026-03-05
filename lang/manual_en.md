@@ -177,10 +177,10 @@ Search for `/AA` which defines actions on various triggers:
 
 ---
 
-## Missing Objects
+## Dangling References
 **Classification:** <red>YES</red>
 
-**What it means:** PDF references objects that don't exist—indicates corruption or improper editing.
+**What it means:** PDF references objects (e.g., via the Cross-reference table) that don't exist in the file. This indicates partial deletion of content, corruption, or improper editing.
 
 ### Manual Parsing Instructions:
 

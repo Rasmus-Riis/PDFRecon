@@ -4263,40 +4263,38 @@ class PDFReconApp:
             self.root.after(0, lambda: messagebox.showerror(self._("update_error_title"), self._("update_net_error_msg")))
     
     def show_manual(self):
-        """Opens the HTML help file in the default browser."""
+        """Opens the unified bilingual HTML manual in the default browser."""
         import os
         import webbrowser
         
-        lang_suffix = "da" if self.current_language == "da" else "en"
+        lang = "da" if self.language.get() == "da" else "en"
         manual_paths_to_try = []
         
         # When frozen, check _MEIPASS first (bundled data)
         if getattr(sys, 'frozen', False):
             meipass = getattr(sys, '_MEIPASS', '')
             if meipass:
-                manual_paths_to_try.append(os.path.join(meipass, 'lang', f'manual_{lang_suffix}.html'))
-                manual_paths_to_try.append(os.path.join(meipass, 'lang', 'manual_en.html'))
+                manual_paths_to_try.append(os.path.join(meipass, 'PDFRecon_Manual.html'))
                 manual_paths_to_try.append(os.path.join(meipass, 'PDFRecon_Help.html'))
             # Also check next to exe
             exe_dir = os.path.dirname(sys.executable)
-            manual_paths_to_try.append(os.path.join(exe_dir, 'lang', f'manual_{lang_suffix}.html'))
+            manual_paths_to_try.append(os.path.join(exe_dir, 'PDFRecon_Manual.html'))
             manual_paths_to_try.append(os.path.join(exe_dir, 'PDFRecon_Help.html'))
         else:
             # Running as script - check project root
             script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            manual_paths_to_try.append(os.path.join(script_dir, 'lang', f'manual_{lang_suffix}.html'))
-            manual_paths_to_try.append(os.path.join(script_dir, 'lang', 'manual_en.html'))
+            manual_paths_to_try.append(os.path.join(script_dir, 'PDFRecon_Manual.html'))
             manual_paths_to_try.append(os.path.join(script_dir, 'PDFRecon_Help.html'))
         
         # Also try current working directory
-        manual_paths_to_try.append(os.path.join(os.getcwd(), 'lang', f'manual_{lang_suffix}.html'))
+        manual_paths_to_try.append(os.path.join(os.getcwd(), 'PDFRecon_Manual.html'))
         manual_paths_to_try.append(os.path.join(os.getcwd(), 'PDFRecon_Help.html'))
         
         for html_path in manual_paths_to_try:
             if os.path.exists(html_path):
                 try:
-                    # Use file:/// with forward slashes for proper URL
-                    file_url = Path(html_path).as_uri()
+                    # Use file:/// with forward slashes and append ?lang= parameter
+                    file_url = Path(html_path).as_uri() + f'?lang={lang}'
                     webbrowser.open(file_url)
                     return
                 except Exception as e:

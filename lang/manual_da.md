@@ -100,13 +100,13 @@ Nedenfor er en detaljeret forklaring af hver indikator, som PDFRecon leder efter
 *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
 • Hvad det betyder: En side indeholder et unormalt højt antal tegnekommandoer (>50). Dette kan indikere komplekse redigeringsoperationer eller forsøg på at skjule indhold gennem lagdeling.
 
-<b>Orphaned Objects</b>
+<b>Ikke-refererede objekter</b>
 *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
-• Hvad det betyder: PDF'en indeholder objekter, der er defineret, men aldrig refereret. Et lille antal er normalt, men mange forældreløse objekter antyder redigering, hvor indhold blev fjernet, men ikke helt opryddet.
+• Hvad det betyder: Objekter er defineret i PDF'en, men aldrig refereret til. Et lille antal er normalt, men mange antyder omfattende redigering, hvor indhold blev fjernet, men ikke renset ud af selve filen.
 
-<b>Missing Objects</b>
+<b>Hængende Referencer</b>
 *<i>Ændret:</i>* <red>JA</red>
-• Hvad det betyder: PDF'en refererer til objekter, der ikke er defineret i filen. Dette er en alvorlig strukturel anomali, der typisk indikerer korruption eller ukorrekt redigering.
+• Hvad det betyder: PDF'en refererer til objekter (f.eks. via krydsreferencetabellen), der ikke findes i filen. Dette indikerer delvis sletning af indhold, korruption eller ukorrekt redigering.
 
 <b>Large Object Number Gaps</b>
 *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
@@ -143,3 +143,15 @@ Nedenfor er en detaljeret forklaring af hver indikator, som PDFRecon leder efter
 <b>Invalid Bookmark Destinations</b>
 *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
 • Hvad det betyder: Bogmærker peger på sider, der ikke eksisterer i dokumentet. Dette opstår typisk, når sider slettes efter bogmærker blev oprettet, hvilket indikerer strukturelle ændringer.
+
+<b>Starter med Nul-byte</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Filen starter med en Nul-byte (`0x00`) lige før PDF-headeren (`%PDF-`). Dette indikerer ofte, at filen er genereret eller manipuleret af ustandardiserede scripts eller visse programbiblioteker.
+
+<b>Mulige E-mailadresser</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Detekterer e-mailadresser skjult i filens rå data. Dette kan utilsigtet identificere forfatteren, organisationen eller den softwarelicens, der blev brugt til at oprette dokumentet.
+
+<b>Mulige Webadresser</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Detekterer URL'er fundet i den rå fil, som måske peger på ondsindede payloads, interne systemer eller den webbaserede software, der genererede PDF'en.
