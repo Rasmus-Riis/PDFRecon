@@ -14,29 +14,64 @@ from .jpeg_forensics import analyze_pdf_images_qt
 def detect_emails_and_urls(txt: str, indicators: dict):
     """Extract email addresses and URLs from PDF content."""
     try:
-        # Email pattern
+        # Email pattern (more restrictive)
         email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
-        emails = set(re.findall(email_pattern, txt))
+        raw_emails = set(re.findall(email_pattern, txt))
         
-        if emails and len(emails) > 0:
+        # Validation: Filter out garbage (random binary strings often look like short emails)
+        emails = []
+        common_tlds = {'.com', '.org', '.net', '.edu', '.gov', '.mil', '.dk', '.uk', '.de', '.fr'}
+        for email in raw_emails:
+            lower_email = email.lower()
+            # Must be at least 7 chars (e.g. a@b.com is 7)
+            if len(email) < 7: continue
+            
+            # Must have a dot in the domain part
+            parts = email.split('@')
+            if len(parts) != 2 or '.' not in parts[1]: continue
+            
+            domain_part = parts[1]
+            # Domain must have a valid-looking TLD
+            if len(domain_part.split('.')[-1]) < 2: continue
+
+            # Heuristic: Real emails usually have a decent vowel-to-consonant ratio
+            # Random binary strings often have very few vowels
+            vowels = sum(1 for c in email if c.lower() in 'aeiouy')
+            consonants = sum(1 for c in email if c.lower() in 'bcdfghjklmnpqrstvwxz')
+            
+            # If it's mostly consonants/numbers/symbols and very few vowels, it's likely garbage
+            if vowels == 0 and len(email) > 10: continue
+            if vowels > 0 and (consonants / vowels) > 5 and len(email) > 15: continue
+            
+            # Filter out obviously repetitive patterns
+            if re.search(r'(.)\1{4,}', email): continue
+            
+            emails.append(email)
+        
+        if emails:
             indicators['EmailAddresses'] = {
                 'count': len(emails),
-                'emails': list(emails)[:10]  # Limit to first 10
+                'emails': sorted(emails)[:20]  # Show more to user
             }
         
         # URL pattern (http, https, ftp)
         url_pattern = r'https?://[^\s<>"{}|\\^`\[\]]+'
         raw_urls = set(re.findall(url_pattern, txt, re.IGNORECASE))
 
-        # Clean URLs (remove trailing punctuation often caught by regex)
+        # Clean URLs and filter common metadata namespaces
         urls = set()
+        exclude_domains = {'ns.adobe.com', 'www.w3.org', 'purl.org', 'xml.org', 'schemas.microsoft.com', 'iptc.org'}
         for url in raw_urls:
-            # Strip common trailing punctuation
             clean_url = url.rstrip('.,;:?!)]')
             if clean_url:
-                urls.add(clean_url)
+                try:
+                    domain = clean_url.split('://')[1].split('/')[0].lower()
+                    if domain not in exclude_domains:
+                        urls.add(clean_url)
+                except Exception:
+                    urls.add(clean_url)
         
-        if urls and len(urls) > 0:
+        if urls:
             # Categorize by domain
             domains = {}
             for url in urls:
@@ -51,7 +86,7 @@ def detect_emails_and_urls(txt: str, indicators: dict):
             indicators['URLs'] = {
                 'count': len(urls),
                 'unique_domains': len(domains),
-                'domains': list(domains.keys())[:10]  # Limit to first 10
+                'domains': sorted(list(domains.keys()))[:20]  # Show more
             }
             
     except Exception as e:
@@ -62,13 +97,21 @@ def detect_unc_paths(txt: str, indicators: dict):
     """Extract UNC paths revealing internal network structure."""
     try:
         # UNC path pattern: \\servername\share\path
+        # Require server name and share name (at least 2 slashes total including prefix)
         unc_pattern = r'\\\\[a-zA-Z0-9_\-\.]+\\[a-zA-Z0-9_\-\.\$\\]+'
-        unc_paths = set(re.findall(unc_pattern, txt))
+        raw_paths = set(re.findall(unc_pattern, txt))
         
-        if unc_paths and len(unc_paths) > 0:
+        unc_paths = []
+        for path in raw_paths:
+            # Validation: \\4\zB is too short/suspicious. Legitimate share names are usually > 2 chars
+            parts = path.lstrip('\\').split('\\')
+            if len(parts) >= 2 and len(parts[0]) > 2 and len(parts[1]) >= 2:
+                unc_paths.append(path)
+        
+        if unc_paths:
             indicators['UNCPaths'] = {
                 'count': len(unc_paths),
-                'paths': list(unc_paths)[:5]  # Limit to first 5
+                'paths': sorted(unc_paths)[:10]
             }
             
     except Exception as e:

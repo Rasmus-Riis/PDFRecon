@@ -74,7 +74,8 @@ def safe_extract_text(raw_bytes=None, doc=None, max_size_mb=50, timeout_seconds=
             should_close_doc = True
         
         start_time = time.time()
-        txt = ""
+        txt_parts = []
+        current_len = 0
         page_count = len(doc)
         
         # Limit extraction to first 1000 pages or first 50MB of text
@@ -87,18 +88,20 @@ def safe_extract_text(raw_bytes=None, doc=None, max_size_mb=50, timeout_seconds=
             try:
                 page = doc[page_num]
                 page_text = page.get_text()
-                txt += page_text
+                txt_parts.append(page_text)
+                current_len += len(page_text)
             except Exception as page_error:
                 logging.warning(f"Error extracting page {page_num}: {page_error}")
                 continue
                 
-            if len(txt) > 50 * 1024 * 1024:  # 50MB of text
+            if current_len > 50 * 1024 * 1024:  # 50MB of text
                 logging.warning(f"Text extraction exceeded 50MB limit, stopping at page {page_num}/{page_count}")
                 break
         
         if should_close_doc and doc:
             doc.close()
             
+        txt = "".join(txt_parts)
         logging.info(f"Successfully extracted {len(txt)} characters from {page_count} pages")
         return txt
     except Exception as e:
@@ -170,12 +173,17 @@ def count_layers(pdf_bytes: bytes) -> int:
     
     refs = set()
     
-    m = LAYER_OCGS_BLOCK_RE.search(pdf_bytes)
-    if m:
+    # 1. Parse all /OCGs arrays for object references
+    for m in LAYER_OCGS_BLOCK_RE.finditer(pdf_bytes):
         for n, g in OBJ_REF_RE.findall(m.group(1)):
             refs.add((int(n), int(g)))
-    
+            
+    # 2. Parse inline references /OC n m R
     for n, g in LAYER_OC_REF_RE.findall(pdf_bytes):
         refs.add((int(n), int(g)))
+
+    # 3. Fast fallback: literal counts of layer dictionaries
+    # Useful if layers are defined but not in the standard /OCGs array
+    type_ocg_count = pdf_bytes.count(b"/Type /OCG") + pdf_bytes.count(b"/Type/OCG")
     
-    return len(refs)
+    return max(len(refs), type_ocg_count)

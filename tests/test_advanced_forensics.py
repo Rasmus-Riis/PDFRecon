@@ -5,7 +5,7 @@ import pytest
 # Ensure pdfrecon is in the path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from pdfrecon.advanced_forensics import detect_emails_and_urls
+from src.advanced_forensics import detect_emails_and_urls
 
 def test_detect_emails_valid():
     text = "Contact us at support@example.com for assistance."

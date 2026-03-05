@@ -51,9 +51,11 @@ requests = _import_with_fallback('requests', 'requests', 'requests')
 from .config import PDFReconConfig, PDFProcessingError, PDFCorruptionError, \
     PDFTooLargeError, PDFEncryptedError, APP_VERSION, UI_COLORS, UI_FONTS, UI_DIMENSIONS, \
     KV_PATTERN, DATE_TZ_PATTERN
+from .utils import CaseEncoder, case_decoder
 
 # --- Import modular functions ---
 from .pdf_processor import count_layers
+from .scanner import detect_indicators as scanner_detect_indicators
 
 
 
@@ -411,6 +413,12 @@ class PDFReconApp:
                 PDFReconConfig.MAX_WORKER_THREADS = settings.getint('MaxWorkerThreads', PDFReconConfig.MAX_WORKER_THREADS)
                 PDFReconConfig.VISUAL_DIFF_PAGE_LIMIT = settings.getint('VisualDiffPageLimit', 5)
                 PDFReconConfig.EXPORT_INVALID_XREF = settings.getboolean('ExportInvalidXREF', False)
+
+                # Load security settings (optional)
+                PDFReconConfig.EXIFTOOL_PATH = settings.get('ExifToolPath', None)
+                if PDFReconConfig.EXIFTOOL_PATH == "": PDFReconConfig.EXIFTOOL_PATH = None
+                PDFReconConfig.EXIFTOOL_HASH = settings.get('ExifToolHash', None)
+                if PDFReconConfig.EXIFTOOL_HASH == "": PDFReconConfig.EXIFTOOL_HASH = None
                 self.default_language = settings.get('Language', 'en')
                 self._config_writable = True
                 return
@@ -1169,11 +1177,14 @@ class PDFReconApp:
             if col_name == self._("col_indicators") and file_data and file_data.get("indicator_keys"):
                 # Display indicators with clickable links for RelatedFiles
                 for key, details in file_data["indicator_keys"].items():
+                    formatted = self._format_indicator_details(key, details)
+                    if not formatted:
+                        continue
                     self.inspector_indicators_text.insert(tk.END, "\n  • ")
                     if key == "RelatedFiles":
                         self._insert_related_files_with_links(details)
                     else:
-                        self.inspector_indicators_text.insert(tk.END, self._format_indicator_details(key, details))
+                        self.inspector_indicators_text.insert(tk.END, formatted)
                 self.inspector_indicators_text.insert(tk.END, "\n")
             else:
                 self.inspector_indicators_text.insert(tk.END, val + "\n")
@@ -1281,6 +1292,71 @@ class PDFReconApp:
 
             current_page_ref = {'page': 0}
             total_pages = len(self.inspector_doc)
+
+            # --- Layer visibility toggles (OCGs / Optional Content Groups) ---
+            # IMPORTANT: MuPDF caches OC state at document-open time.
+            # set_layer() modifies the PDF dict but get_pixmap() ignores the change.
+            # The only reliable approach is: modify OCProperties, save to bytes,
+            # re-open from bytes so MuPDF re-parses the OC configuration.
+            doc_ocgs = self.inspector_doc.get_ocgs()  # {xref: {'name', 'on', ...}}
+            all_ocg_xrefs = list(doc_ocgs.keys())
+            layer_vars = {}  # xref -> BooleanVar
+            # Cache original bytes once (before any OCG modifications)
+            _orig_pdf_bytes = self.inspector_doc.tobytes()
+            _cat_xref = self.inspector_doc.pdf_catalog()
+
+            def _apply_ocg_state():
+                """Rebuild inspector_doc from bytes with updated OCProperties."""
+                on_xrefs  = [x for x, v in layer_vars.items() if v.get()]
+                off_xrefs = [x for x, v in layer_vars.items() if not v.get()]
+                order_str = " ".join(f"{x} 0 R" for x in all_ocg_xrefs)
+                on_str    = "[" + " ".join(f"{x} 0 R" for x in on_xrefs)  + "]"
+                off_str   = "[" + " ".join(f"{x} 0 R" for x in off_xrefs) + "]"
+                ocg_str   = " ".join(f"{x} 0 R" for x in all_ocg_xrefs)
+                new_ocprops = (
+                    f"<</D<</Order[{order_str}]"
+                    f"/ON{on_str}/OFF{off_str}/RBGroups[]>>"
+                    f"/OCGs[{ocg_str}]>>"
+                )
+                tmp_doc = fitz.open(stream=_orig_pdf_bytes, filetype="pdf")
+                tmp_doc.xref_set_key(tmp_doc.pdf_catalog(), "OCProperties", new_ocprops)
+                mod_bytes = tmp_doc.tobytes()
+                tmp_doc.close()
+                if self.inspector_doc:
+                    self.inspector_doc.close()
+                self.inspector_doc = fitz.open(stream=mod_bytes, filetype="pdf")
+
+            if doc_ocgs:
+                layer_frame = ttk.LabelFrame(pdf_main_frame, text="Document Layers", padding=5)
+                layer_frame.grid(row=current_row + 2, column=0, pady=(8, 0), sticky="ew")
+                name_counts = {}
+                for xref, info in doc_ocgs.items():
+                    base_name = info.get('name', f'OCG {xref}')
+                    name_counts[base_name] = name_counts.get(base_name, 0) + 1
+                name_seen = {}
+                for xref, info in doc_ocgs.items():
+                    base_name = info.get('name', f'OCG {xref}')
+                    name_seen[base_name] = name_seen.get(base_name, 0) + 1
+                    if name_counts[base_name] > 1:
+                        label = f"{base_name} #{name_seen[base_name]}"
+                    else:
+                        label = base_name
+                    var = tk.BooleanVar(value=info.get('on', True))
+                    layer_vars[xref] = var
+                    def _make_toggle():
+                        def _toggle():
+                            _apply_ocg_state()
+                            update_page(current_page_ref['page'])
+                        return _toggle
+                    cb = ttk.Checkbutton(layer_frame, text=label, variable=var, command=_make_toggle())
+                    cb.pack(anchor="w")
+                ttk.Label(
+                    layer_frame,
+                    text=self._("layer_info_tooltip"),
+                    font=("Segoe UI", 8, "italic"),
+                    foreground="gray",
+                    wraplength=340,
+                ).pack(anchor="w", pady=(4, 0))
 
             def update_page(page_num):
                 # BUGFIX: Add a guard clause to prevent crash if doc is None
@@ -2253,18 +2329,22 @@ class PDFReconApp:
             
             # === CRITICAL: Run ExifTool HERE ===
             exif = self.exiftool_output(fp, detailed=True)
+            parsed_exif = self._parse_exif_data(exif)
             
             # Extract document IDs for cross-referencing
             document_ids = self._extract_all_document_ids(txt, exif)
             
             # Detect indicators
-            indicator_keys = self.detect_indicators(fp, txt, doc)
+            indicator_keys = scanner_detect_indicators(fp, txt, doc, exif_output=exif, app_instance=self)
+            
+            # Add layer indicators
+            self._add_layer_indicators(raw, fp, indicator_keys)
             
             # Calculate MD5
-            md5_hash = hashlib.md5(raw).hexdigest()
+            md5_hash = hashlib.md5(raw, usedforsecurity=False).hexdigest()
             
             # Generate timeline
-            original_timeline = self.generate_comprehensive_timeline(fp, txt, exif)
+            original_timeline = self.generate_comprehensive_timeline(fp, txt, exif, parsed_exif_data=parsed_exif)
             
             # Extract revisions
             revisions = self.extract_revisions(raw, fp)
@@ -2294,10 +2374,11 @@ class PDFReconApp:
             # Process each revision
             for rev_path, basefile, rev_raw in revisions:
                 try:
-                    rev_md5 = hashlib.md5(rev_raw).hexdigest()
+                    rev_md5 = hashlib.md5(rev_raw, usedforsecurity=False).hexdigest()
                     rev_exif = self.exiftool_output(rev_path, detailed=True)
+                    rev_parsed_exif = self._parse_exif_data(rev_exif)
                     rev_txt = self.extract_text(rev_raw)
-                    revision_timeline = self.generate_comprehensive_timeline(rev_path, rev_txt, rev_exif)
+                    revision_timeline = self.generate_comprehensive_timeline(rev_path, rev_txt, rev_exif, parsed_exif_data=rev_parsed_exif)
                     
                     revision_row_data = {
                         "path": rev_path,
@@ -2492,8 +2573,20 @@ class PDFReconApp:
             return
 
         try:
-            with open(filepath, 'rb') as f:
-                case_data = pickle.load(f)
+            try:
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    case_data = json.load(f, object_hook=case_decoder)
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                if not messagebox.askyesno(
+                    self._("case_legacy_warning_title"),
+                    self._("case_legacy_warning_msg"),
+                    icon='warning'
+                ):
+                    return
+
+                with open(filepath, 'rb') as f:
+                    case_data = pickle.load(f)
+                logging.warning(f"Loaded legacy pickle case file: {filepath}")
 
             # --- Restore State from Case File ---
             self._reset_state()
@@ -2550,8 +2643,8 @@ class PDFReconApp:
             'revision_counter': self.revision_counter,
             'evidence_hashes': self.evidence_hashes,
         }
-        with open(filepath, 'wb') as f:
-            pickle.dump(case_data, f)
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(case_data, f, cls=CaseEncoder)
     
     def _hash_file(self, filepath):
         """Calculates the SHA-256 hash of a file."""
@@ -2780,8 +2873,8 @@ class PDFReconApp:
                 'revision_counter': self.revision_counter,
                 'evidence_hashes': new_hashes,
             }
-            with open(dest_case_file, 'wb') as f:
-                pickle.dump(case_payload, f)
+            with open(dest_case_file, 'w', encoding='utf-8') as f:
+                json.dump(case_payload, f, cls=CaseEncoder)
 
             source_exe = Path(sys.executable)
             reader_exe_name = f"{source_exe.stem}_Reader{source_exe.suffix}"
@@ -3149,64 +3242,7 @@ class PDFReconApp:
         if relationships:
             logging.info(f"Document ID cross-reference found {len(relationships)} files with relationships.")
     
-    def _scan_worker_parallel(self, folder, q):
-        """
-        Finds PDF files and processes them in parallel using a ThreadPoolExecutor.
-        Results are sent back to the main thread via a queue.
-        """
-        try:
-            q.put(("scan_status", self._("preparing_analysis")))
-            
-            pdf_files = list(self._find_pdf_files_generator(folder))
-            if not pdf_files:
-                q.put(("finished", None))
-                return
 
-            q.put(("progress_mode_determinate", len(pdf_files)))
-            files_processed = 0
-
-            # Use a timeout of 60 seconds per file to prevent hangs
-            FILE_TIMEOUT = 60  # seconds
-
-            with ThreadPoolExecutor(max_workers=PDFReconConfig.MAX_WORKER_THREADS) as executor:
-                # Pass the scan root 'folder' to each file processing job
-                future_to_path = {executor.submit(self._process_single_file, fp, folder): fp for fp in pdf_files}
-                
-                # Process completed futures without a global timeout
-                # Use individual future.result() timeouts instead
-                try:
-                    for future in as_completed(future_to_path):
-                        path = future_to_path[future]
-                        files_processed += 1
-                        try:
-                            results = future.result(timeout=FILE_TIMEOUT)
-                            for result_data in results:
-                                q.put(("file_row", result_data))
-                        except TimeoutError:
-                            logging.error(f"TIMEOUT processing file {path.name} - exceeded {FILE_TIMEOUT} seconds")
-                            q.put(("file_row", {"path": path, "status": "error", "error_type": "processing_timeout", "error_message": f"File processing timed out after {FILE_TIMEOUT} seconds"}))
-                        except Exception as e:
-                            logging.error(f"Unexpected error from thread pool for file {path.name}: {e}")
-                            q.put(("file_row", {"path": path, "status": "error", "error_type": "unknown_error", "error_message": str(e)}))
-                        
-                        elapsed_time = time.time() - self.scan_start_time
-                        fps = files_processed / elapsed_time if elapsed_time > 0 else 0
-                        eta_seconds = (len(pdf_files) - files_processed) / fps if fps > 0 else 0
-                        q.put(("detailed_progress", {"file": path.name, "fps": fps, "eta": time.strftime('%M:%S', time.gmtime(eta_seconds))}))
-                except TimeoutError as te:
-                    # Handle case where as_completed itself times out (shouldn't happen now without timeout param)
-                    logging.warning(f"Some futures did not complete: {te}")
-                    # Process any remaining unfinished futures
-                    for future, path in future_to_path.items():
-                        if not future.done():
-                            future.cancel()
-                            q.put(("file_row", {"path": path, "status": "error", "error_type": "cancelled", "error_message": "Processing was cancelled due to timeout"}))
-
-        except Exception as e:
-            logging.error(f"Error in scan worker: {e}")
-            q.put(("error", f"A critical error occurred: {e}"))
-        finally:
-            q.put(("finished", None))
 
     def _process_queue(self):
         """
@@ -3331,11 +3367,21 @@ class PDFReconApp:
                     if exif_output:
                         searchable_items.append(exif_output)
 
+                    # Add user notes
+                    note = self.file_annotations.get(path_str, '')
+                    if note:
+                        searchable_items.append(note)
+
                     # Add the detailed indicator text from the "Signs of Alteration" column
                     indicator_dict = data.get('indicator_keys', {})
                     if indicator_dict:
-                        indicator_details = [self._format_indicator_details(key, details) for key, details in indicator_dict.items()]
-                        searchable_items.extend(indicator_details)
+                        # Call _format_indicator_details and filter out any None results (e.g. for 0 findings)
+                        details_list = []
+                        for k, v in indicator_dict.items():
+                            fmt_detail = self._format_indicator_details(k, v)
+                            if fmt_detail:
+                                details_list.append(fmt_detail)
+                        searchable_items.extend(details_list)
                     elif not is_rev:
                         searchable_items.append(self._("status_no"))
                     
@@ -3434,9 +3480,15 @@ class PDFReconApp:
             if col_name == self._("col_path"):
                 self.detail_text.insert("end", val + "\n", ("link",))
             elif col_name == self._("col_indicators") and original_data and original_data.get("indicator_keys"):
-                indicator_details = [self._format_indicator_details(key, details) for key, details in original_data["indicator_keys"].items()]
-                full_indicators_str = "\n  • " + "\n  • ".join(indicator_details)
-                self.detail_text.insert("end", full_indicators_str + "\n")
+                indicator_details = []
+                for k, v in original_data["indicator_keys"].items():
+                    fmt = self._format_indicator_details(k, v)
+                    if fmt:
+                        indicator_details.append(fmt)
+                
+                if indicator_details:
+                    full_indicators_str = "\n  • " + "\n  • ".join(indicator_details)
+                    self.detail_text.insert("end", full_indicators_str + "\n")
             else:
                 self.detail_text.insert("end", val + "\n")
                 
@@ -3475,25 +3527,119 @@ class PDFReconApp:
         # Find all '%%EOF' markers from the end of the file backwards
         while (pos := raw.rfind(b"%%EOF", 0, pos)) != -1: offsets.append(pos)
         
+        # A typical final %%EOF is very close to the end of the file.
+        # We want to keep all %%EOF markers EXCEPT the very last one.
+        sorted_offsets = sorted(offsets)
+        
+        # Remove the last offset if it's the actual end of the file (or very close to it)
+        if sorted_offsets and sorted_offsets[-1] > len(raw) - 100:
+            sorted_offsets.pop()
+            
         # Filter out invalid or unlikely offsets
-        valid_offsets = [o for o in sorted(offsets) if 1000 <= o <= len(raw) - 500]
+        valid_offsets = [o for o in sorted_offsets if o >= 500]
+        
         if valid_offsets:
             # Define the subdirectory for potential revisions
             altered_dir = original_path.parent / "Altered_files"
+            if not altered_dir.exists():
+                altered_dir.mkdir(parents=True, exist_ok=True)
             
-            for i, offset in enumerate(valid_offsets, start=1):
-                rev_bytes = raw[:offset + 5] # The revision is the content from the start to the EOF marker
-                rev_filename = f"{original_path.stem}_rev{i}_@{offset}.pdf"
-                rev_path = altered_dir / rev_filename
-                # Package the data for later validation without writing the file.
-                revisions.append((rev_path, original_path.name, rev_bytes))
+            for offset in valid_offsets:
+                # Add 5 bytes to include the '%%EOF' itself
+                rev_bytes = raw[:offset + 5]
+                
+                # Check if this revision can actually be opened by PyMuPDF
+                is_valid = False
+                try:
+                    # Try to open the raw bytes as a PDF
+                    test_doc = fitz.open(stream=rev_bytes, filetype="pdf")
+                    # If it has at least one page, we consider it valid enough to display
+                    if len(test_doc) > 0:
+                        is_valid = True
+                    test_doc.close()
+                except Exception:
+                    is_valid = False
+                    
+                if is_valid:
+                    rev_idx = len(revisions) + 1
+                    rev_filename = f"{original_path.stem}_rev{rev_idx}_@{offset}.pdf"
+                    rev_path = altered_dir / rev_filename
+                    rev_path.write_bytes(rev_bytes)
+                    # Package the data for later validation
+                    revisions.append((rev_path, original_path.name, rev_bytes))
                 
         return revisions
 
     def exiftool_output(self, path, detailed=False):
         """Runs ExifTool safely with a timeout and improved error handling."""
-        exe_path = self._resolve_path("exiftool.exe", base_is_parent=True)
-        if not exe_path.is_file(): return self._("exif_err_notfound")
+
+        # --- Security Fix: Secure ExifTool Resolution ---
+        exe_path = None
+        is_safe_location = False
+
+        # 1. Check Configured Path
+        if PDFReconConfig.EXIFTOOL_PATH:
+            p = Path(PDFReconConfig.EXIFTOOL_PATH)
+            if p.is_file():
+                exe_path = p
+                is_safe_location = True # User manually configured it
+
+        # 2. Check System Path (if not configured)
+        if not exe_path:
+            system_path = shutil.which("exiftool")
+            if system_path:
+                exe_path = Path(system_path)
+                is_safe_location = True # System paths are generally trusted
+
+        # 3. Check Bundled Path (if frozen/packaged)
+        if not exe_path:
+            bundled_path = self._resolve_path("exiftool.exe", base_is_parent=False)
+            if bundled_path.is_file():
+                exe_path = bundled_path
+                # If frozen, it's in a temp dir controlled by bootloader => Safe
+                if getattr(sys, 'frozen', False):
+                    is_safe_location = True
+                else:
+                    # Running as script: treat as unsafe unless hash matches
+                    is_safe_location = False
+
+        # 4. Check Local Path (External/Portable)
+        if not exe_path:
+            local_path = self._resolve_path("exiftool.exe", base_is_parent=True)
+            if local_path.is_file():
+                exe_path = local_path
+                is_safe_location = False # Definitely unsafe (next to exe)
+
+        # 5. Not Found
+        if not exe_path:
+            return self._("exif_err_notfound")
+
+        # --- Integrity Check ---
+        # Calculate Hash if configured OR if location is unsafe
+        if PDFReconConfig.EXIFTOOL_HASH or not is_safe_location:
+            try:
+                sha256_hash = hashlib.sha256()
+                with open(exe_path, "rb") as f:
+                    for byte_block in iter(lambda: f.read(4096), b""):
+                        sha256_hash.update(byte_block)
+                file_hash = sha256_hash.hexdigest()
+
+                if PDFReconConfig.EXIFTOOL_HASH:
+                    if file_hash.lower() != PDFReconConfig.EXIFTOOL_HASH.lower():
+                         return f"Error: ExifTool hash mismatch. Expected {PDFReconConfig.EXIFTOOL_HASH}, got {file_hash}."
+
+                elif not is_safe_location:
+                     msg = "Security Error: ExifTool found in untrusted location without integrity verification.\n" \
+                           "To fix this, either:\n" \
+                           "1. Install ExifTool to a system path (e.g. PATH),\n" \
+                           "2. Configure 'ExifToolPath' in config.ini to a trusted location, or\n" \
+                           "3. Configure 'ExifToolHash' in config.ini with the SHA256 hash of the local executable."
+                     logging.error(msg)
+                     return msg
+
+            except Exception as e:
+                logging.error(f"Error verifying ExifTool integrity: {e}")
+                return f"Error verifying ExifTool integrity: {e}"
         
         try:
             file_content = path.read_bytes()
@@ -3660,12 +3806,12 @@ class PDFReconApp:
         
         return data
         
-    def _detect_tool_change_from_exif(self, exiftool_output: str):
+    def _detect_tool_change_from_exif(self, exiftool_output: str, parsed_data=None):
         """
         Determines if the primary tool changed between creation and last modification.
         This function is now a lightweight wrapper around _parse_exif_data.
         """
-        data = self._parse_exif_data(exiftool_output)
+        data = parsed_data if parsed_data else self._parse_exif_data(exiftool_output)
         
         create_tool = data["producer_pdf"] or data["producer_xmppdf"] or data["application"] or data["software"] or data["creatortool"] or ""
         modify_tool = data["softwareagent"] or data["producer_pdf"] or data["producer_xmppdf"] or data["application"] or data["software"] or data["creatortool"] or ""
@@ -3691,12 +3837,12 @@ class PDFReconApp:
             "reason": reason
         }
 
-    def _parse_exiftool_timeline(self, exiftool_output):
+    def _parse_exiftool_timeline(self, exiftool_output, parsed_data=None):
         """
         Generates a list of timeline events from parsed EXIF data.
         """
         events = []
-        data = self._parse_exif_data(exiftool_output)
+        data = parsed_data if parsed_data else self._parse_exif_data(exiftool_output)
 
         create_tool = data["producer_pdf"] or data["producer_xmppdf"] or data["application"] or data["software"] or data["creatortool"] or ""
         modify_tool = data["softwareagent"] or create_tool # Fallback to create_tool if no specific modify tool
@@ -3839,20 +3985,23 @@ class PDFReconApp:
         s = s.replace("\x00", "")
         return s
 
-    def generate_comprehensive_timeline(self, filepath, raw_file_content, exiftool_output):
+    def generate_comprehensive_timeline(self, filepath, raw_file_content, exiftool_output, parsed_exif_data=None):
         """
         Combines events from all sources, separating them into timezone-aware and naive lists.
         """
         all_events = []
 
+        if parsed_exif_data is None:
+            parsed_exif_data = self._parse_exif_data(exiftool_output)
+
         # 1) Get File System, ExifTool, and Raw Content timestamps
         all_events.extend(self._get_filesystem_times(filepath))
-        all_events.extend(self._parse_exiftool_timeline(exiftool_output))
+        all_events.extend(self._parse_exiftool_timeline(exiftool_output, parsed_data=parsed_exif_data))
         all_events.extend(self._parse_raw_content_timeline(raw_file_content))
 
         # 2) Add a special event if a tool change was detected
         try:
-            info = self._detect_tool_change_from_exif(exiftool_output)
+            info = self._detect_tool_change_from_exif(exiftool_output, parsed_data=parsed_exif_data)
             if info.get("changed"):
                 when = info.get("modify_dt")
                 if not when and all_events:
@@ -3970,119 +4119,6 @@ class PDFReconApp:
                 logging.info(f"Multiple font subsets found in {filepath.name}: {conflicting_fonts}")
 
             return conflicting_fonts
-    def detect_indicators(self, filepath, txt: str, doc):
-        """
-        Searches for indicators, now with an integrated text-diff feature for TouchUp edits.
-        """
-        indicators = {}
-
-        # --- High-Confidence Indicators ---
-        if re.search(r"touchup_textedit", txt, re.I):
-            found_text = self._extract_touchup_text(doc)
-            details = {'found_text': found_text, 'text_diff': None}
-
-            # Check for revisions to perform a text diff
-            revisions = self.extract_revisions(doc.write(), filepath)
-            if revisions:
-                latest_rev_path, _, latest_rev_bytes = revisions[0] # Compare against the most recent revision
-                logging.info(f"TouchUp found with revisions. Performing text diff for {filepath.name}.")
-                
-                original_text = self._get_text_for_comparison(filepath)
-                revision_text = self._get_text_for_comparison(latest_rev_bytes)
-
-                if original_text and revision_text:
-                    diff = difflib.unified_diff(
-                        revision_text.splitlines(keepends=True),
-                        original_text.splitlines(keepends=True),
-                        fromfile='Previous Version',
-                        tofile='Final Version',
-                    )
-                    details['text_diff'] = list(diff)
-            indicators['TouchUp_TextEdit'] = details
-
-        # --- Metadata Indicators ---
-        creators = set(re.findall(r"/Creator\s*\((.*?)\)", txt, re.I))
-        if len(creators) > 1:
-            indicators['MultipleCreators'] = {'count': len(creators), 'values': list(creators)}
-        
-        producers = set(re.findall(r"/Producer\s*\((.*?)\)", txt, re.I))
-        if len(producers) > 1:
-            indicators['MultipleProducers'] = {'count': len(producers), 'values': list(producers)}
-
-        if re.search(r'<xmpMM:History>', txt, re.I | re.S):
-            indicators['XMPHistory'] = {}
-
-        # --- Structural and Content Indicators ---
-        try:
-            conflicting_fonts = self.analyze_fonts(filepath, doc)
-            if conflicting_fonts:
-                indicators['MultipleFontSubsets'] = {'fonts': conflicting_fonts}
-        except Exception as e:
-            logging.error(f"Error analyzing fonts for {filepath.name}: {e}")
-
-        if (hasattr(doc, 'is_xfa') and doc.is_xfa) or "/XFA" in txt:
-            indicators['HasXFAForm'] = {}
-
-        if re.search(r"/Type\s*/Sig\b", txt):
-            indicators['HasDigitalSignature'] = {}
-
-        # --- Incremental Update Indicators ---
-        startxref_count = txt.lower().count("startxref")
-        if startxref_count > 1:
-            indicators['MultipleStartxref'] = {'count': startxref_count}
-        
-        prevs = re.findall(r"/Prev\s+\d+", txt)
-        if prevs:
-            indicators['IncrementalUpdates'] = {'count': len(prevs) + 1}
-        
-        if re.search(r"/Linearized\s+\d+", txt):
-            indicators['Linearized'] = {}
-            if startxref_count > 1 or prevs:
-                indicators['LinearizedUpdated'] = {}
-
-        # --- Feature Indicators ---
-        if re.search(r"/Redact\b", txt, re.I): indicators['HasRedactions'] = {}
-        if re.search(r"/Annots\b", txt, re.I): indicators['HasAnnotations'] = {}
-        if re.search(r"/PieceInfo\b", txt, re.I): indicators['HasPieceInfo'] = {}
-        if re.search(r"/AcroForm\b", txt, re.I):
-            indicators['HasAcroForm'] = {}
-            if re.search(r"/NeedAppearances\s+true\b", txt, re.I):
-                indicators['AcroFormNeedAppearances'] = {}
-
-        gen_gt_zero_matches = [m for m in re.finditer(r"\b(\d+)\s+(\d+)\s+obj\b", txt) if int(m.group(2)) > 0]
-        if gen_gt_zero_matches:
-            indicators['ObjGenGtZero'] = {'count': len(gen_gt_zero_matches)}
-
-        # --- ID Comparison ---
-        def _norm_uuid(x):
-            if x is None: return None
-            s = str(x).strip().upper()
-            return re.sub(r"^(URN:UUID:|UUID:|XMP\.IID:|XMP\.DID:)", "", s).strip("<>")
-
-        xmp_orig = _norm_uuid(re.search(r"xmpMM:OriginalDocumentID(?:>|=\")([^<\"]+)", txt, re.I).group(1) if re.search(r"xmpMM:OriginalDocumentID", txt, re.I) else None)
-        xmp_doc = _norm_uuid(re.search(r"xmpMM:DocumentID(?:>|=\")([^<\"]+)", txt, re.I).group(1) if re.search(r"xmpMM:DocumentID", txt, re.I) else None)
-        
-        if xmp_orig and xmp_doc and xmp_doc != xmp_orig:
-            indicators['XMPIDChange'] = {'from': xmp_orig, 'to': xmp_doc}
-
-        trailer_match = re.search(r"/ID\s*\[\s*<\s*([0-9A-Fa-f]+)\s*>\s*<\s*([0-9A-Fa-f]+)\s*>\s*\]", txt)
-        if trailer_match:
-            trailer_orig, trailer_curr = _norm_uuid(trailer_match.group(1)), _norm_uuid(trailer_match.group(2))
-            if trailer_orig and trailer_curr and trailer_curr != trailer_orig:
-                indicators['TrailerIDChange'] = {'from': trailer_orig, 'to': trailer_curr}
-        
-        # --- Date Mismatch ---
-        info_dates = dict(re.findall(r"/(ModDate|CreationDate)\s*\(\s*D:(\d{8,14})", txt))
-        xmp_dates = {k: v for k, v in re.findall(r"<xmp:(ModifyDate|CreateDate)>([^<]+)</xmp:\1>", txt)}
-
-        def _short(d: str) -> str: return re.sub(r"[-:TZ]", "", d)[:14]
-
-        if "CreationDate" in info_dates and "CreateDate" in xmp_dates and _short(info_dates["CreationDate"]) != _short(xmp_dates["CreateDate"]):
-            indicators['CreateDateMismatch'] = {'info': info_dates["CreationDate"], 'xmp': xmp_dates["CreateDate"]}
-        if "ModDate" in info_dates and "ModifyDate" in xmp_dates and _short(info_dates["ModDate"]) != _short(xmp_dates["ModifyDate"]):
-            indicators['ModifyDateMismatch'] = {'info': info_dates["ModDate"], 'xmp': xmp_dates["ModifyDate"]}
-        
-        return indicators
 
     def get_flag(self, indicators_dict, is_revision, parent_id=None):
         """
@@ -4369,7 +4405,7 @@ class PDFReconApp:
                 rev_path.parent.mkdir(exist_ok=True)
                 rev_path.write_bytes(rev_raw)
                 
-                rev_md5 = hashlib.md5(rev_raw).hexdigest()
+                rev_md5 = hashlib.md5(rev_raw, usedforsecurity=False).hexdigest()
                 rev_txt = self.extract_text(rev_raw)
                 revision_timeline = self.generate_comprehensive_timeline(rev_path, rev_txt, rev_exif)
 
@@ -4410,122 +4446,7 @@ class PDFReconApp:
         
         return valid_revision_results
 
-    def _process_single_file(self, fp, scan_root_folder):
-        """
-        Processes a single PDF file, submitting copy jobs to a dedicated thread pool.
-        """
-        try:
-            self.validate_pdf_file(fp)
 
-            raw = fp.read_bytes()
-            logging.info(f"Processing file: {fp.name} ({len(raw) / (1024*1024):.1f}MB)")
-            
-            # Use safer PDF opening
-            try:
-                doc = self._safe_pdf_open(fp, raw_bytes=raw)
-            except Exception as e:
-                logging.error(f"Failed to open PDF {fp.name}: {e}")
-                raise PDFCorruptionError(f"Cannot open PDF: {str(e)}")
-
-            # Extract text for indicator detection (must capture raw PDF structure)
-            logging.info(f"Extracting text from {fp.name}...")
-            txt = self.extract_text(raw)
-            logging.info(f"Text extraction complete for {fp.name}: {len(txt)} characters")            # Detect indicators with error handling
-            logging.info(f"Detecting indicators in {fp.name}...")
-            try:
-                indicators = self.detect_indicators(fp, txt, doc)
-                logging.info(f"Indicator detection complete for {fp.name}")
-            except Exception as e:
-                logging.warning(f"Error detecting indicators in {fp.name}: {e}")
-                indicators = {}
-            
-            logging.info(f"Computing MD5 and EXIF for {fp.name}...")
-            md5_hash = md5_file(fp)
-            exif = self.exiftool_output(fp, detailed=True)
-
-            # Conditionally submit invalid XREF originals to the copy pool if setting is enabled
-            if PDFReconConfig.EXPORT_INVALID_XREF and "Warning" in exif and "Invalid xref table" in exif:
-                invalid_xref_dir = scan_root_folder / "Invalid XREF"
-                dest_path = invalid_xref_dir / fp.name
-                if self.copy_executor:
-                    self.copy_executor.submit(self._perform_copy, fp, dest_path)
-
-            tool_change_info = self._detect_tool_change_from_exif(exif)
-            if tool_change_info.get("changed"):
-                indicators['ToolChange'] = {}
-            
-            logging.info(f"Generating timeline for {fp.name}...")
-            original_timeline = self.generate_comprehensive_timeline(fp, txt, exif)
-            
-            logging.info(f"Extracting revisions from {fp.name}...")
-            potential_revisions = self.extract_revisions(raw, fp)
-            doc.close()
-            
-            self._add_layer_indicators(raw, fp, indicators)
-
-            # Delegate all revision processing to the new helper method
-            valid_revision_results = self._process_and_validate_revisions(potential_revisions, fp, scan_root_folder)
-
-            if valid_revision_results:
-                indicators['HasRevisions'] = {'count': len(valid_revision_results)}
-
-            original_row_data = {
-                "path": fp, "indicator_keys": indicators, "md5": md5_hash, 
-                "exif": exif, "is_revision": False, "timeline": original_timeline, "status": "success"
-            }
-            
-            results = [original_row_data] + valid_revision_results
-            return results
-
-        except PDFTooLargeError as e:
-            return [self._handle_file_processing_error(fp, "file_too_large", e)]
-        except PDFEncryptedError as e:
-            return [self._handle_file_processing_error(fp, "file_encrypted", e)]
-        except PDFCorruptionError as e:
-            return [self._handle_file_processing_error(fp, "file_corrupt", e)]
-        except Exception as e:
-            logging.exception(f"Unexpected error processing file {fp.name}")
-            return [self._handle_file_processing_error(fp, "processing_error", e)]
-
-
-            # Conditionally submit invalid XREF originals to the copy pool if setting is enabled
-            if PDFReconConfig.EXPORT_INVALID_XREF and "Warning" in exif and "Invalid xref table" in exif:
-                invalid_xref_dir = scan_root_folder / "Invalid XREF"
-                dest_path = invalid_xref_dir / fp.name
-                if self.copy_executor:
-                    self.copy_executor.submit(self._perform_copy, fp, dest_path)
-
-            tool_change_info = self._detect_tool_change_from_exif(exif)
-            if tool_change_info.get("changed"):
-                indicators['ToolChange'] = {}
-            original_timeline = self.generate_comprehensive_timeline(fp, txt, exif)
-            potential_revisions = self.extract_revisions(raw, fp)
-            doc.close()
-            
-            self._add_layer_indicators(raw, fp, indicators)
-
-            # Delegate all revision processing to the new helper method
-            valid_revision_results = self._process_and_validate_revisions(potential_revisions, fp, scan_root_folder)
-
-            if valid_revision_results:
-                indicators['HasRevisions'] = {'count': len(valid_revision_results)}
-            original_row_data = {
-                "path": fp, "indicator_keys": indicators, "md5": md5_hash, 
-                "exif": exif, "is_revision": False, "timeline": original_timeline, "status": "success"
-            }
-            
-            results = [original_row_data] + valid_revision_results
-            return results
-
-        except PDFTooLargeError as e:
-            return [self._handle_file_processing_error(fp, "file_too_large", e)]
-        except PDFEncryptedError as e:
-            return [self._handle_file_processing_error(fp, "file_encrypted", e)]
-        except PDFCorruptionError as e:
-            return [self._handle_file_processing_error(fp, "file_corrupt", e)]
-        except Exception as e:
-            logging.exception(f"Unexpected error processing file {fp.name}")
-            return [self._handle_file_processing_error(fp, "processing_error", e)]
     def _prompt_and_export(self, file_format):
         """Prompts the user for a file path and calls the relevant export function."""
         if not self.report_data:
@@ -4854,38 +4775,104 @@ class PDFReconApp:
                     # Return as dictionary grouped by page
                     return page_results
         except ImportError:
-            logging.debug("pikepdf not installed, falling back to legacy TouchUp extraction.")
+            logging.debug("pikepdf not installed, falling back to pdfminer.six extraction.")
+            pdf = None
         except Exception as e:
             logging.warning(f"TouchUp pikepdf extraction failed: {e}")
+            pdf = None
 
-        # Fallback: legacy extraction from xref streams.
-        # Returns dict format: {0: [text1, text2, ...]} (page 0 = unknown page)
+        if pdf is not None:
+            return page_results
+
+        # Fallback: robust extraction using pdfminer.six
+        # This properly decodes text even if encoded with specific ToUnicode CMaps or Font Subsets
         found_text = {}
         if not doc or doc.is_closed:
             return found_text
-            
-        for xref in range(1, doc.xref_length()):
-            try:
-                obj_source = doc.xref_object(xref, compressed=False)
-                if "/TouchUp_TextEdit" in obj_source:
-                    stream = doc.xref_stream(xref)
-                    if stream:
-                        matches = re.findall(rb"\((.*?)\)\s*Tj", stream)
-                        for match in matches:
+
+        try:
+            from pdfminer.pdfinterp import PDFResourceManager, PDFPageInterpreter
+            from pdfminer.pdfpage import PDFPage
+            from pdfminer.converter import PDFPageAggregator
+            from pdfminer.layout import LAParams, LTTextContainer
+            from io import BytesIO
+
+            class TouchUpDevice(PDFPageAggregator):
+                def __init__(self, rsrcmgr, laparams):
+                    super().__init__(rsrcmgr, laparams=laparams)
+                    self.in_touchup = False
+                    self.current_page_text = []
+
+                def begin_tag(self, tag, props=None):
+                    super().begin_tag(tag, props)
+                    tag_name = tag.name if hasattr(tag, 'name') else str(tag)
+                    if tag_name == 'TouchUp_TextEdit':
+                        self.in_touchup = True
+                    elif props and hasattr(props, 'keys'):
+                        for v in props.values():
+                            v_name = v.name if hasattr(v, 'name') else str(v)
+                            if 'TouchUp_TextEdit' in v_name:
+                                self.in_touchup = True
+
+                def end_tag(self):
+                    super().end_tag()
+                    if self.in_touchup:
+                        self.in_touchup = False
+                        
+                def receive_layout(self, ltpage):
+                    # In PDFPageAggregator, layout hierarchy is built after rendering strings.
+                    # As a simpler approach for touchup tags (which wrap strings directly),
+                    # we can intercept the string rendering directly.
+                    pass
+                    
+                def render_string(self, textstate, seq, ncs, graphicstate):
+                    super().render_string(textstate, seq, ncs, graphicstate)
+                    if self.in_touchup:
+                        # decoded chars are gathered from the sequence by the textstate font
+                        font = textstate.font
+                        text = ""
+                        for obj in seq:
                             try:
-                                decoded_text = fitz.utils.pdfdoc_decode(match)
-                                if decoded_text.strip():
-                                    # Use page 0 as "unknown page" for legacy extraction
-                                    if 0 not in found_text:
-                                        found_text[0] = []
-                                    found_text[0].append(decoded_text.strip())
+                                if isinstance(obj, str):
+                                    text += obj
+                                elif isinstance(obj, bytes):
+                                    for cid in font.decode(obj):
+                                        try:
+                                            text += font.to_unichr(cid)
+                                        except Exception:
+                                            pass
                             except Exception:
-                                continue
-            except Exception as e:
-                logging.warning(f"Could not process object {xref} for TouchUp text: {e}")
-                continue
+                                pass
+                        if text:
+                            cleaned = _clean_text_segment(text.encode("utf-8", errors="ignore"))
+                            if cleaned and not _is_probably_junk(cleaned):
+                                self.current_page_text.append(cleaned)
+
+            pdf_bytes = doc.write()
+            rmgr = PDFResourceManager()
+            device = TouchUpDevice(rmgr, laparams=LAParams())
+            interpreter = PDFPageInterpreter(rmgr, device)
+
+            for i, page in enumerate(PDFPage.get_pages(BytesIO(pdf_bytes))):
+                page_num = i + 1
+                device.current_page_text = []
+                try:
+                    interpreter.process_page(page)
+                    if device.current_page_text:
+                        # Join extracted strings with visible boundary separation
+                        combined = " │ ".join([t for t in device.current_page_text if t])
+                        if combined:
+                            found_text[page_num] = [combined]
+                except Exception as e:
+                    logging.debug(f"pdfminer.six analysis failed on page {page_num}: {e}")
+
+        except ImportError:
+            logging.debug("pdfminer.six not installed. TouchUp_TextEdit extraction cannot decode fonts.")
+        except Exception as e:
+            logging.warning(f"Could not extract TouchUp text via pdfminer.six: {e}")
+
         return found_text
-    
+
     def _get_text_for_comparison(self, source):
         """
         Performs a robust, layout-preserving text extraction on a PDF.
@@ -5055,7 +5042,70 @@ class PDFReconApp:
             prev_button.pack(side="left", padx=10)
             page_label.pack(side="left", padx=10)
             next_button.pack(side="left", padx=10)
-            
+
+            # --- Layer visibility toggles (OCGs / Optional Content Groups) ---
+            # IMPORTANT: MuPDF caches OC state at open time, set_layer() is ignored
+            # during rendering. The only reliable approach: modify OCProperties,
+            # save to bytes, re-open from bytes so MuPDF re-parses the OC config.
+            popup_ocgs = popup.doc.get_ocgs()  # {xref: {'name', 'on', ...}}
+            _popup_all_xrefs = list(popup_ocgs.keys())
+            popup_layer_vars = {}  # xref -> BooleanVar
+            # Cache original PDF bytes before any modifications
+            _popup_orig_bytes = popup.doc.tobytes()
+
+            def _apply_popup_ocg_state():
+                """Rebuild popup.doc from bytes with updated OCProperties."""
+                on_xrefs  = [x for x, v in popup_layer_vars.items() if v.get()]
+                off_xrefs = [x for x, v in popup_layer_vars.items() if not v.get()]
+                order_str = " ".join(f"{x} 0 R" for x in _popup_all_xrefs)
+                on_str    = "[" + " ".join(f"{x} 0 R" for x in on_xrefs)  + "]"
+                off_str   = "[" + " ".join(f"{x} 0 R" for x in off_xrefs) + "]"
+                ocg_str   = " ".join(f"{x} 0 R" for x in _popup_all_xrefs)
+                new_ocprops = (
+                    f"<</D<</Order[{order_str}]"
+                    f"/ON{on_str}/OFF{off_str}/RBGroups[]>>"
+                    f"/OCGs[{ocg_str}]>>"
+                )
+                tmp_doc = fitz.open(stream=_popup_orig_bytes, filetype="pdf")
+                tmp_doc.xref_set_key(tmp_doc.pdf_catalog(), "OCProperties", new_ocprops)
+                mod_bytes = tmp_doc.tobytes()
+                tmp_doc.close()
+                if popup.doc:
+                    popup.doc.close()
+                popup.doc = fitz.open(stream=mod_bytes, filetype="pdf")
+
+            if popup_ocgs:
+                popup_layer_frame = ttk.LabelFrame(main_frame, text="Document Layers", padding=5)
+                popup_layer_frame.grid(row=3, column=0, pady=(8, 0), sticky="ew")
+                name_counts = {}
+                for xref, info in popup_ocgs.items():
+                    base_name = info.get('name', f'OCG {xref}')
+                    name_counts[base_name] = name_counts.get(base_name, 0) + 1
+                name_seen = {}
+                for xref, info in popup_ocgs.items():
+                    base_name = info.get('name', f'OCG {xref}')
+                    name_seen[base_name] = name_seen.get(base_name, 0) + 1
+                    if name_counts[base_name] > 1:
+                        label = f"{base_name} #{name_seen[base_name]}"
+                    else:
+                        label = base_name
+                    var = tk.BooleanVar(value=info.get('on', True))
+                    popup_layer_vars[xref] = var
+                    def _make_popup_toggle():
+                        def _toggle():
+                            _apply_popup_ocg_state()
+                            update_page(popup.current_page)
+                        return _toggle
+                    cb = ttk.Checkbutton(popup_layer_frame, text=label, variable=var, command=_make_popup_toggle())
+                    cb.pack(anchor="w")
+                ttk.Label(
+                    popup_layer_frame,
+                    text=self._("layer_info_tooltip"),
+                    font=("Segoe UI", 8, "italic"),
+                    foreground="gray",
+                    wraplength=340,
+                ).pack(anchor="w", pady=(4, 0))
+
             def update_page(page_num):
                 """Renders and displays a specific page of the PDF, with TouchUp text highlighted."""
                 if not (0 <= page_num < popup.total_pages): return
@@ -5179,7 +5229,7 @@ class PDFReconApp:
             elif diff_str:
                 return f"TouchUp TextEdit ({diff_str})"
             else:
-                return "TouchUp TextEdit (Flag found, but no specific text or revisions to compare)"
+                return "TouchUp TextEdit: Found a flag indicating this document was edited with Acrobat's TouchUp tool. However, the exact edit cannot be determined because no textual changes were extracted from the block (it may be a layout/image edit) and no previous file revisions are attached to compare."
 
         if key == 'MultipleCreators':
             return f"Multiple Creators (Found {details['count']}): " + ", ".join(f'"{v}"' for v in details['values'])
@@ -5199,9 +5249,20 @@ class PDFReconApp:
         if key == 'XMPIDChange':
             return f"XMP DocumentID Changed: From [{details['from']}] to [{details['to']}]"
         if key == 'MultipleStartxref':
-            return f"Multiple startxref (Found {details['count']})"
+            offsets = ", ".join(str(o) for o in details.get('offsets', []))
+            return f"Multiple startxref (Found {details['count']} at offsets: {offsets})"
         if key == 'IncrementalUpdates':
-            return f"Incremental updates (Found {details['count']} versions)"
+            return f"Incremental updates (Found {details['count']} versions) - See 'Version History' tab"
+        if key == 'XMPHistory':
+            return "XMP History: Document has a metadata revision history - See 'XMP' or 'Timeline'"
+        if key == 'LargeObjectNumberGaps':
+            return f"Structural Anomalies (Gaps): {details['gap_percentage']} ({details['gap_count']} gaps, Max ID: {details['max_object']})"
+        if key == 'OrphanedObjects':
+            ids = ", ".join(str(i) for i in details.get('ids', []))
+            return f"Unreferenced Objects (Found {details['count']}): IDs {ids}"
+        if key == 'MissingObjects':
+            ids = ", ".join(str(i) for i in details.get('ids', []))
+            return f"Dangling References (Missing {details['count']} objects): IDs {ids}"
         if key == 'ObjGenGtZero':
             return f"Objects with generation > 0 (Found {details['count']} objects)"
         if key == 'HasLayers':
@@ -5222,6 +5283,96 @@ class PDFReconApp:
                 else:
                     lines.append(f"  ↔ Related to: {name}")
             return "\n".join(lines)
+            
+        # --- Advanced Forensics Indicators ---
+        if key == 'EmailAddresses':
+            count = details.get('count', 0)
+            if count == 0: return None
+            emails = details.get('emails', [])
+            emails_str = "\n    • " + "\n    • ".join(emails[:20])
+            if count > 20: emails_str += f"\n    ... (+{count-20} more)"
+            return f"Email Addresses (Found {count}):{emails_str}"
+        if key == 'URLs':
+            count = details.get('count', 0)
+            if count == 0: return None
+            domains = details.get('domains', [])
+            domains_str = "\n    • " + "\n    • ".join(domains[:20])
+            if count > 20: domains_str += f"\n    ... (+{count-20} more)"
+            return f"URLs (Found {count} unique domains):{domains_str}"
+        if key == 'UNCPaths':
+            count = details.get('count', 0)
+            if count == 0: return None
+            paths = details.get('paths', [])
+            paths_str = ", ".join(paths[:5])
+            if count > 5: paths_str += f", ... (+{count-5} more)"
+            return f"UNC Paths (Found {count}): {paths_str}"
+        if key == 'Languages':
+            langs_list = ", ".join(details.get('languages', []))
+            return f"Languages: {langs_list}"
+        if key == 'Encrypted' or key == 'PasswordRequired' or key == 'EncryptedButOpen' or key == 'EncryptionDictionary' or key == 'SecurityRestrictions':
+            status = details.get('status', 'Present')
+            if key == 'SecurityRestrictions' and 'restrictions' in details:
+                rest = ", ".join(details['restrictions'])
+                return f"Security Restrictions: {rest} (P={details.get('permissions_value', 'Unknown')})"
+            return f"{key.replace('_', ' ')}: {status}"
+        if key == 'InvisibleTextMode' or key == 'FileAttachmentAnnotations' or key == '3DObjects' or key == 'SoundAnnotations' or key == 'VideoContent' or key == 'RichMedia':
+            status = details.get('status', 'Detected')
+            note = f" ({details['note']})" if 'note' in details else ""
+            return f"{key.replace('_', ' ')}: {status}{note}"
+        if key == 'ExcessiveWhiteColor' or key == 'TextOutsideMediaBox':
+            note = details.get('note', '')
+            page = f" (Page {details['page']})" if 'page' in details else ""
+            return f"{key.replace('_', ' ')}: {note}{page}"
+        if key == 'EmbeddedFiles':
+            count = details.get('count', 0)
+            files = ", ".join(details.get('filenames', []))
+            return f"Embedded Files (Found {count}): {files}"
+        if key == 'OCRLayer':
+            status = details.get('status', 'Suspected')
+            note = details.get('note', '')
+            pages = f" ({details.get('pages_with_pattern', 0)} pages)"
+            return f"OCR Layer: {status} - {note}{pages}"
+        if key == 'PolyglotFile':
+            status = details.get('status', 'Suspicious')
+            offset = details.get('pdf_header_offset', 0)
+            fmt = details.get('detected_prefix_format', 'Unknown')
+            return f"Polyglot/Non-Standard Header: {status} (PDF header at byte {offset}, Prefix: {fmt})"
+        if key == 'FutureDatedTimestamps':
+            count = details.get('count', 0)
+            dates = ", ".join([d.get('date', '') for d in details.get('dates', [])])
+            return f"Future Dated Timestamps (Found {count}): {dates}"
+        if key == 'PDFACompliance':
+            part = details.get('part', 'Unknown')
+            return f"PDF/A Compliance claimed: {part}"
+        if key == 'JPEG_Analysis':
+            total = details.get('total_jpegs', 0)
+            suspicious = details.get('suspicious_count', 0)
+            if suspicious == 0:
+                return None
+            note = details.get('note', '')
+            result = f"JPEG Analysis: {suspicious} of {total} images are suspicious. {note}"
+            if 'suspicious_details' in details:
+                det = "\n    " + "\n    ".join(details['suspicious_details'])
+                result += det
+            return result
+            
+        # --- Scanner Anomaly Indicators ---
+        if key == 'OrphanedObjects' or key == 'MissingObjects':
+            count = details.get('count', 0)
+            label = "Orphaned Objects" if key == 'OrphanedObjects' else "Missing Objects"
+            return f"{label}: Found {count} objects"
+        if key == 'LargeObjectNumberGaps':
+            pct = details.get('gap_percentage', '0%')
+            max_obj = details.get('max_object', 0)
+            def_obj = details.get('defined_objects', 0)
+            return f"Large Object ID Gaps: {pct} (Max ID: {max_obj}, Count: {def_obj})"
+        if key == 'DuplicateImagesWithDifferentXrefs':
+            xrefs = ", ".join([str(x) for x in details.get('xrefs', [])])
+            return f"Duplicate Image with Different Compression: XREFs {xrefs}"
+        if key == 'ImagesWithEXIF':
+            count = details.get('count', 0)
+            return f"Images with EXIF Metadata: Found {count}"
+            
         # Fallback for simple indicators with no details
         return key.replace("_", " ")
         

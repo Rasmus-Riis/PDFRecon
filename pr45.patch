@@ -1,0 +1,138 @@
+From a75d4e278d145e7d57f8aac3d15323ea695554ec Mon Sep 17 00:00:00 2001
+From: "google-labs-jules[bot]"
+ <161369871+google-labs-jules[bot]@users.noreply.github.com>
+Date: Thu, 26 Feb 2026 12:03:15 +0000
+Subject: [PATCH] Fix insecure deserialization vulnerability by replacing
+ pickle with JSON
+
+Replaced `pickle` with `json` for saving and loading case files to mitigate arbitrary code execution risks.
+- Implemented `CaseEncoder` and `case_decoder` in `pdfrecon/utils.py` to handle `pathlib.Path`, `datetime.datetime`, and `set` objects.
+- Updated `pdfrecon/app_gui.py` to use `json.dump` for saving cases.
+- Updated `pdfrecon/app_gui.py` to attempt `json.load` first when opening cases.
+- Added fallback to `pickle.load` for legacy `.prc` files, but gated it behind a user confirmation dialog ("Legacy Format Warning").
+- Added warning messages to `lang/translations.json`.
+- Updated `_export_reader` to also use JSON serialization.
+
+Co-authored-by: Rasmus-Riis <4140365+Rasmus-Riis@users.noreply.github.com>
+---
+ lang/translations.json |  2 ++
+ pdfrecon/app_gui.py    | 25 +++++++++++++++++++------
+ pdfrecon/utils.py      | 24 ++++++++++++++++++++++++
+ 3 files changed, 45 insertions(+), 6 deletions(-)
+
+diff --git a/lang/translations.json b/lang/translations.json
+index 855421a..94e3c21 100644
+--- a/lang/translations.json
++++ b/lang/translations.json
+@@ -58,6 +58,7 @@
+     "settings_threads": "Maks. analysetråde:", "settings_diff_pages": "Sider for visuel sammenligning:", "settings_save": "Gem", "settings_cancel": "Annuller",
+     "settings_saved_title": "Indstillinger Gemt", "settings_saved_msg": "Indstillingerne er blevet gemt.", "settings_invalid_input": "Ugyldigt input. Indtast venligst kun heltal.",
+     "case_open_warning_title": "Advarsel", "case_open_warning_msg": "Åbning af en ny sag vil rydde de nuværende resultater. Vil du fortsætte?",
++    "case_legacy_warning_title": "Advarsel om forældet format", "case_legacy_warning_msg": "Denne fil bruger et gammelt format (Pickle), som kan være usikkert.\nFortsæt kun, hvis du stoler på kilden.\n\nVil du fortsætte med at åbne filen?",
+     "case_nothing_to_save_title": "Ingen Data at Gemme", "case_nothing_to_save_msg": "Der er ingen analyseresultater at gemme.",
+     "case_save_error_title": "Fejl ved Gem", "case_save_error_msg": "Sagen kunne ikke gemmes.\n\nFejl: {e}",
+     "case_open_error_title": "Fejl ved Åbning", "case_open_error_msg": "Sagen kunne ikke åbnes. Filen er muligvis korrupt eller ikke en gyldig sagfil.\n\nFejl: {e}",
+@@ -140,6 +141,7 @@
+     "settings_threads": "Max analysis threads:", "settings_diff_pages": "Pages for visual compare:", "settings_save": "Save", "settings_cancel": "Cancel",
+     "settings_saved_title": "Settings Saved", "settings_saved_msg": "Your settings have been saved.", "settings_invalid_input": "Invalid input. Please enter only integers.",
+     "case_open_warning_title": "Warning", "case_open_warning_msg": "Opening a new case will clear the current results. Do you want to continue?",
++    "case_legacy_warning_title": "Legacy Format Warning", "case_legacy_warning_msg": "This file uses an old format (Pickle) which can be insecure.\nOnly proceed if you trust the source.\n\nDo you want to continue opening this file?",
+     "case_nothing_to_save_title": "No Data to Save", "case_nothing_to_save_msg": "There is no analysis data to save.",
+     "case_save_error_title": "Save Error", "case_save_error_msg": "Could not save the case file.\n\nError: {e}",
+     "case_open_error_title": "Open Error", "case_open_error_msg": "Could not open the case file. The file may be corrupt or not a valid case file.\n\nError: {e}",
+diff --git a/pdfrecon/app_gui.py b/pdfrecon/app_gui.py
+index 6430411..f58972f 100644
+--- a/pdfrecon/app_gui.py
++++ b/pdfrecon/app_gui.py
+@@ -57,6 +57,7 @@ def _import_with_fallback(module_name, import_name, install_cmd):
+ # --- Import configuration and version ---
+ from .config import PDFReconConfig, PDFProcessingError, PDFCorruptionError, \
+     PDFTooLargeError, PDFEncryptedError, APP_VERSION, UI_COLORS, UI_FONTS, UI_DIMENSIONS
++from .utils import CaseEncoder, case_decoder
+ 
+ # --- OCG (layers) detection helpers ---
+ _LAYER_OCGS_BLOCK_RE = re.compile(rb"/OCGs\s*\[(.*?)\]", re.S)
+@@ -2578,8 +2579,20 @@ def _open_case(self, filepath=None):
+             return
+ 
+         try:
+-            with open(filepath, 'rb') as f:
+-                case_data = pickle.load(f)
++            try:
++                with open(filepath, 'r', encoding='utf-8') as f:
++                    case_data = json.load(f, object_hook=case_decoder)
++            except (UnicodeDecodeError, json.JSONDecodeError):
++                if not messagebox.askyesno(
++                    self._("case_legacy_warning_title"),
++                    self._("case_legacy_warning_msg"),
++                    icon='warning'
++                ):
++                    return
++
++                with open(filepath, 'rb') as f:
++                    case_data = pickle.load(f)
++                logging.warning(f"Loaded legacy pickle case file: {filepath}")
+ 
+             # --- Restore State from Case File ---
+             self._reset_state()
+@@ -2636,8 +2649,8 @@ def _write_case_to_file(self, filepath):
+             'revision_counter': self.revision_counter,
+             'evidence_hashes': self.evidence_hashes,
+         }
+-        with open(filepath, 'wb') as f:
+-            pickle.dump(case_data, f)
++        with open(filepath, 'w', encoding='utf-8') as f:
++            json.dump(case_data, f, cls=CaseEncoder)
+     
+     def _hash_file(self, filepath):
+         """Calculates the SHA-256 hash of a file."""
+@@ -2866,8 +2879,8 @@ def _export_reader(self):
+                 'revision_counter': self.revision_counter,
+                 'evidence_hashes': new_hashes,
+             }
+-            with open(dest_case_file, 'wb') as f:
+-                pickle.dump(case_payload, f)
++            with open(dest_case_file, 'w', encoding='utf-8') as f:
++                json.dump(case_payload, f, cls=CaseEncoder)
+ 
+             source_exe = Path(sys.executable)
+             reader_exe_name = f"{source_exe.stem}_Reader{source_exe.suffix}"
+diff --git a/pdfrecon/utils.py b/pdfrecon/utils.py
+index f000a6b..7e39d7b 100644
+--- a/pdfrecon/utils.py
++++ b/pdfrecon/utils.py
+@@ -6,6 +6,7 @@
+ 
+ import hashlib
+ import sys
++import json
+ from pathlib import Path
+ from datetime import datetime, timezone
+ from tkinter import messagebox
+@@ -65,3 +66,26 @@ def sha256_file(filepath: Path) -> str:
+         return ""
+     except Exception as e:
+         return f"Error: {str(e)}"
++
++
++class CaseEncoder(json.JSONEncoder):
++    def default(self, obj):
++        if isinstance(obj, Path):
++            return {"__type__": "Path", "value": str(obj)}
++        if isinstance(obj, datetime):
++            return {"__type__": "datetime", "value": obj.isoformat()}
++        if isinstance(obj, set):
++            return {"__type__": "set", "value": list(obj)}
++        return super().default(obj)
++
++
++def case_decoder(dct):
++    if "__type__" in dct:
++        t = dct["__type__"]
++        if t == "Path":
++            return Path(dct["value"])
++        if t == "datetime":
++            return datetime.fromisoformat(dct["value"])
++        if t == "set":
++            return set(dct["value"])
++    return dct

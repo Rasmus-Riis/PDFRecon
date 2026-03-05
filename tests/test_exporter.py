@@ -1,5 +1,5 @@
 import unittest
-from pdfrecon.exporter import format_indicator_details, clean_cell_value
+from src.exporter import format_indicator_details, clean_cell_value
 
 class TestFormatIndicatorDetails(unittest.TestCase):
     def test_empty_details(self):
@@ -16,14 +16,14 @@ class TestFormatIndicatorDetails(unittest.TestCase):
     def test_text_indicator_short(self):
         """Test details with 'text' key (short text)."""
         details = {'text': "Short text"}
-        expected = "MyIndicator (Short text)"
+        expected = "MyIndicator: Short text..."
         self.assertEqual(format_indicator_details("MyIndicator", details), expected)
 
     def test_text_indicator_long(self):
         """Test details with 'text' key (long text, should be truncated)."""
         long_text = "A" * 60
         details = {'text': long_text}
-        expected = f"MyIndicator ({long_text[:50]}...)"
+        expected = f"MyIndicator: {long_text[:50]}..."
         self.assertEqual(format_indicator_details("MyIndicator", details), expected)
 
     def test_fonts_indicator(self):
@@ -53,7 +53,7 @@ class TestFormatIndicatorDetails(unittest.TestCase):
     def test_text_vs_fonts(self):
         """Test text vs fonts -> text wins"""
         details = {'text': 'some text', 'fonts': ['f1']}
-        expected = "MyIndicator (some text)"
+        expected = "MyIndicator: some text..."
         self.assertEqual(format_indicator_details("MyIndicator", details), expected)
 
     def test_items_not_list(self):
@@ -105,7 +105,7 @@ class TestExporter(unittest.TestCase):
 
     def test_clean_cell_value_mojibake(self):
         """test_clean_cell_value removes mojibake sequences."""
-        self.assertEqual(clean_cell_value("Pjhello"), "hello")
+        self.assertEqual(clean_cell_value("þÿhello"), "hello")
 
     def test_clean_cell_value_null_byte(self):
         """test_clean_cell_value removes null bytes."""
@@ -114,7 +114,7 @@ class TestExporter(unittest.TestCase):
     def test_clean_cell_value_mixed(self):
         """test_clean_cell_value with mixed issues."""
         # BOM + control char + mojibake + null byte
-        dirty_string = "\ufeffPjhello\x01world\0"
+        dirty_string = "\ufeffþÿhello\x01world\0"
         # The function removes control characters, BOM, mojibake, and null bytes.
         # Even if they appear together, the result should be clean.
         self.assertEqual(clean_cell_value(dirty_string), "helloworld")

@@ -36,8 +36,10 @@ def clean_cell_value(value):
     # Remove illegal XML control characters (allow \t \n \r)
     s = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F]", "", s)
     # Remove BOM characters
-    if s.startswith("\ufeff") or s.startswith("\ufffe"):
+    if s.startswith("\ufeff") or s.startswith("\ufffe") or s.startswith("\xef\xbb\xbf"):
         s = s.lstrip("\ufeff\ufffe")
+        if s.startswith("\xef\xbb\xbf"):
+            s = s[3:]
     # Remove mojibake
     if s.startswith("þÿ") or s.startswith("ÿþ"):
         s = s[2:]

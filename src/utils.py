@@ -6,6 +6,7 @@ Helper functions for file operations, imports, and data formatting.
 
 import hashlib
 import sys
+import json
 from pathlib import Path
 from datetime import datetime, timezone
 from tkinter import messagebox
@@ -25,7 +26,7 @@ def md5_file(fp: Path, buf_size: int = 4 * 1024 * 1024) -> str:
     """
     Fast MD5 hash of a file with reusable buffer (fewer allocations).
     """
-    h = hashlib.md5()
+    h = hashlib.md5(usedforsecurity=False)
     with fp.open("rb", buffering=0) as f:
         buf = bytearray(buf_size)
         mv = memoryview(buf)
@@ -53,15 +54,43 @@ def safe_stat_times(path: Path) -> tuple or None:
         return None
 
 
-def sha256_file(filepath: Path) -> str:
-    """Calculates the SHA-256 hash of a file."""
+def sha256_file(filepath: Path, buf_size: int = 4 * 1024 * 1024) -> str:
+    """Calculates the SHA-256 hash of a file efficiently using a reusable buffer."""
     sha256_hash = hashlib.sha256()
     try:
-        with filepath.open("rb") as f:
-            for chunk in iter(lambda: f.read(4096), b""):
-                sha256_hash.update(chunk)
+        with filepath.open("rb", buffering=0) as f:
+            buf = bytearray(buf_size)
+            mv = memoryview(buf)
+            while True:
+                n = f.readinto(mv)
+                if not n:
+                    break
+                sha256_hash.update(mv[:n])
         return sha256_hash.hexdigest()
     except FileNotFoundError:
         return ""
     except Exception as e:
         return f"Error: {str(e)}"
+
+
+class CaseEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Path):
+            return {"__type__": "Path", "value": str(obj)}
+        if isinstance(obj, datetime):
+            return {"__type__": "datetime", "value": obj.isoformat()}
+        if isinstance(obj, set):
+            return {"__type__": "set", "value": list(obj)}
+        return super().default(obj)
+
+
+def case_decoder(dct):
+    if "__type__" in dct:
+        t = dct["__type__"]
+        if t == "Path":
+            return Path(dct["value"])
+        if t == "datetime":
+            return datetime.fromisoformat(dct["value"])
+        if t == "set":
+            return set(dct["value"])
+    return dct

@@ -1,0 +1,79 @@
+
+==================================================
+Branch: origin/bolt-optimize-detect-indicators-10497783307771038042
+ .jules/bolt.md |  4 ++++
+ pdfrecon       |  1 +
+ src/scanner.py | 58 +++++++++++++++++++++++++++++++++++-----------------------
+ 3 files changed, 40 insertions(+), 23 deletions(-)
+
+
+==================================================
+Branch: origin/bolt-optimize-extract-text-16882894420003439293
+ .jules/bolt.md            |  3 +++
+ pdfrecon/pdf_processor.py | 13 ++++++++-----
+ 2 files changed, 11 insertions(+), 5 deletions(-)
+
+
+==================================================
+Branch: origin/bolt-optimize-hashing-14097659396913556438
+ .jules/bolt.md             |  4 ++++
+ pdfrecon/app_gui.py        |  8 ++++----
+ pdfrecon/jpeg_forensics.py |  2 +-
+ pdfrecon/scanner.py        |  2 +-
+ pdfrecon/utils.py          | 17 +++++++++++------
+ 5 files changed, 21 insertions(+), 12 deletions(-)
+
+
+==================================================
+Branch: origin/bolt-performance-txt-lower-13198400138767288259
+ .jules/bolt.md      |  4 ++++
+ pdfrecon/app_gui.py | 51 +++++++++++++++++++++++++++++++--------------------
+ pdfrecon/scanner.py | 47 +++++++++++++++++++++++++++++------------------
+ 3 files changed, 64 insertions(+), 38 deletions(-)
+
+
+==================================================
+Branch: origin/optimize-font-analysis-5042954244385628372
+ pdfrecon/app_gui.py | 40 ++++++++++++++++++++++++++--------------
+ 1 file changed, 26 insertions(+), 14 deletions(-)
+
+
+==================================================
+Branch: origin/optimize-image-extraction-5140210981955054711
+ pdfrecon/scanner.py          |  58 +++++++++++++----------
+ tests/test_scanner_images.py | 107 +++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 140 insertions(+), 25 deletions(-)
+
+
+==================================================
+Branch: origin/optimize-pdf-revision-slicing-17051117025079893926
+ pdfrecon/app_gui.py | 2 +-
+ pdfrecon/scanner.py | 4 +++-
+ 2 files changed, 4 insertions(+), 2 deletions(-)
+
+
+==================================================
+Branch: origin/perf-font-analysis-optimization-2635573837307063561
+ pdfrecon/app_gui.py | 38 ++++++++++++++++++++++++--------------
+ 1 file changed, 24 insertions(+), 14 deletions(-)
+
+
+==================================================
+Branch: origin/perf-optimization-regex-precheck-5564332297503023032
+ pdfrecon/app_gui.py | 99 +++++++++++++++++++++++++++++++++++------------------
+ 1 file changed, 65 insertions(+), 34 deletions(-)
+
+
+==================================================
+Branch: origin/perf-optimize-count-layers-14630627909834300414
+ pdfrecon/app_gui.py        | 27 +++++---------------
+ pdfrecon/pdf_processor.py  | 24 ++++++------------
+ tests/test_count_layers.py | 63 ++++++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 77 insertions(+), 37 deletions(-)
+
+
+==================================================
+Branch: origin/perf/optimize-exif-parsing-12643823904376200022
+ pdfrecon/app_gui.py | 26 ++++++++++++++++----------
+ 1 file changed, 16 insertions(+), 10 deletions(-)
+

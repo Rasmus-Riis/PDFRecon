@@ -8,7 +8,7 @@ import re
 import os
 
 # --- Application Version ---
-APP_VERSION = "17.3.6"
+APP_VERSION = "17.3.7"
 
 # --- UI Configuration Constants ---
 UI_COLORS = {
@@ -64,6 +64,10 @@ class PDFReconConfig:
     MAX_WORKER_THREADS = min(16, (os.cpu_count() or 4) * 2)
     VISUAL_DIFF_PAGE_LIMIT = 15
     EXPORT_INVALID_XREF = False
+    
+    # Security Configuration
+    EXIFTOOL_PATH = None  # Path to ExifTool executable (optional, overrides default search)
+    EXIFTOOL_HASH = None  # SHA256 hash of ExifTool executable (optional, enforces integrity)
     
     # File processing timeouts (from hang prevention improvements)
     TEXT_EXTRACTION_TIMEOUT = 15  # seconds
