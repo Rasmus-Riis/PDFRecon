@@ -254,7 +254,8 @@ def detect_indicators(filepath: Path, txt: str, doc, exif_output: str = "", app_
             if re.search(r"/NeedAppearances\s+true\b", txt, re.I):
                 indicators['AcroFormNeedAppearances'] = {}
 
-        gen_gt_zero_matches = [m for m in re.finditer(r"\b(\d+)\s+(\d+)\s+obj\b", txt) if int(m.group(2)) > 0]
+        # PERFORMANCE OPTIMIZATION (Bolt ⚡): List comprehension with findall is faster
+        gen_gt_zero_matches = [m for m in re.findall(r"\b(\d+)\s+(\d+)\s+obj\b", txt) if int(m[1]) > 0]
         if gen_gt_zero_matches:
             indicators['ObjGenGtZero'] = {'count': len(gen_gt_zero_matches)}
 
@@ -426,17 +427,20 @@ def _detect_content_stream_anomalies(txt: str, doc, indicators: dict):
     """
     try:
         # Detect text positioning operations that might overlay content
-        if re.search(r"(Tm|Td)\s+[^\n]*\s+(Tm|Td)", txt):
+        # PERFORMANCE OPTIMIZATION (Bolt ⚡): Fast substring pre-check avoids expensive regex
+        if "Tm" in txt or "Td" in txt:
             # Multiple positioning commands in sequence (potential overlay)
             count = len(re.findall(r"(Tm|Td)\s+[^\n]*\s+(Tm|Td)", txt))
             if count > 5:  # Threshold for suspicious
                 indicators['SuspiciousTextPositioning'] = {'count': count}
         
         # Detect white rectangles (common for hiding content)
-        white_rect_pattern = r"/DeviceRGB\s+1\s+1\s+1\s+rg.*?re\s+f"
-        white_rects = re.findall(white_rect_pattern, txt, re.DOTALL)
-        if len(white_rects) > 3:
-            indicators['WhiteRectangleOverlay'] = {'count': len(white_rects)}
+        # PERFORMANCE OPTIMIZATION (Bolt ⚡): Fast substring pre-check avoids expensive regex
+        if "rg" in txt and "re" in txt and "f" in txt:
+            white_rect_pattern = r"/DeviceRGB\s+1\s+1\s+1\s+rg.*?re\s+f"
+            white_rects = re.findall(white_rect_pattern, txt, re.DOTALL)
+            if len(white_rects) > 3:
+                indicators['WhiteRectangleOverlay'] = {'count': len(white_rects)}
         
         # Detect repeated drawing operations in the same area
         if doc and len(doc) > 0:
@@ -466,15 +470,14 @@ def _detect_object_anomalies(txt: str, indicators: dict):
         indicators (dict): Dictionary to add indicators to
     """
     try:
+        # PERFORMANCE OPTIMIZATION (Bolt ⚡): List comprehension with findall is implemented
+        # in C and faster than python-level iteration with finditer
+
         # Find all object definitions
-        obj_defs = set()
-        for match in re.finditer(r"\b(\d+)\s+\d+\s+obj\b", txt):
-            obj_defs.add(int(match.group(1)))
+        obj_defs = {int(m) for m in re.findall(r"\b(\d+)\s+\d+\s+obj\b", txt)}
         
         # Find all object references
-        obj_refs = set()
-        for match in re.finditer(r"\b(\d+)\s+\d+\s+R\b", txt):
-            obj_refs.add(int(match.group(1)))
+        obj_refs = {int(m) for m in re.findall(r"\b(\d+)\s+\d+\s+R\b", txt)}
         
         # Find orphaned objects (defined but never referenced)
         orphaned = obj_defs - obj_refs
