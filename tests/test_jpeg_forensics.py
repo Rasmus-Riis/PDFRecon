@@ -1,5 +1,5 @@
 import unittest
-from pdfrecon.jpeg_forensics import extract_jpeg_qt_from_bytes, KNOWN_QT_SIGNATURES
+from src.jpeg_forensics import extract_jpeg_qt_from_bytes, KNOWN_QT_SIGNATURES
 
 class TestExtractJpegQtFromBytes(unittest.TestCase):
 
