@@ -2,7 +2,7 @@ import sys
 import os
 import pytest
 
-# Ensure pdfrecon is in the path
+# Ensure src is in the path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.advanced_forensics import detect_emails_and_urls
