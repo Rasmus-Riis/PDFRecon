@@ -333,13 +333,14 @@ body.lang-en .lang-da { display: none !important; }
 <ul id="nav">
 <li class="active lang-en" onclick="showSection('intro')">Introduction</li><li class="active lang-da" onclick="showSection('intro')">Indledning</li>
 <li class="lang-en" onclick="showSection('tools')">Tools Required</li><li class="lang-da" onclick="showSection('tools')">Værktøj påkrævet</li>
-<li class="section-header lang-en">— HIGH RISK (YES) —</li><li class="section-header lang-da">— HØJ RISIKO (JA) —</li>
-<li class="lang-en" onclick="showSection('touchup')">TouchUp_TextEdit</li><li class="lang-da" onclick="showSection('touchup')">TouchUp_TextEdit</li>
-<li class="lang-en" onclick="showSection('revisions')">Has Revisions</li><li class="lang-da" onclick="showSection('revisions')">Har revisioner</li>
-<li class="lang-en" onclick="showSection('javascript')">JavaScript Execute</li><li class="lang-da" onclick="showSection('javascript')">JavaScript udfør</li>
-<li class="lang-en" onclick="showSection('missing')">Missing Objects</li><li class="lang-da" onclick="showSection('missing')">Manglende objekter</li>
-<li class="section-header lang-en">— MEDIUM RISK —</li><li class="section-header lang-da">— MIDDEL RISIKO —</li>
-<li class="lang-en" onclick="showSection('fonts')">Multiple Font Subsets</li><li class="lang-da" onclick="showSection('fonts')">Flere skrifttypeundersæt</li>
+<li class="lang-en lang-en" onclick="showSection('missing')">Missing Objects</li><li class="lang-da" onclick="showSection('missing')">Manglende objekter</li>
+<li class="section-header lang-en lang-en">— HIGH RISK (YES) —</li><li class="section-header lang-da">— HØJ RISIKO (JA) —</li>
+<li class="lang-en lang-en" onclick="showSection('spoofing')">Timestamp Spoofing</li><li class="lang-da" onclick="showSection('spoofing')">Spoofing med tidsstempel</li>
+<li class="lang-en lang-en" onclick="showSection('phishing')">Phishing Directives</li><li class="lang-da" onclick="showSection('phishing')">Phishing-direktiver</li>
+<li class="lang-en lang-en" onclick="showSection('touchup')">TouchUp_TextEdit</li><li class="lang-da" onclick="showSection('touchup')">TouchUp_TextEdit</li>
+<li class="section-header lang-en lang-en">— MEDIUM RISK —</li><li class="section-header lang-da">— MIDDEL RISIKO —</li>
+<li class="lang-en lang-en" onclick="showSection('hidden')">Hidden Annotations</li><li class="lang-da" onclick="showSection('hidden')">Skjulte anmærkninger</li>
+<li class="lang-en lang-en" onclick="showSection('fonts')">Multiple Font Subsets</li><li class="lang-da" onclick="showSection('fonts')">Flere skrifttypeundersæt</li>
 <li class="lang-en" onclick="showSection('creators')">Multiple Creators</li><li class="lang-da" onclick="showSection('creators')">Flere skabere</li>
 <li class="lang-en" onclick="showSection('xmphistory')">XMP History</li><li class="lang-da" onclick="showSection('xmphistory')">XMP historie</li>
 <li class="lang-en" onclick="showSection('documentid')">Document ID Mismatch</li><li class="lang-da" onclick="showSection('documentid')">Dokument-id uoverensstemmelse</li>
@@ -531,6 +532,70 @@ body.lang-en .lang-da { display: none !important; }
 <p>De fleste PDF'er bruger komprimering. Inden manuel analyse skal du dekomprimere:</p>
 <pre><code>qpdf --qdf --object-streams=deaktiver input.pdf readable.pdf</code></pre>
 <p>Dette gør alle indholdsstrømme læsbare i en hex-editor.</p>
+</div>
+<!-- TIMESTAMP SPOOFING -->
+<div class="section lang-en" id="spoofing" style="display:none;">
+<h1>Timestamp Spoofing <span class="badge badge-yes">HIGH RISK</span></h1>
+<div class="danger">
+<strong>What it means:</strong> The file system creation date is significantly older than the internal PDF creation date. This is physically impossible under normal circumstances and strongly indicates the system clock was rolled back or the file timestamp was artificially manipulated (timestomped).
+            </div>
+<h2>Step-by-Step Verification</h2>
+<div class="step">
+<span class="step-number">1</span> Right-click the file in Windows -&gt; Properties -&gt; Details. Note the "Date created".
+            </div>
+<div class="step">
+<span class="step-number">2</span> Use ExifTool or open the PDF in a hex editor and search for <code>/CreationDate</code>.
+            </div>
+<div class="step">
+<span class="step-number">3</span> Compare the timestamps. If the external Date Created is older than the internal /CreationDate, the file has been tampered with.
+            </div>
+</div><div class="section lang-da" id="spoofing-da" style="display:none;">
+<h1>Spoofing med tidsstempel <span class="badge badge-yes">HØJ RISIKO</span></h1>
+<div class="danger">
+<strong>Hvad betyder det:</strong> Filsystemets oprettelsesdato er væsentligt ældre end den interne PDF-oprettelsesdato. Dette er fysisk umuligt under normale omstændigheder og indikerer kraftigt, at systemuret blev rullet tilbage, eller at filens tidsstempling blev kunstigt manipuleret (tidsstemplet).
+            </div>
+<h2>Trin-for-trin-bekræftelse</h2>
+<div class="step">
+<span class="step-number">1</span> Højreklik på filen i Windows -&gt; Egenskaber -&gt; Detaljer. Bemærk "Oprettelsesdatoen".
+            </div>
+<div class="step">
+<span class="step-number">2</span> Brug ExifTool eller åbn PDF'en i en hex-editor og søg efter <code>/CreationDate</code>.
+            </div>
+<div class="step">
+<span class="step-number">3</span> Sammenlign tidsstemplerne. Hvis den eksterne Oprettelsesdato er ældre end den interne /CreationDate, er filen blevet manipuleret.
+            </div>
+</div>
+<!-- PHISHING DIRECTIVES -->
+<div class="section lang-en" id="phishing" style="display:none;">
+<h1>Phishing Directives <span class="badge badge-yes">HIGH RISK</span></h1>
+<div class="danger">
+<strong>What it means:</strong> The PDF contains actions that can submit form data to an external URL or launch external files/applications.
+            </div>
+<h2>Manual Verification</h2>
+<div class="step">
+<span class="step-number">1</span> Search for <code>/Action</code> dictionaries in the PDF content.
+            </div>
+<div class="step">
+<span class="step-number">2</span> Look for <code>/S /SubmitForm</code> and check the <code>/F</code> key for target URLs.
+            </div>
+<div class="step">
+<span class="step-number">3</span> Look for <code>/S /Launch</code> and check for automated execution of <code>cmd.exe</code> or similar commands.
+            </div>
+</div><div class="section lang-da" id="phishing-da" style="display:none;">
+<h1>Phishing-direktiver <span class="badge badge-yes">HØJ RISIKO</span></h1>
+<div class="danger">
+<strong>Hvad betyder det:</strong> PDF'en indeholder handlinger, der kan sende formulardata til en ekstern URL eller starte eksterne filer/applikationer.
+            </div>
+<h2>Manuel verifikation</h2>
+<div class="step">
+<span class="step-number">1</span> Søg efter <code>/Handling</code> ordbøger i PDF-indholdet.
+            </div>
+<div class="step">
+<span class="step-number">2</span> Se efter <code>/S /SendForm</code> og tjek <code>/F</code> nøgle til mål-URL'er.
+            </div>
+<div class="step">
+<span class="step-number">3</span> Se efter <code>/S /Lancering</code> og kontroller for automatiseret udførelse af <code>cmd.exe</code> eller lignende kommandoer.
+            </div>
 </div>
 <!-- TOUCHUP_TEXTEDIT - DETAILED -->
 <div class="section lang-en" id="touchup" style="display:none;">
@@ -726,7 +791,7 @@ grep -A 20 "ToUnicode" readable.pdf</code></pre>
   /AdobePhotoshop &lt;&lt;
     /LastModified (D:20240115143000+01'00')
     /Privat &lt;&lt;
-      /TouchUp_TextEdit sand
+      /TouchUp_TextEdit true
     &gt;&gt;
   &gt;&gt;
 &gt;&gt;</code></pre>
@@ -1069,7 +1134,7 @@ ASCII: a  p  p  .  a  l  e  r  t</code></pre>
   /X &lt;&lt;/S /JavaScript /JS (...)&gt;&gt;    % On mouse exit
 &gt;&gt;</code></pre>
 </div><div class="section lang-da" id="javascript-da" style="display:none;">
-<h1>JavaScript Auto-Execute <span class="badge badge-yes">HØJ RISIKO</span></h1>
+<h1>JavaScript automatisk udførelse <span class="badge badge-yes">HØJ RISIKO</span></h1>
 <div class="danger">
 <strong>Hvad betyder det:</strong> PDF'en udfører muligvis JavaScript automatisk, når den åbnes
                 ændring af vist indhold dynamisk.
@@ -1109,6 +1174,38 @@ ASCII: a p p.  a l e r t</code></pre>
   /E &lt;&lt;/S /JavaScript /JS (...)&gt;&gt; % Ved indtastning af mus
   /X &lt;&lt;/S /JavaScript /JS (...)&gt;&gt; % Ved museafslutning
 &gt;&gt;</code></pre>
+</div>
+<!-- HIDDEN ANNOTATIONS -->
+<div class="section lang-en" id="hidden" style="display:none;">
+<h1>Hidden Annotations <span class="badge badge-found">MEDIUM RISK</span></h1>
+<div class="warning">
+<strong>What it means:</strong> The PDF contains annotations with the 'Hidden' or 'Invisible' flags set, possibly to obscure content.
+            </div>
+<h2>Manual Verification</h2>
+<div class="step">
+<span class="step-number">1</span> Search for <code>/Annots</code> arrays in the PDF document.
+            </div>
+<div class="step">
+<span class="step-number">2</span> Inspect individual annotation objects (<code>/Type /Annot</code>) for the <code>/F</code> (Flags) key.
+            </div>
+<div class="step">
+<span class="step-number">3</span> Check if Bit 2 (Hidden, value 2) or Bit 1 (Invisible, value 1) is set in the <code>/F</code> integer.
+            </div>
+</div><div class="section lang-da" id="hidden-da" style="display:none;">
+<h1>Skjulte anmærkninger <span class="badge badge-found">MIDDEL RISIKO</span></h1>
+<div class="warning">
+<strong>Hvad betyder det:</strong> PDF'en indeholder annoteringer med "Skjult" eller "Usynlig" flag sat, muligvis for at skjule indhold.
+            </div>
+<h2>Manuel verifikation</h2>
+<div class="step">
+<span class="step-number">1</span> Søg efter <code>/Annoter</code> arrays i PDF-dokumentet.
+            </div>
+<div class="step">
+<span class="step-number">2</span> Undersøg individuelle anmærkningsobjekter (<code>/Skriv /Annot</code>) for <code>/F</code> (Flag) tast.
+            </div>
+<div class="step">
+<span class="step-number">3</span> Kontroller, om bit 2 (skjult, værdi 2) eller bit 1 (usynlig, værdi 1) er indstillet i <code>/F</code> heltal.
+            </div>
 </div>
 <!-- MISSING OBJECTS -->
 <div class="section lang-en" id="missing" style="display:none;">
@@ -1328,7 +1425,7 @@ Almindelige flugter:
             </div>
 <h2>Trin 1: Find XMP-metadata</h2>
 <p>Søg efter <code>&lt;?xpacket begynder</code> eller <code>&lt;x:xmpmeta</code></p>
-<h2>Trin 2: Find historieafsnittet</h2>
+<h2>Trin 2: Find historiesektionen</h2>
 <pre><code>&lt;xmpMM:Historie&gt;
   &lt;rdf:Seq&gt;
     &lt;rdf:li rdf:parseType="Resource"&gt;
@@ -1416,7 +1513,7 @@ Almindelige flugter:
 &lt;xmpMM:InstanceID&gt;xmp.iid:F6E5D4C3-B2A1-...&lt;/xmpMM:InstanceID&gt;
 &lt;xmpMM:OriginalDocumentID&gt;uuid:ORIGINAL-ID&lt;/xmpMM:OriginalDocumentID&gt;</code></pre>
 <div class="info">
-                Hvis <code>OriginalDokumentID</code> ≠ <code>DocumentID</code>, dokumentet blev afledt af et andet
+                Hvis <code>Originaldokument-ID</code> ≠ <code>DocumentID</code>, dokumentet blev afledt af et andet
                 fil.
             </div>
 </div>
@@ -1475,7 +1572,7 @@ startxref
 <li>Gå til byte-offset angivet med <code>startxref</code></li>
 <li>Finde <code>/Forrige XXXXXX</code> i traileren</li>
 <li>Gå til den offset for forrige xref</li>
-<li>Gentag indtil ikke mere <code>/Forrige</code> indgange</li>
+<li>Gentag indtil ikke mere <code>/Forrige</code> poster</li>
 </ol>
 </div>
 <!-- GENERATION > 0 -->

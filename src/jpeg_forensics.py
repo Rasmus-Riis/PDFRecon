@@ -218,6 +218,7 @@ def analyze_pdf_images_qt(doc, filepath: Path, indicators: dict):
                     details.append(detail)
                 
                 indicators['JPEG_Analysis']['suspicious_details'] = details
+                indicators['JPEG_Analysis']['findings'] = [{'page': img['page'], 'xref': img['xref']} for img in suspicious_images]
                 indicators['JPEG_Analysis']['note'] = 'Suspicious JPEG compression patterns detected - may indicate edited/fake scan'
                 
                 logging.warning(f"Suspicious JPEG images found in {filepath.name}: {len(suspicious_images)} of {len(images_analyzed)}")

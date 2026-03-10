@@ -5,24 +5,34 @@ encryption status, hidden text patterns, attachments, OCR layers, multimedia, et
 """
 
 import re
+import io
 import logging
 import hashlib
+from datetime import datetime
 from pathlib import Path
 from .jpeg_forensics import analyze_pdf_images_qt
+
+try:
+    from PIL import Image, ImageChops, ImageStat
+except ImportError:
+    Image = None
 
 
 def detect_emails_and_urls(txt: str, indicators: dict):
     """Extract email addresses and URLs from PDF content."""
     try:
         # Email pattern (more restrictive)
-        email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+        email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b'
         raw_emails = set(re.findall(email_pattern, txt))
         
         # Validation: Filter out garbage (random binary strings often look like short emails)
         emails = []
-        common_tlds = {'.com', '.org', '.net', '.edu', '.gov', '.mil', '.dk', '.uk', '.de', '.fr'}
+        valid_tlds = {
+            'com', 'org', 'net', 'edu', 'gov', 'mil', 'int', 'info', 'biz', 'app', 'dev', 'io', 'co', 'me', 'ai', 'tv', 'mobi', 'name', 'pro', 'aero', 'asia', 'jobs', 'museum', 'tel', 'travel',
+            'ac', 'ad', 'ae', 'af', 'ag', 'ai', 'al', 'am', 'ao', 'aq', 'ar', 'as', 'at', 'au', 'aw', 'ax', 'az', 'ba', 'bb', 'bd', 'be', 'bf', 'bg', 'bh', 'bi', 'bj', 'bl', 'bm', 'bn', 'bo', 'bq', 'br', 'bs', 'bt', 'bv', 'bw', 'by', 'bz', 'ca', 'cc', 'cd', 'cf', 'cg', 'ch', 'ci', 'ck', 'cl', 'cm', 'cn', 'co', 'cr', 'cu', 'cv', 'cw', 'cx', 'cy', 'cz', 'de', 'dj', 'dk', 'dm', 'do', 'dz', 'ec', 'ee', 'eg', 'eh', 'er', 'es', 'et', 'eu', 'fi', 'fj', 'fk', 'fm', 'fo', 'fr', 'ga', 'gb', 'gd', 'ge', 'gf', 'gg', 'gh', 'gi', 'gl', 'gm', 'gn', 'gp', 'gq', 'gr', 'gs', 'gt', 'gu', 'gw', 'gy', 'hk', 'hm', 'hn', 'hr', 'ht', 'hu', 'id', 'ie', 'il', 'im', 'in', 'io', 'iq', 'ir', 'is', 'it', 'je', 'jm', 'jo', 'jp', 'ke', 'kg', 'kh', 'ki', 'km', 'kn', 'kp', 'kr', 'kw', 'ky', 'kz', 'la', 'lb', 'lc', 'li', 'lk', 'lr', 'ls', 'lt', 'lu', 'lv', 'ly', 'ma', 'mc', 'md', 'me', 'mf', 'mg', 'mh', 'mk', 'ml', 'mm', 'mn', 'mo', 'mp', 'mq', 'mr', 'ms', 'mt', 'mu', 'mv', 'mw', 'mx', 'my', 'mz', 'na', 'nc', 'ne', 'nf', 'ng', 'ni', 'nl', 'no', 'np', 'nr', 'nu', 'nz', 'om', 'pa', 'pe', 'pf', 'pg', 'ph', 'pk', 'pl', 'pm', 'pn', 'pr', 'ps', 'pt', 'pw', 'py', 'qa', 're', 'ro', 'rs', 'ru', 'rw', 'sa', 'sb', 'sc', 'sd', 'se', 'sg', 'sh', 'si', 'sj', 'sk', 'sl', 'sm', 'sn', 'so', 'sr', 'ss', 'st', 'su', 'sv', 'sx', 'sy', 'sz', 'tc', 'td', 'tf', 'tg', 'th', 'tj', 'tk', 'tl', 'tm', 'tn', 'to', 'tr', 'tt', 'tv', 'tw', 'tz', 'ua', 'ug', 'uk', 'um', 'us', 'uy', 'uz', 'va', 'vc', 've', 'vg', 'vi', 'vn', 'vu', 'wf', 'ws', 'ye', 'yt', 'za', 'zm', 'zw'
+        }
+        
         for email in raw_emails:
-            lower_email = email.lower()
             # Must be at least 7 chars (e.g. a@b.com is 7)
             if len(email) < 7: continue
             
@@ -30,21 +40,36 @@ def detect_emails_and_urls(txt: str, indicators: dict):
             parts = email.split('@')
             if len(parts) != 2 or '.' not in parts[1]: continue
             
+            username = parts[0]
             domain_part = parts[1]
-            # Domain must have a valid-looking TLD
-            if len(domain_part.split('.')[-1]) < 2: continue
+            tld = domain_part.split('.')[-1].lower()
+            domain_body = domain_part.rsplit('.', 1)[0]
+            
+            # Basic boundary checks
+            if username.startswith('-') or username.endswith('-'): continue
+            if domain_body.startswith('-') or domain_body.endswith('-'): continue
+            
+            # TLD allowlist approach ensures random bytes like .TX or .ZU are dropped completely
+            if tld not in valid_tlds: continue
 
-            # Heuristic: Real emails usually have a decent vowel-to-consonant ratio
-            # Random binary strings often have very few vowels
+            # Heuristics to catch random binary interpretations
+            # 1. Too many numbers
+            if sum(1 for c in email if c.isdigit()) > len(email) * 0.4: continue
+            
+            # 2. Vowel-to-consonant ratio
             vowels = sum(1 for c in email if c.lower() in 'aeiouy')
             consonants = sum(1 for c in email if c.lower() in 'bcdfghjklmnpqrstvwxz')
+            if vowels == 0: continue
+            if (consonants / len(email)) > 0.8: continue
             
-            # If it's mostly consonants/numbers/symbols and very few vowels, it's likely garbage
-            if vowels == 0 and len(email) > 10: continue
-            if vowels > 0 and (consonants / vowels) > 5 and len(email) > 15: continue
+            # 3. Random mixed case (e.g., aBcDeF)
+            domain_letters = [c for c in domain_part if c.isalpha()]
+            uppers = sum(1 for c in domain_letters if c.isupper())
+            lowers = sum(1 for c in domain_letters if c.islower())
+            if uppers >= 2 and lowers >= 2: continue # Real domains are rarely camelCase in extracted text
             
-            # Filter out obviously repetitive patterns
-            if re.search(r'(.)\1{4,}', email): continue
+            # 4. Filter out obviously repetitive patterns
+            if re.search(r'(.)\1{3,}', email): continue
             
             emails.append(email)
         
@@ -103,9 +128,22 @@ def detect_unc_paths(txt: str, indicators: dict):
         
         unc_paths = []
         for path in raw_paths:
-            # Validation: \\4\zB is too short/suspicious. Legitimate share names are usually > 2 chars
+            # Validation: Legitimate share names are usually > 2 chars, and don't look like base64 junk
             parts = path.lstrip('\\').split('\\')
-            if len(parts) >= 2 and len(parts[0]) > 2 and len(parts[1]) >= 2:
+            if len(parts) >= 2 and len(parts[0]) >= 3 and len(parts[1]) >= 3:
+                # Check for random garbage characteristics
+                letters = [c for c in path if c.isalpha()]
+                vowels = sum(1 for c in letters if c.lower() in 'aeiouy')
+                if len(letters) > 0 and vowels == 0: continue
+                
+                # Mixed case is suspicious in UNC paths unless it's predictable
+                uppers = sum(1 for c in letters if c.isupper())
+                lowers = sum(1 for c in letters if c.islower())
+                if uppers >= 2 and lowers >= 2: continue
+                
+                # Too many numbers?
+                if sum(1 for c in path if c.isdigit()) > len(path) * 0.4: continue
+                
                 unc_paths.append(path)
         
         if unc_paths:
@@ -216,14 +254,33 @@ def detect_hidden_text_patterns(txt: str, doc, indicators: dict):
                 'note': 'High usage of white color may indicate content hiding'
             }
         
-        # Check for text outside MediaBox (hidden off-page)
+        # Check for text outside MediaBox (hidden off-page) and Hidden Annotations
         # This requires page-by-page analysis
         if doc:
+            hidden_annots = []
             for page_num in range(min(len(doc), 10)):  # Check first 10 pages only
                 try:
                     page = doc[page_num]
                     blocks = page.get_text("dict")["blocks"]
                     
+                    # 1. Overlay Annotation Check
+                    for annot in page.annots():
+                        flags = annot.flags
+                        # Flags reference: Bit 1 (Invisible: 1), Bit 2 (Hidden: 2), Bit 6 (NoView: 32)
+                        # https://pymupdf.readthedocs.io/en/latest/annotation.html#annotation-flags
+                        is_hidden = flags & 2
+                        is_invisible = flags & 1
+                        is_noview = flags & 32
+                        
+                        if is_hidden or is_invisible or is_noview:
+                            hidden_annots.append({
+                                'page': page_num + 1,
+                                'type': annot.type[1],
+                                'flags': flags,
+                                'rect': [(int(x)) for x in annot.rect]
+                            })
+                            
+                    # 2. MediaBox Boundary Check
                     mb = page.mediabox
                     mb_rect = (mb[0], mb[1], mb[2], mb[3])
                     
@@ -241,6 +298,12 @@ def detect_hidden_text_patterns(txt: str, doc, indicators: dict):
                                     return  # Found one, that's enough
                 except Exception:
                     pass
+                    
+            if hidden_annots:
+                indicators['HiddenAnnotations'] = {
+                    'count': len(hidden_annots),
+                    'details': hidden_annots[:5] # Show limits for GUI
+                }
                     
     except Exception as e:
         logging.debug(f"Error detecting hidden text patterns: {e}")
@@ -530,7 +593,218 @@ def run_advanced_forensics(txt: str, doc, filepath: Path, indicators: dict):
         detect_polyglot_file(pdf_bytes, indicators)
         analyze_pdf_images_qt(doc, filepath, indicators)
         
+        detect_ela_anomalies(doc, indicators)
+        detect_text_operator_anomalies(txt, indicators)
+        detect_timestamp_mismatches(txt, doc, indicators)
+        detect_page_inconsistencies(doc, indicators)
+        detect_color_space_anomalies(doc, indicators)
+        
         logging.info(f"Advanced forensics completed for {filepath.name}")
         
     except Exception as e:
         logging.warning(f"Error in advanced forensics for {filepath.name}: {e}")
+
+def detect_ela_anomalies(doc, indicators: dict):
+    """
+    Performs Error Level Analysis (ELA) on embedded images to detect manipulation.
+    Resaves the image at 95% JPEG quality and computes the difference.
+    """
+    if not doc or Image is None:
+        return
+    try:
+        ela_findings = []
+        for page_num in range(min(len(doc), 50)):  # Cap at 50 pages for performance
+            page = doc[page_num]
+            for img_info in page.get_images():
+                xref = img_info[0]
+                try:
+                    img_dict = doc.extract_image(xref)
+                    if not img_dict:
+                        continue
+                    
+                    img = Image.open(io.BytesIO(img_dict["image"])).convert("RGB")
+                    
+                    tmp_io = io.BytesIO()
+                    img.save(tmp_io, 'JPEG', quality=95)
+                    tmp_io.seek(0)
+                    
+                    resaved_img = Image.open(tmp_io)
+                    diff = ImageChops.difference(img, resaved_img)
+                    
+                    extrema = diff.getextrema()
+                    max_diff = max([ex[1] for ex in extrema])
+                    
+                    if max_diff == 0: continue
+                    
+                    scale = 255.0 / max_diff
+                    diff = diff.point(lambda i: i * scale)
+                    
+                    stat = ImageStat.Stat(diff)
+                    avg_error = sum(stat.mean) / len(stat.mean)
+                    std_dev = sum(stat.stddev) / len(stat.stddev)
+                    
+                    # Thresholds for ELA anomalies finding local hotspots
+                    if std_dev > 45 and avg_error > 15:
+                        ela_findings.append({
+                            'page': page_num + 1,
+                            'xref': xref,
+                            'variance': round(std_dev, 2)
+                        })
+                except Exception:
+                    pass
+        if ela_findings:
+            indicators['ErrorLevelAnalysis'] = {
+                'count': len(ela_findings),
+                'findings': ela_findings[:10]
+            }
+    except Exception as e:
+        logging.debug(f"ELA error: {e}")
+
+def detect_text_operator_anomalies(txt: str, indicators: dict):
+    """Detect text positioning operations used to obscure or misalign text."""
+    try:
+        # Detect large negative values in TJ arrays (e.g., [ (T) -2000 (e) ])
+        tj_anomalies = len(re.findall(r"-\d{4,}\s+(?=\(|<)", txt))
+        
+        # Word spacing (Tw) or Character spacing (Tc) being excessively large
+        tw_anomalies = len(re.findall(r"(?:^|[^0-9\.])(1[0-9]{2,}|-[1-9][0-9]+)\s+Tw\b", txt))
+        tc_anomalies = len(re.findall(r"(?:^|[^0-9\.])(1[0-9]{2,}|-[1-9][0-9]+)\s+Tc\b", txt))
+        
+        total = tj_anomalies + tw_anomalies + tc_anomalies
+        if total > 0:
+            indicators['TextOperatorAnomaly'] = {
+                'count': total,
+                'tj_large_kerning': tj_anomalies,
+                'extreme_spacing': tw_anomalies + tc_anomalies
+            }
+    except Exception as e:
+        logging.debug(f"Text Operator error: {e}")
+
+def detect_timestamp_mismatches(txt: str, doc, indicators: dict):
+    """Compare document Info dictionary dates with XMP creation/modify dates."""
+    try:
+        def parse_pdf_date(date_str):
+            if not date_str: return None
+            clean = re.sub(r"[^0-9]", "", date_str)
+            if len(clean) >= 14:
+                try:
+                    return datetime.strptime(clean[:14], "%Y%m%d%H%M%S")
+                except Exception:
+                    pass
+            return None
+
+        info_create = None
+        info_mod = None
+        if doc and hasattr(doc, 'metadata') and isinstance(doc.metadata, dict):
+            info_create = parse_pdf_date(doc.metadata.get('creationDate', ''))
+            info_mod = parse_pdf_date(doc.metadata.get('modDate', ''))
+            
+        xmp_create_match = re.search(r"<xmp:CreateDate>([^<]+)", txt)
+        xmp_mod_match = re.search(r"<xmp:ModifyDate>([^<]+)", txt)
+        
+        xmp_create = parse_pdf_date(xmp_create_match.group(1)) if xmp_create_match else None
+        xmp_mod = parse_pdf_date(xmp_mod_match.group(1)) if xmp_mod_match else None
+        
+        mismatches = []
+        if info_create and xmp_create and abs((info_create - xmp_create).total_seconds()) > 60:
+            mismatches.append(f"Creation: Info({info_create.strftime('%Y-%m-%d')}) != XMP({xmp_create.strftime('%Y-%m-%d')})")
+            
+        if info_mod and xmp_mod and abs((info_mod - xmp_mod).total_seconds()) > 60:
+            mismatches.append(f"Modify: Info({info_mod.strftime('%Y-%m-%d')}) != XMP({xmp_mod.strftime('%Y-%m-%d')})")
+            
+        # Timestamp Spoofing Sanity Check
+        # A file cannot be modified before it was created
+        if info_create and info_mod and info_create > info_mod:
+            # Allow a tiny drift of a few seconds for timezone/system clock edge cases
+            if (info_create - info_mod).total_seconds() > 60:
+                indicators['TimestampSpoofing'] = {
+                    'note': f"CRITICAL: CreationDate ({info_create.strftime('%Y-%m-%d %H:%M:%S')}) occurs AFTER ModDate ({info_mod.strftime('%Y-%m-%d %H:%M:%S')})."
+                }
+            
+        if mismatches:
+            indicators['TimestampMismatch'] = {
+                'count': len(mismatches),
+                'details': mismatches
+            }
+    except Exception as e:
+        logging.debug(f"Timestamp mismatch computing error: {e}")
+
+def detect_page_inconsistencies(doc, indicators: dict):
+    """Detect individual pages that deviate starkly from the document's dimensions or rotation."""
+    if not doc or len(doc) <= 1:
+        return
+    try:
+        dimensions = {}
+        rotations = {}
+        for i in range(len(doc)):
+            page = doc[i]
+            r = page.rect
+            w_h = round(r.width, 1), round(r.height, 1)
+            dimensions[w_h] = dimensions.get(w_h, 0) + 1
+            
+            rot = page.rotation
+            rotations[rot] = rotations.get(rot, 0) + 1
+            
+        dominant_dim = max(dimensions, key=dimensions.get)
+        dominant_rot = max(rotations, key=rotations.get)
+        
+        anomalous_pages = []
+        if dimensions[dominant_dim] / len(doc) >= 0.75:
+            for i in range(len(doc)):
+                r = doc[i].rect
+                w_h = round(r.width, 1), round(r.height, 1)
+                if w_h != dominant_dim:
+                    anomalous_pages.append({'page': i+1, 'type': f'Dimensions {w_h}'})
+                    
+        if rotations[dominant_rot] / len(doc) >= 0.75:
+            for i in range(len(doc)):
+                rot = doc[i].rotation
+                if rot != dominant_rot:
+                    anomalous_pages.append({'page': i+1, 'type': f'Rotation {rot}° (expected {dominant_rot}°)'})
+                    
+        if anomalous_pages:
+            indicators['PageInconsistency'] = {
+                'count': len(anomalous_pages),
+                'pages': anomalous_pages[:10]
+            }
+    except Exception as e:
+        logging.debug(f"Page inconsistency check error: {e}")
+
+def detect_color_space_anomalies(doc, indicators: dict):
+    """Identify manually inserted graphics by anomalous color spaces."""
+    if not doc: return
+    try:
+        color_spaces = {'DeviceRGB': 0, 'DeviceCMYK': 0, 'DeviceGray': 0, 'Indexed': 0, 'Other': 0}
+        anomalies = []
+        
+        for i in range(min(len(doc), 50)):
+            for img in doc[i].get_images():
+                cs = img[5]
+                if not cs: 
+                    color_spaces['Other'] += 1
+                elif 'RGB' in cs:
+                    color_spaces['DeviceRGB'] += 1
+                elif 'CMYK' in cs:
+                    color_spaces['DeviceCMYK'] += 1
+                elif 'Gray' in cs:
+                    color_spaces['DeviceGray'] += 1
+                elif 'Indexed' in cs:
+                    color_spaces['Indexed'] += 1
+                else:
+                    color_spaces['Other'] += 1
+                    
+        total = sum(color_spaces.values())
+        if total > 5:
+            dominant = max(color_spaces, key=color_spaces.get)
+            if color_spaces[dominant] / total > 0.8:
+                for cs, count in color_spaces.items():
+                    if cs != dominant and count > 0 and count <= total * 0.15:
+                        anomalies.append(f"{count} {cs} image(s) vs dominant {dominant}")
+                        
+        if anomalies:
+            indicators['ColorSpaceAnomaly'] = {
+                'count': len(anomalies),
+                'details': anomalies
+            }
+    except Exception as e:
+        logging.debug(f"Color space check error: {e}")

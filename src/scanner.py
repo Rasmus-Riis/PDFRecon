@@ -264,7 +264,7 @@ def detect_indicators(filepath: Path, txt: str, doc, exif_output: str = "", app_
         _detect_content_stream_anomalies(txt, doc, indicators)
         
         # Object reference integrity
-        _detect_object_anomalies(txt, indicators)
+        _detect_object_anomalies(txt, doc, indicators)
         
         # JavaScript detection
         _detect_javascript(txt, indicators)
@@ -457,12 +457,13 @@ def _detect_content_stream_anomalies(txt: str, doc, indicators: dict):
         logging.debug(f"Error detecting content stream anomalies: {e}")
 
 
-def _detect_object_anomalies(txt: str, indicators: dict):
+def _detect_object_anomalies(txt: str, doc, indicators: dict):
     """
-    Detects object reference integrity issues.
+    Detects object reference integrity issues by comparing raw byte definitions against the XREF table.
     
     Args:
         txt (str): Raw PDF content as text
+        doc: PyMuPDF document object
         indicators (dict): Dictionary to add indicators to
     """
     try:
@@ -476,17 +477,39 @@ def _detect_object_anomalies(txt: str, indicators: dict):
         for match in re.finditer(r"\b(\d+)\s+\d+\s+R\b", txt):
             obj_refs.add(int(match.group(1)))
         
-        # Find orphaned objects (defined but never referenced)
-        orphaned = obj_defs - obj_refs
+        # Find orphaned objects (defined in body but unreferenced/deleted in XREF table)
+        orphaned = set()
+        if doc and hasattr(doc, 'xref_length'):
+            for obj_id in obj_defs:
+                try:
+                    # If object is outside XREF bounds, or its XREF entry is marked free ("")
+                    if obj_id >= doc.xref_length() or not doc.xref_object(obj_id):
+                        orphaned.add(obj_id)
+                except Exception:
+                    orphaned.add(obj_id)
+        else:
+            orphaned = obj_defs - obj_refs
+            
         if len(orphaned) > 0:
             indicators['OrphanedObjects'] = {
                 'count': len(orphaned),
                 'ids': sorted(list(orphaned))[:50]  # List specific IDs
             }
         
-        # Find missing objects (referenced but not defined)
-        # These are "Dangling References" - objects point to an ID that doesn't exist
-        missing = obj_refs - obj_defs
+        # Find missing objects (Dangling References - referenced but deleted/missing from XREF)
+        missing = set()
+        if doc and hasattr(doc, 'xref_length'):
+            # Only check references that point to objects higher than 0
+            for obj_id in obj_refs:
+                if obj_id == 0: continue
+                try:
+                    if obj_id >= doc.xref_length() or not doc.xref_object(obj_id):
+                        missing.add(obj_id)
+                except Exception:
+                    missing.add(obj_id)
+        else:
+            missing = obj_refs - obj_defs
+            
         if len(missing) > 0:
             indicators['MissingObjects'] = {
                 'count': len(missing),
@@ -515,7 +538,8 @@ def _detect_object_anomalies(txt: str, indicators: dict):
 
 def _detect_javascript(txt: str, indicators: dict):
     """
-    Detects JavaScript code in PDFs which can hide malicious alterations.
+    Detects JavaScript code in PDFs which can hide malicious alterations,
+    as well as phishing or local machine execution directives.
     
     Args:
         txt (str): Raw PDF content as text
@@ -523,7 +547,8 @@ def _detect_javascript(txt: str, indicators: dict):
     """
     try:
         # Check for JavaScript in the PDF
-        if re.search(r"/JavaScript\b", txt, re.I):
+        js_matches = re.findall(r"/JavaScript\b", txt, re.I)
+        if js_matches:
             indicators['ContainsJavaScript'] = {}
             
             # Check for OpenAction (auto-execute on open)
@@ -535,12 +560,22 @@ def _detect_javascript(txt: str, indicators: dict):
                 indicators['AdditionalActions'] = {}
             
             # Try to count JavaScript actions
-            js_count = len(re.findall(r"/JavaScript\b", txt, re.I))
+            js_count = len(js_matches)
             if js_count > 1:
                 indicators['MultipleJavaScripts'] = {'count': js_count}
                 
+        # Explicit Phishing Directives
+        submit_forms = re.findall(r"/SubmitForm\b", txt, re.I)
+        if submit_forms:
+            indicators['SubmitFormAction'] = {'count': len(submit_forms)}
+            
+        # Explicit Malicious / Shell Execution
+        launch_actions = re.findall(r"/Launch\b", txt, re.I)
+        if launch_actions:
+            indicators['LaunchShellAction'] = {'count': len(launch_actions)}
+            
     except Exception as e:
-        logging.debug(f"Error detecting JavaScript: {e}")
+        logging.debug(f"Error detecting JavaScript or malicious directives: {e}")
 
 
 def _detect_image_anomalies(doc, filepath: Path, indicators: dict):

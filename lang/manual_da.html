@@ -325,13 +325,14 @@
         <ul id="nav">
             <li onclick="showSection('intro')" class="active">Introduction</li>
             <li onclick="showSection('tools')">Tools Required</li>
-            <li class="section-header">— HIGH RISK (YES) —</li>
-            <li onclick="showSection('touchup')">TouchUp_TextEdit</li>
-            <li onclick="showSection('revisions')">Has Revisions</li>
-            <li onclick="showSection('javascript')">JavaScript Execute</li>
-            <li onclick="showSection('missing')">Missing Objects</li>
-            <li class="section-header">— MEDIUM RISK —</li>
-            <li onclick="showSection('fonts')">Multiple Font Subsets</li>
+            <li onclick="showSection('missing')" class="lang-en">Missing Objects</li>
+            <li class="section-header lang-en">— HIGH RISK (YES) —</li>
+            <li onclick="showSection('spoofing')" class="lang-en">Timestamp Spoofing</li>
+            <li onclick="showSection('phishing')" class="lang-en">Phishing Directives</li>
+            <li onclick="showSection('touchup')" class="lang-en">TouchUp_TextEdit</li>
+            <li class="section-header lang-en">— MEDIUM RISK —</li>
+            <li onclick="showSection('hidden')" class="lang-en">Hidden Annotations</li>
+            <li onclick="showSection('fonts')" class="lang-en">Multiple Font Subsets</li>
             <li onclick="showSection('creators')">Multiple Creators</li>
             <li onclick="showSection('xmphistory')">XMP History</li>
             <li onclick="showSection('documentid')">Document ID Mismatch</li>
@@ -446,6 +447,42 @@
             <p>Most PDFs use compression. Before manual analysis, decompress:</p>
             <pre><code>qpdf --qdf --object-streams=disable input.pdf readable.pdf</code></pre>
             <p>This makes all content streams readable in a hex editor.</p>
+        </div>
+
+        <!-- TIMESTAMP SPOOFING -->
+        <div id="spoofing" class="section" style="display:none;">
+            <h1>Timestamp Spoofing <span class="badge badge-yes">HIGH RISK</span></h1>
+            <div class="danger">
+                <strong>What it means:</strong> The file system creation date is significantly older than the internal PDF creation date. This is physically impossible under normal circumstances and strongly indicates the system clock was rolled back or the file timestamp was artificially manipulated (timestomped).
+            </div>
+            <h2>Step-by-Step Verification</h2>
+            <div class="step">
+                <span class="step-number">1</span> Right-click the file in Windows -> Properties -> Details. Note the "Date created".
+            </div>
+            <div class="step">
+                <span class="step-number">2</span> Use ExifTool or open the PDF in a hex editor and search for <code>/CreationDate</code>.
+            </div>
+            <div class="step">
+                <span class="step-number">3</span> Compare the timestamps. If the external Date Created is older than the internal /CreationDate, the file has been tampered with.
+            </div>
+        </div>
+
+        <!-- PHISHING DIRECTIVES -->
+        <div id="phishing" class="section" style="display:none;">
+            <h1>Phishing Directives <span class="badge badge-yes">HIGH RISK</span></h1>
+            <div class="danger">
+                <strong>What it means:</strong> The PDF contains actions that can submit form data to an external URL or launch external files/applications.
+            </div>
+            <h2>Manual Verification</h2>
+            <div class="step">
+                <span class="step-number">1</span> Search for <code>/Action</code> dictionaries in the PDF content.
+            </div>
+            <div class="step">
+                <span class="step-number">2</span> Look for <code>/S /SubmitForm</code> and check the <code>/F</code> key for target URLs.
+            </div>
+            <div class="step">
+                <span class="step-number">3</span> Look for <code>/S /Launch</code> and check for automated execution of <code>cmd.exe</code> or similar commands.
+            </div>
         </div>
 
         <!-- TOUCHUP_TEXTEDIT - DETAILED -->
@@ -792,6 +829,24 @@ ASCII: a  p  p  .  a  l  e  r  t</code></pre>
   /E &lt;&lt;/S /JavaScript /JS (...)&gt;&gt;    % On mouse enter
   /X &lt;&lt;/S /JavaScript /JS (...)&gt;&gt;    % On mouse exit
 &gt;&gt;</code></pre>
+        </div>
+
+        <!-- HIDDEN ANNOTATIONS -->
+        <div id="hidden" class="section" style="display:none;">
+            <h1>Hidden Annotations <span class="badge badge-found">MEDIUM RISK</span></h1>
+            <div class="warning">
+                <strong>What it means:</strong> The PDF contains annotations with the 'Hidden' or 'Invisible' flags set, possibly to obscure content.
+            </div>
+            <h2>Manual Verification</h2>
+            <div class="step">
+                <span class="step-number">1</span> Search for <code>/Annots</code> arrays in the PDF document.
+            </div>
+            <div class="step">
+                <span class="step-number">2</span> Inspect individual annotation objects (<code>/Type /Annot</code>) for the <code>/F</code> (Flags) key.
+            </div>
+            <div class="step">
+                <span class="step-number">3</span> Check if Bit 2 (Hidden, value 2) or Bit 1 (Invisible, value 1) is set in the <code>/F</code> integer.
+            </div>
         </div>
 
         <!-- MISSING OBJECTS -->

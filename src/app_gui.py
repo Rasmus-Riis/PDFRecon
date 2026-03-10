@@ -34,7 +34,7 @@ from .utils import _import_with_fallback, md5_file
 
 # --- Optional library imports with error handling ---
 PIL = _import_with_fallback('PIL', 'Image', 'Pillow')
-from PIL import Image, ImageTk, ImageChops, ImageOps
+from PIL import Image, ImageTk, ImageDraw, ImageChops, ImageOps
 
 fitz = _import_with_fallback('fitz', 'fitz', 'PyMuPDF')
 
@@ -673,9 +673,22 @@ class PDFReconApp:
             self.menubar.destroy()
         self._setup_menu()
 
-        # --- Update Other GUI Elements (customtkinter buttons) ---
-        scan_button_text = self._("choose_folder") if not self.is_reader_mode else "LOAD CASE"
+        # --- Update Other GUI Elements ---
+        scan_button_text = self._("choose_folder") if not self.is_reader_mode else self._("btn_load_case")
         self.scan_button.configure(text=scan_button_text)
+        self.export_button.configure(text=self._("btn_export_report"))
+        self.verify_button.configure(text=self._("btn_verify_integrity"))
+        
+        # Update sidebar labels and static buttons
+        if hasattr(self, 'label_actions'): self.label_actions.configure(text=self._("header_actions"))
+        if hasattr(self, 'label_tools'): self.label_tools.configure(text=self._("header_tools"))
+        if hasattr(self, 'btn_log'): self.btn_log.configure(text=self._("btn_view_log"))
+        if hasattr(self, 'btn_manual'): self.btn_manual.configure(text=self._("btn_forensic_manual"))
+        
+        # Update table area labels
+        if hasattr(self, 'label_filter'): self.label_filter.configure(text=self._("label_filter"))
+        if hasattr(self, 'label_evidence'): self.label_evidence.configure(text=self._("header_evidence"))
+        if hasattr(self, 'entry_search'): self.entry_search.configure(placeholder_text=self._("search_placeholder"))
         
         # --- Update Treeview Column Headers ---
         for i, key in enumerate(self.columns_keys):
@@ -748,11 +761,12 @@ class PDFReconApp:
                     text_color="white").pack(side="left")
         
         # Actions section
-        ctk.CTkLabel(sb, text="ACTIONS", text_color="#777", 
-                    font=ctk.CTkFont(size=11, weight="bold")).grid(row=1, column=0, padx=20, pady=5, sticky="w")
+        self.label_actions = ctk.CTkLabel(sb, text=self._("header_actions"), text_color="#777", 
+                    font=ctk.CTkFont(size=11, weight="bold"))
+        self.label_actions.grid(row=1, column=0, padx=20, pady=5, sticky="w")
         
         # Main scan button
-        scan_button_text = self._("choose_folder") if not self.is_reader_mode else "LOAD CASE"
+        scan_button_text = self._("choose_folder") if not self.is_reader_mode else self._("btn_load_case")
         self.scan_button = ctk.CTkButton(sb, text=scan_button_text, command=self.choose_folder if not self.is_reader_mode else self._open_case,
                                         font=ctk.CTkFont(weight="bold"), 
                                         fg_color=UI_COLORS['accent_blue'], 
@@ -763,29 +777,32 @@ class PDFReconApp:
             self.scan_button.configure(state="disabled")
         
         # Export button
-        self.export_button = ctk.CTkButton(sb, text="EXPORT REPORT", command=self._show_export_menu,
+        self.export_button = ctk.CTkButton(sb, text=self._("btn_export_report"), command=self._show_export_menu,
                                      font=ctk.CTkFont(weight="bold"), 
                                      fg_color=UI_COLORS['accent_green'], 
                                      hover_color=UI_COLORS['accent_green_hover'])
         self.export_button.grid(row=3, column=0, padx=20, pady=20, sticky="ew")
         
         # Tools section
-        ctk.CTkLabel(sb, text="TOOLS", text_color="#777", 
-                    font=ctk.CTkFont(size=11, weight="bold")).grid(row=4, column=0, padx=20, pady=(20,5), sticky="w")
+        self.label_tools = ctk.CTkLabel(sb, text=self._("header_tools"), text_color="#777", 
+                    font=ctk.CTkFont(size=11, weight="bold"))
+        self.label_tools.grid(row=4, column=0, padx=20, pady=(20,5), sticky="w")
         
         # Verify integrity button (disabled until scan)
-        self.verify_button = ctk.CTkButton(sb, text="VERIFY INTEGRITY", 
+        self.verify_button = ctk.CTkButton(sb, text=self._("btn_verify_integrity"), 
                                           command=self._verify_integrity,
                                           fg_color="#333", hover_color="#444")
         self.verify_button.grid(row=5, column=0, padx=20, pady=5, sticky="ew")
         
         # View log button
-        ctk.CTkButton(sb, text="VIEW LOG", command=self.show_log_file,
-                     fg_color="#333", hover_color="#444").grid(row=6, column=0, padx=20, pady=5, sticky="ew")
+        self.btn_log = ctk.CTkButton(sb, text=self._("btn_view_log"), command=self.show_log_file,
+                     fg_color="#333", hover_color="#444")
+        self.btn_log.grid(row=6, column=0, padx=20, pady=5, sticky="ew")
         
         # Manual button
-        ctk.CTkButton(sb, text="Forensic Manual", command=self.show_manual,
-                     fg_color="transparent", text_color="gray").grid(row=10, column=0, padx=20, pady=20, sticky="ew")
+        self.btn_manual = ctk.CTkButton(sb, text=self._("btn_forensic_manual"), command=self.show_manual,
+                     fg_color="transparent", text_color="gray")
+        self.btn_manual.grid(row=10, column=0, padx=20, pady=20, sticky="ew")
 
     def _show_export_menu(self):
         """Show export menu options."""
@@ -813,12 +830,13 @@ class PDFReconApp:
         # Search/Filter frame
         search_frame = ctk.CTkFrame(container, fg_color="transparent")
         search_frame.grid(row=0, column=0, sticky="ew", pady=(0, 10))
-        ctk.CTkLabel(search_frame, text="FILTER:", 
+        self.label_filter = ctk.CTkLabel(search_frame, text=self._("label_filter"), 
                     font=ctk.CTkFont(size=12, weight="bold"), 
-                    text_color="gray").pack(side="left", padx=(0, 10))
+                    text_color="gray")
+        self.label_filter.pack(side="left", padx=(0, 10))
         
         self.entry_search = ctk.CTkEntry(search_frame, textvariable=self.filter_var,
-                                        placeholder_text="Type to search filenames, paths, alterations...",
+                                        placeholder_text=self._("search_placeholder"),
                                         height=35)
         self.entry_search.pack(side="left", fill="x", expand=True)
         self.filter_var.trace_add("write", self._apply_filter)
@@ -891,8 +909,9 @@ class PDFReconApp:
         # Details panel (Evidence Viewer)
         self.details_frame = ctk.CTkFrame(container, fg_color="#232323", corner_radius=5)
         self.details_frame.grid(row=3, column=0, sticky="nsew", pady=(5, 0))
-        ctk.CTkLabel(self.details_frame, text="EVIDENCE VIEWER (Select a row to inspect)", 
-                    font=("Segoe UI", 11, "bold"), text_color="#777").pack(anchor="w", padx=10, pady=(5,0))
+        self.label_evidence = ctk.CTkLabel(self.details_frame, text=self._("header_evidence"), 
+                    font=("Segoe UI", 11, "bold"), text_color="#777")
+        self.label_evidence.pack(anchor="w", padx=10, pady=(5,0))
         
         self.detail_text = ctk.CTkTextbox(self.details_frame, fg_color="#1e1e1e", 
                                          text_color="#dcdcdc", font=("Consolas", 12))
@@ -1102,7 +1121,7 @@ class PDFReconApp:
         # --- Create the Inspector window once if it doesn't exist ---
         if not self.inspector_window or not self.inspector_window.winfo_exists():
             self.inspector_window = Toplevel(self.root)
-            self.inspector_window.title("Inspector")
+            self.inspector_window.title(self._("inspector_title"))
             
             self._center_window(self.inspector_window, width_scale=UI_DIMENSIONS['window_scale_width'], 
                               height_scale=UI_DIMENSIONS['window_scale_height'])
@@ -1132,7 +1151,7 @@ class PDFReconApp:
 
             # Tab 3: Timeline
             timeline_frame = ttk.Frame(notebook, padding="10")
-            notebook.add(timeline_frame, text=self._("show_timeline"))
+            notebook.add(timeline_frame, text=self._("inspector_timeline_tab"))
             timeline_text_widget = tk.Text(timeline_frame, wrap="word", font=("Courier New", 10))
             timeline_vscroll = ttk.Scrollbar(timeline_frame, orient="vertical", command=timeline_text_widget.yview)
             timeline_text_widget.config(yscrollcommand=timeline_vscroll.set)
@@ -1143,7 +1162,7 @@ class PDFReconApp:
 
             # Tab 4: Version History (for files with revisions)
             version_frame = ttk.Frame(notebook, padding="10")
-            notebook.add(version_frame, text="Version History")
+            notebook.add(version_frame, text=self._("inspector_version_tab"))
             version_text_widget = tk.Text(version_frame, wrap="word", font=("Courier New", 10))
             version_vscroll = ttk.Scrollbar(version_frame, orient="vertical", command=version_text_widget.yview)
             version_text_widget.config(yscrollcommand=version_vscroll.set)
@@ -1154,7 +1173,7 @@ class PDFReconApp:
 
             # Tab 5: PDF Viewer
             pdf_view_frame = ttk.Frame(notebook)
-            notebook.add(pdf_view_frame, text=self._("view_pdf"))
+            notebook.add(pdf_view_frame, text=self._("inspector_pdf_viewer_tab"))
             self.inspector_pdf_frame = pdf_view_frame
             
             def on_inspector_close():
@@ -1166,7 +1185,7 @@ class PDFReconApp:
             self.inspector_window.protocol("WM_DELETE_WINDOW", on_inspector_close)
 
         # --- Update the content of the existing window ---
-        self.inspector_window.title(f"Inspector: {file_name}")
+        self.inspector_window.title(f"{self._('inspector_title')}: {file_name}")
 
         # Update Details Tab
         self.inspector_indicators_text.config(state="normal")
@@ -1243,7 +1262,7 @@ class PDFReconApp:
             
             if has_touchup:
                 touchup_banner = ttk.Label(pdf_main_frame, 
-                    text="🔴 TouchUp_TextEdit detected - extracted text shown below",
+                    text=self._("touchup_detected"),
                     foreground="red", font=("Segoe UI", 9, "bold"))
                 touchup_banner.grid(row=current_row, column=0, pady=(0, 5), sticky="ew")
                 current_row += 1
@@ -1259,7 +1278,7 @@ class PDFReconApp:
                 touchup_text_frame = ttk.Frame(pdf_main_frame)
                 touchup_text_frame.grid(row=current_row, column=0, sticky="ew", pady=(0, 5))
                 
-                touchup_text_label = ttk.Label(touchup_text_frame, text="Extracted altered text:", 
+                touchup_text_label = ttk.Label(touchup_text_frame, text=self._("extracted_altered_text"), 
                                                font=("Segoe UI", 8, "bold"))
                 touchup_text_label.pack(anchor="w")
                 
@@ -1283,9 +1302,17 @@ class PDFReconApp:
             pdf_nav_frame = ttk.Frame(pdf_main_frame)
             pdf_nav_frame.grid(row=current_row + 1, column=0, pady=(10,0))
             
-            prev_button = ttk.Button(pdf_nav_frame, text=self._("diff_prev_page"))
-            page_label = ttk.Label(pdf_nav_frame, text="", font=("Segoe UI", 9, "italic"))
-            next_button = ttk.Button(pdf_nav_frame, text=self._("diff_next_page"))
+            pinpoint_var = tk.BooleanVar(value=True)
+            pinpoint_cb = ttk.Checkbutton(pdf_nav_frame, text=self._("enable_visual_pinpointing"), 
+                                          variable=pinpoint_var, command=lambda: update_page(current_page_ref['page']))
+            pinpoint_cb.pack(side="top", pady=(0, 5))
+            
+            nav_buttons_frame = ttk.Frame(pdf_nav_frame)
+            nav_buttons_frame.pack(side="top")
+            
+            prev_button = ttk.Button(nav_buttons_frame, text=self._("diff_prev_page"))
+            page_label = ttk.Label(nav_buttons_frame, text="", font=("Segoe UI", 9, "italic"))
+            next_button = ttk.Button(nav_buttons_frame, text=self._("diff_next_page"))
             prev_button.pack(side="left", padx=10)
             page_label.pack(side="left", padx=10)
             next_button.pack(side="left", padx=10)
@@ -1327,7 +1354,7 @@ class PDFReconApp:
                 self.inspector_doc = fitz.open(stream=mod_bytes, filetype="pdf")
 
             if doc_ocgs:
-                layer_frame = ttk.LabelFrame(pdf_main_frame, text="Document Layers", padding=5)
+                layer_frame = ttk.LabelFrame(pdf_main_frame, text=self._("doc_layers_label"), padding=5)
                 layer_frame.grid(row=current_row + 2, column=0, pady=(8, 0), sticky="ew")
                 name_counts = {}
                 for xref, info in doc_ocgs.items():
@@ -1382,7 +1409,7 @@ class PDFReconApp:
                     
                     if page_texts:
                         touchup_text_widget.insert("1.0", f"Page {page_num + 1} - Extracted text segments:\n", "header")
-                        touchup_text_widget.insert(tk.END, "(│ separates individual text operations)\n\n", "hint")
+                        touchup_text_widget.insert(tk.END, "(Note: [n] indicates individual text operations)\n\n", "hint")
                         for idx, text in enumerate(page_texts, 1):
                             touchup_text_widget.insert(tk.END, f"[{idx}] ", "number")
                             touchup_text_widget.insert(tk.END, f"{text}\n")
@@ -1393,6 +1420,110 @@ class PDFReconApp:
                 
                 pix = page.get_pixmap(dpi=150)
                 img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                
+                # --- APPLY VISUAL PINPOINTING ---
+                if pinpoint_var.get():
+                    indicator_keys = file_data.get("indicator_keys", {})
+                    zoom = 150 / 72.0
+                    draw = ImageDraw.Draw(img)
+                    
+                    # 1. ELA Anomalies
+                    if "ErrorLevelAnalysis" in indicator_keys:
+                        for finding in indicator_keys["ErrorLevelAnalysis"].get("findings", []):
+                            if finding.get("page") == page_num + 1:
+                                xref = finding.get("xref")
+                                if xref:
+                                    try:
+                                        for img_info in page.get_image_info(xrefs=True):
+                                            if img_info["xref"] == xref:
+                                                r = img_info["bbox"]
+                                                r_scaled = [r[0]*zoom, r[1]*zoom, r[2]*zoom, r[3]*zoom]
+                                                draw.rectangle(r_scaled, outline="red", width=6)
+                                                # Add label
+                                                draw.text((r_scaled[0], max(0, r_scaled[1]-20)), 
+                                                          f"ELA Anomaly (var: {finding.get('variance', '?')})", 
+                                                          fill="red")
+                                    except Exception: pass
+                    
+                    # 2. Page Inconsistencies
+                    if "PageInconsistency" in indicator_keys:
+                        for p_info in indicator_keys["PageInconsistency"].get("pages", []):
+                            if p_info.get("page") == page_num + 1:
+                                # Outline the entire page
+                                border = 10
+                                draw.rectangle([border, border, img.width-border, img.height-border], 
+                                               outline="red", width=border)
+                                draw.text((border+10, border+10), 
+                                          f"ANOMALOUS PAGE: {p_info.get('type', '')}", fill="red")
+                                          
+                    # 3. Color Space Anomalies
+                    if "ColorSpaceAnomaly" in indicator_keys:
+                        for f_info in indicator_keys["ColorSpaceAnomaly"].get("findings", []):
+                            if f_info.get("page") == page_num + 1:
+                                border = 10
+                                draw.rectangle([border, border, img.width-border, img.height-border], 
+                                               outline="cyan", width=border)
+                                draw.text((border+10, border+30), 
+                                          f"COLOR SPACE ANOMALY", fill="cyan")
+                                          
+                    # 4. TouchUp TextEdits
+                    if "TouchUp_TextEdit" in indicator_keys:
+                        found_text = indicator_keys["TouchUp_TextEdit"].get("found_text", {})
+                        page_texts = []
+                        if isinstance(found_text, dict):
+                            page_texts = found_text.get(page_num + 1, [])
+                        elif isinstance(found_text, list):
+                            page_texts = found_text # Legacy fallback
+                            
+                        for text_segment in page_texts:
+                            try:
+                                # Split by the visual separator │ used during extraction
+                                parts = [p.strip() for p in text_segment.split("│")]
+                                for part in parts:
+                                    if not part or len(part) < 2:
+                                        continue
+                                    # search_for returns a list of fitz.Rect
+                                    rects = page.search_for(part)
+                                    for r in rects:
+                                        r_scaled = [r[0]*zoom, r[1]*zoom, r[2]*zoom, r[3]*zoom]
+                                        draw.rectangle(r_scaled, outline="purple", width=3)
+                                        draw.text((r_scaled[0], max(0, r_scaled[1]-15)), "TouchUp Edit", fill="purple")
+                            except Exception:
+                                pass
+                                
+                    # 5. Multiple Font Subsets
+                    if "MultipleFontSubsets" in indicator_keys:
+                        conflicting_fonts = indicator_keys["MultipleFontSubsets"].get("fonts", {})
+                        all_conflicting_subsets = []
+                        for subsets in conflicting_fonts.values():
+                            all_conflicting_subsets.extend(list(subsets))
+                            
+                        try:
+                            text_dict = page.get_text("dict")
+                            for block in text_dict.get("blocks", []):
+                                for line in block.get("lines", []):
+                                    for span in line.get("spans", []):
+                                        if span.get("font") in all_conflicting_subsets:
+                                            r = span["bbox"]
+                                            r_scaled = [r[0]*zoom, r[1]*zoom, r[2]*zoom, r[3]*zoom]
+                                            draw.rectangle(r_scaled, outline="orange", width=3)
+                                            draw.text((r_scaled[0], max(0, r_scaled[1]-15)), "Anomalous Font", fill="orange")
+                        except Exception:
+                            pass
+                            
+                    # 6. Duplicate/Compressed Images
+                    if "DuplicateImagesWithDifferentXrefs" in indicator_keys:
+                        xrefs = indicator_keys["DuplicateImagesWithDifferentXrefs"].get("xrefs", [])
+                        for xref in xrefs:
+                            try:
+                                for img_info in page.get_image_info(xrefs=True):
+                                    if img_info["xref"] == xref:
+                                        r = img_info["bbox"]
+                                        r_scaled = [r[0]*zoom, r[1]*zoom, r[2]*zoom, r[3]*zoom]
+                                        draw.rectangle(r_scaled, outline="yellow", width=4)
+                                        draw.text((r_scaled[0], max(0, r_scaled[1]-15)), "Duplicate Image", fill="yellow")
+                            except Exception:
+                                pass
                 
                 if pdf_main_frame.winfo_width() <= 1 or pdf_main_frame.winfo_height() <= 1:
                     self.inspector_pdf_update_job = self.inspector_window.after(50, lambda: update_page(page_num))
@@ -1416,7 +1547,7 @@ class PDFReconApp:
             
             self.inspector_pdf_update_job = self.inspector_window.after(100, lambda: update_page(0))
         else:
-            ttk.Label(self.inspector_pdf_frame, text="Could not display PDF.").pack(pady=20)
+            ttk.Label(self.inspector_pdf_frame, text=self._("could_not_display_pdf")).pack(pady=20)
 
         # --- Show and raise the window ---
         self.inspector_window.deiconify()
@@ -1488,7 +1619,7 @@ class PDFReconApp:
                 return
         
         # If not found, show a message
-        messagebox.showinfo("Not Found", f"The related file could not be found in the current scan results.")
+        messagebox.showinfo(self._("not_found_title"), self._("related_file_not_found"))
 
     def _insert_related_files_with_links(self, details):
         """Inserts RelatedFiles indicator with clickable links in the inspector."""
@@ -1534,12 +1665,12 @@ class PDFReconApp:
         file_data = self.all_scan_data.get(path_str)
         
         if not file_data:
-            messagebox.showinfo("Error", "Could not find data for the selected file.", parent=self.root)
+            messagebox.showinfo(self._("error_title"), self._("data_not_found"), parent=self.root)
             return
 
         text_diff_data = file_data.get("indicator_keys", {}).get("TouchUp_TextEdit", {}).get("text_diff")
         if not text_diff_data:
-            messagebox.showinfo("No Diff", "No text comparison data is available for this file.", parent=self.root)
+            messagebox.showinfo(self._("no_diff_title"), self._("no_diff_data"), parent=self.root)
             return
 
         popup = Toplevel(self.root)
@@ -1582,7 +1713,7 @@ class PDFReconApp:
             if resolved_path and resolved_path.exists():
                 webbrowser.open(os.path.dirname(resolved_path))
             else:
-                messagebox.showwarning("File Not Found", f"The file could not be found at the path:\n{resolved_path}")       
+                messagebox.showwarning(self._("file_not_found_title"), self._("file_at_path_not_found").format(path=resolved_path))       
 
     def _make_text_copyable(self, text_widget):
         """Makes a Text widget read-only but allows text selection and copying."""
@@ -1952,7 +2083,7 @@ class PDFReconApp:
         original_path_str = rev_data.get('original_path') if rev_data else None
 
         if not original_path_str:
-            messagebox.showerror(self._("diff_error_title"), "Original file for revision not found.", parent=self.root)
+            messagebox.showerror(self._("diff_error_title"), self._("orig_file_not_found"), parent=self.root)
             self.root.config(cursor="")
             return
 
@@ -2146,7 +2277,7 @@ class PDFReconApp:
                 settings_popup.destroy()
 
             except ValueError:
-                messagebox.showerror("Error", self._("settings_invalid_input"), parent=settings_popup)
+                messagebox.showerror(self._("error_title"), self._("settings_invalid_input"), parent=settings_popup)
 
         # --- Buttons Frame ---
         buttons_frame = ttk.Frame(main_frame)
@@ -2473,7 +2604,8 @@ class PDFReconApp:
                     self._progress_current += 1
                     progress = self._progress_current / self._progress_max
                     self.progressbar.set(progress)
-                    self.status_var.set(self._("scan_progress_eta").format(**data))
+                    base_status = self._("scan_progress_eta").format(**data)
+                    self.status_var.set(f"[{int(progress*100)}% - {self._progress_current}/{self._progress_max} files] {base_status}")
                     
                 elif msg_type == "scan_status":
                     self.status_var.set(data)
@@ -2497,7 +2629,7 @@ class PDFReconApp:
                     
                 elif msg_type == "error":
                     logging.warning(data)
-                    messagebox.showerror("Critical Error", data)
+                    messagebox.showerror(self._("critical_error_title"), data)
                     
                 elif msg_type == "finished":
                     self._finalize_scan()
@@ -3513,7 +3645,7 @@ class PDFReconApp:
                 try:
                     webbrowser.open(os.path.dirname(path_str))
                 except Exception as e:
-                    messagebox.showerror(self._("open_folder_error_title"), f"Could not open the folder: {e}")
+                    messagebox.showerror(self._("open_folder_error_title"), self._("could_not_open_folder").format(e=e))
                 break
 
     def extract_revisions(self, raw, original_path):
@@ -4061,32 +4193,47 @@ class PDFReconApp:
         """
         txt_segments = []
 
-        # Cap: header/trailer/objects
-        head_cap = raw[:2_000_000].decode("latin1", "ignore")
-        txt_segments.append(head_cap)
+        # Try to find all streams more robustly
+        # This regex handles cases with different line endings or extra spaces
+        stream_matches = list(re.finditer(rb"(?s)stream\b(.*?)\bendstream", raw))
+        
+        # Track if we found any TouchUp forensic markers during decompression
+        found_touchup_marker = False
 
-        # Only process small streams (e.g., <= 256 KB) to avoid inflating large images
-        for m in re.finditer(rb"stream\r?\n(.*?)\r?\nendstream", raw, re.S):
-            body = m.group(1)
-            if len(body) <= 256_000:
+        for m in stream_matches:
+            body = m.group(1).strip(b"\r\n ")
+            if len(body) <= 500_000:  # Increased limit for complex content streams
                 try:
-                    txt_segments.append(PDFReconApp.decompress_stream(body))
+                    decompressed = PDFReconApp.decompress_stream(body)
+                    if decompressed:
+                        txt_segments.append(decompressed)
+                        if not found_touchup_marker and re.search(r"TouchUp", decompressed, re.I):
+                            found_touchup_marker = True
                 except Exception:
                     try:
-                        txt_segments.append(body.decode("latin1", "ignore"))
+                        # Fallback to latin1 for non-compressed but binary-ish streams
+                        decoded = body.decode("latin1", "ignore")
+                        txt_segments.append(decoded)
+                        if not found_touchup_marker and "TouchUp" in decoded:
+                            found_touchup_marker = True
                     except Exception:
                         pass
 
+        # Header/trailer/objects (first and last 1MB)
+        txt_segments.append(raw[:1_000_000].decode("latin1", "ignore"))
+        if len(raw) > 1_000_000:
+            txt_segments.append(raw[-1_000_000:].decode("latin1", "ignore"))
+
         # XMP xpacket (full content)
-        m = re.search(rb"<\?xpacket begin=.*?\?>(.*?)<\?xpacket end=[^>]*\?>", raw, re.S)
+        m = re.search(rb"<\?xpacket begin=.*?\?>(.*?)\<\?xpacket end=[^>]*\?\>", raw, re.S)
         if m:
             try:
                 txt_segments.append(m.group(1).decode("utf-8", "ignore"))
             except Exception:
                 txt_segments.append(m.group(1).decode("latin1", "ignore"))
 
-        # Ensure TouchUp_TextEdit is detectable even if it appears outside sampled text.
-        if re.search(rb"touchup_textedit", raw, re.I):
+        # Ensure TouchUp_TextEdit is detectable by scanner.py if found anywhere
+        if found_touchup_marker or re.search(rb"touchup_textedit", raw, re.I):
             txt_segments.append("TouchUp_TextEdit")
 
         return "\n".join(txt_segments)
@@ -4135,6 +4282,11 @@ class PDFReconApp:
             "HasRevisions",
             "TouchUp_TextEdit",
             "Signature: Invalid",
+            "ErrorLevelAnalysis",
+            "PageInconsistency",
+            "ColorSpaceAnomaly",
+            "TextOperatorAnomaly",
+            "TimestampMismatch",
         }
 
         if any(ind in high_risk_indicators for ind in keys_set):
@@ -4506,7 +4658,8 @@ class PDFReconApp:
             indicator_dict = item.get("indicator_keys") or {}
             if indicator_dict:
                 lines = [self._format_indicator_details(key, details) for key, details in indicator_dict.items()]
-                indicators_by_path[path_str] = "• " + "\n• ".join(lines)
+                lines = [l for l in lines if l]
+                indicators_by_path[path_str] = "• " + "\n• ".join(lines) if lines else ""
             else:
                 indicators_by_path[path_str] = ""
 
@@ -4557,6 +4710,7 @@ class PDFReconApp:
             if not indicator_dict: return ""
 
             lines = [self._format_indicator_details(key, details) for key, details in indicator_dict.items()]
+            lines = [l for l in lines if l]
             return "; ".join(lines)
 
         # Prepare data with full EXIF output + full indicators
@@ -4682,194 +4836,138 @@ class PDFReconApp:
    
     def _extract_touchup_text(self, doc):
         """
-        Parses a PDF's internal objects to find any text associated with a TouchUp_TextEdit flag.
-        Returns a list of extracted text strings.
+        Extracts text from elements marked with TouchUp_TextEdit.
+        Uses a 'Masking' strategy: creates a copy of the PDF, masks all non-TouchUp text
+        using pikepdf, and then extracts the remaining (correctly decoded) text using fitz.
+        This ensures CID-encoded fonts (common in TouchUp edits) are correctly translated.
         """
-        def _clean_text_segment(raw_bytes):
-            try:
-                text = raw_bytes.decode("latin-1", errors="ignore")
-                replacements = {"Õ": "å", "ã": "å", "°": "ø", "¯": "ø", "µ": "æ", "\xa0": " "}
-                for old, new in replacements.items():
-                    text = text.replace(old, new)
-                text = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", text)
-                text = re.sub(r" +", " ", text)
-                return text.strip()
-            except Exception:
-                return ""
+        import pikepdf
+        import io
+        import logging
+        import fitz
 
-        def _is_probably_junk(text):
-            if not text or len(text) < 3:
-                return True
-            allowed = 0
-            for ch in text:
-                if ch.isalnum() or ch.isspace() or ch in ".,:;!?-()'\"/":
-                    allowed += 1
-            if allowed / max(len(text), 1) < 0.7:
-                return True
-            if len(set(text)) <= 3 and len(text) > 10:
-                return True
-            return False
-
-        # First try pikepdf-based extraction (TouchUp blocks).
-        try:
-            import pikepdf
-            from pikepdf import String
-            from io import BytesIO
-
-            results = []
-            pdf = None
-            try:
-                original_filepath = doc.name if doc and hasattr(doc, "name") else None
-                if original_filepath and Path(original_filepath).exists():
-                    pdf = pikepdf.open(original_filepath)
-                elif doc and not doc.is_closed and hasattr(doc, "write"):
-                    pdf = pikepdf.open(BytesIO(doc.write()))
-            except Exception as e:
-                logging.debug(f"Pikepdf open failed for TouchUp extraction: {e}")
-                pdf = None
-
-            if pdf is not None:
-                # Group results by page number: {page_num: [text1, text2, ...]}
-                page_results = {}
-                with pdf:
-                    for i, page in enumerate(pdf.pages):
-                        page_num = i + 1
-                        try:
-                            commands = pikepdf.parse_content_stream(page)
-                        except Exception:
-                            continue
-
-                        active_search = False
-                        current_block_buffer = []
-
-                        for operands, operator in commands:
-                            op_name = str(operator)
-                            if any("TouchUp" in str(arg) for arg in operands):
-                                active_search = True
-                            elif active_search and op_name in ["Tj", "TJ"]:
-                                chunks = operands[0] if op_name == "TJ" else operands
-                                for chunk in chunks:
-                                    if isinstance(chunk, String):
-                                        try:
-                                            raw_text = chunk.decode()
-                                            cleaned = _clean_text_segment(raw_text.encode("latin-1", errors="ignore"))
-                                        except Exception:
-                                            cleaned = _clean_text_segment(bytes(chunk))
-                                        if cleaned and not _is_probably_junk(cleaned):
-                                            current_block_buffer.append(cleaned)
-                            elif op_name in ["ET", "EMC"]:
-                                if active_search and current_block_buffer:
-                                    # Join with visible separator so user can see segment boundaries
-                                    # Use │ (box drawing character) as delimiter
-                                    combined = " │ ".join([b for b in current_block_buffer if b])
-                                    if combined:
-                                        if page_num not in page_results:
-                                            page_results[page_num] = []
-                                        page_results[page_num].append(combined)
-                                    current_block_buffer = []
-                                active_search = False
-
-                if page_results:
-                    # Return as dictionary grouped by page
-                    return page_results
-        except ImportError:
-            logging.debug("pikepdf not installed, falling back to pdfminer.six extraction.")
-            pdf = None
-        except Exception as e:
-            logging.warning(f"TouchUp pikepdf extraction failed: {e}")
-            pdf = None
-
-        if pdf is not None:
+        page_results = {}
+        if not doc or doc.is_closed:
             return page_results
 
-        # Fallback: robust extraction using pdfminer.six
-        # This properly decodes text even if encoded with specific ToUnicode CMaps or Font Subsets
-        found_text = {}
-        if not doc or doc.is_closed:
-            return found_text
-
         try:
-            from pdfminer.pdfinterp import PDFResourceManager, PDFPageInterpreter
-            from pdfminer.pdfpage import PDFPage
-            from pdfminer.converter import PDFPageAggregator
-            from pdfminer.layout import LAParams, LTTextContainer
-            from io import BytesIO
+            # 1. Open a copy of the PDF using pikepdf for surgical masking
+            try:
+                # Use tobytes() to ensure we have the most recent state in memory
+                pdf_bytes = doc.tobytes()
+                pdf = pikepdf.open(io.BytesIO(pdf_bytes))
+            except Exception as e:
+                logging.debug(f"Pikepdf open failed for TouchUp masking: {e}")
+                return page_results
 
-            class TouchUpDevice(PDFPageAggregator):
-                def __init__(self, rsrcmgr, laparams):
-                    super().__init__(rsrcmgr, laparams=laparams)
-                    self.in_touchup = False
-                    self.current_page_text = []
-
-                def begin_tag(self, tag, props=None):
-                    super().begin_tag(tag, props)
-                    tag_name = tag.name if hasattr(tag, 'name') else str(tag)
-                    if tag_name == 'TouchUp_TextEdit':
-                        self.in_touchup = True
-                    elif props and hasattr(props, 'keys'):
-                        for v in props.values():
-                            v_name = v.name if hasattr(v, 'name') else str(v)
-                            if 'TouchUp_TextEdit' in v_name:
-                                self.in_touchup = True
-
-                def end_tag(self):
-                    super().end_tag()
-                    if self.in_touchup:
-                        self.in_touchup = False
+            with pdf:
+                for page_num, page in enumerate(pdf.pages):
+                    try:
+                        # Parse the content stream
+                        ops = pikepdf.parse_content_stream(page)
+                        new_ops = []
                         
-                def receive_layout(self, ltpage):
-                    # In PDFPageAggregator, layout hierarchy is built after rendering strings.
-                    # As a simpler approach for touchup tags (which wrap strings directly),
-                    # we can intercept the string rendering directly.
-                    pass
-                    
-                def render_string(self, textstate, seq, ncs, graphicstate):
-                    super().render_string(textstate, seq, ncs, graphicstate)
-                    if self.in_touchup:
-                        # decoded chars are gathered from the sequence by the textstate font
-                        font = textstate.font
-                        text = ""
-                        for obj in seq:
-                            try:
-                                if isinstance(obj, str):
-                                    text += obj
-                                elif isinstance(obj, bytes):
-                                    for cid in font.decode(obj):
-                                        try:
-                                            text += font.to_unichr(cid)
-                                        except Exception:
-                                            pass
-                            except Exception:
-                                pass
+                        touchup_stack = [False]
+                        mp_flag = False
+                        in_flagged_bt = False
+                        
+                        # Find Marked Content properties for tag lookup
+                        properties = {}
+                        if "/Resources" in page and "/Properties" in page.Resources:
+                            properties = page.Resources.Properties
+
+                        for operands, operator in ops:
+                            op_name = str(operator)
+                            
+                            # Track TouchUp scope (BDC / BMC)
+                            if op_name in ["BDC", "BMC"]:
+                                is_touchup = False
+                                tag = ""
+                                if operands and (isinstance(operands[0], pikepdf.Name) or isinstance(operands[0], str)):
+                                    tag = str(operands[0])
+                                
+                                if "TouchUp" in tag:
+                                    is_touchup = True
+                                elif properties and operands and operands[0] in properties:
+                                    try:
+                                        if "TouchUp" in str(properties[operands[0]]):
+                                            is_touchup = True
+                                    except Exception: pass
+                                touchup_stack.append(is_touchup or touchup_stack[-1])
+                            
+                            elif op_name == "EMC":
+                                if len(touchup_stack) > 1:
+                                    touchup_stack.pop()
+                                in_flagged_bt = False
+                                mp_flag = False
+                            
+                            # Handle Marked Points (MP / DP)
+                            elif op_name in ["MP", "DP"]:
+                                tag = ""
+                                if operands and (isinstance(operands[0], pikepdf.Name) or isinstance(operands[0], str)):
+                                    tag = str(operands[0])
+                                    
+                                if "TouchUp" in tag:
+                                    mp_flag = True
+                                elif properties and operands and operands[0] in properties:
+                                    try:
+                                        if "TouchUp" in str(properties[operands[0]]):
+                                            mp_flag = True
+                                    except Exception: pass
+                            
+                            elif op_name == "BT":
+                                if mp_flag:
+                                    in_flagged_bt = True
+                                    mp_flag = False
+                            
+                            elif op_name == "ET":
+                                in_flagged_bt = False
+                            
+                            # Determine if current operator should be masked
+                            is_inside_touchup = touchup_stack[-1] or in_flagged_bt
+                            
+                            if not is_inside_touchup and op_name in ["Tj", "TJ", "'", '"']:
+                                # Mask non-TouchUp text by replacing it with spaces
+                                if op_name == "TJ":
+                                    new_list = []
+                                    for item in operands[0]:
+                                        if isinstance(item, pikepdf.String):
+                                            new_list.append(pikepdf.String(" " * len(bytes(item))))
+                                        else:
+                                            new_list.append(item)
+                                    new_ops.append(([new_list], operator))
+                                else:
+                                    new_ops.append(([pikepdf.String(" " * len(bytes(operands[0])))], operator))
+                            else:
+                                # Keep original operator
+                                new_ops.append((operands, operator))
+
+                        # Apply modified stream to the page
+                        page.set_contents(pikepdf.unparse_content_stream(new_ops))
+                        
+                    except Exception as e:
+                        logging.debug(f"Failed to mask page {page_num}: {e}")
+                        continue
+
+                # 2. Save modified PDF to buffer and use fitz to decode remaining text
+                out_buf = io.BytesIO()
+                pdf.save(out_buf)
+                out_buf.seek(0)
+                
+                with fitz.open(stream=out_buf, filetype="pdf") as masked_doc:
+                    for i, masked_page in enumerate(masked_doc):
+                        text = masked_page.get_text("text").strip()
                         if text:
-                            cleaned = _clean_text_segment(text.encode("utf-8", errors="ignore"))
-                            if cleaned and not _is_probably_junk(cleaned):
-                                self.current_page_text.append(cleaned)
+                            lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+                            if lines:
+                                page_results[i + 1] = lines
+            
+            return page_results
 
-            pdf_bytes = doc.write()
-            rmgr = PDFResourceManager()
-            device = TouchUpDevice(rmgr, laparams=LAParams())
-            interpreter = PDFPageInterpreter(rmgr, device)
-
-            for i, page in enumerate(PDFPage.get_pages(BytesIO(pdf_bytes))):
-                page_num = i + 1
-                device.current_page_text = []
-                try:
-                    interpreter.process_page(page)
-                    if device.current_page_text:
-                        # Join extracted strings with visible boundary separation
-                        combined = " │ ".join([t for t in device.current_page_text if t])
-                        if combined:
-                            found_text[page_num] = [combined]
-                except Exception as e:
-                    logging.debug(f"pdfminer.six analysis failed on page {page_num}: {e}")
-
-        except ImportError:
-            logging.debug("pdfminer.six not installed. TouchUp_TextEdit extraction cannot decode fonts.")
         except Exception as e:
-            logging.warning(f"Could not extract TouchUp text via pdfminer.six: {e}")
+            logging.warning(f"Robust TouchUp extraction failed: {e}")
+            return {}
 
-        return found_text
 
     def _get_text_for_comparison(self, source):
         """
@@ -4984,13 +5082,17 @@ class PDFReconApp:
             self.root.config(cursor="")
             return
 
-        # Check if this file has TouchUp_TextEdit indicator
+        # Check if this file has visual indicators like TouchUp_TextEdit or ErrorLevelAnalysis
         file_data = self.all_scan_data.get(path_str)
         has_touchup = False
         touchup_texts_by_page = {}
+        has_ela = False
+        ela_xrefs_by_page = {}
         
         if file_data:
-            touchup_info = file_data.get("indicator_keys", {}).get("TouchUp_TextEdit", {})
+            indicator_keys = file_data.get("indicator_keys", {})
+            
+            touchup_info = indicator_keys.get("TouchUp_TextEdit", {})
             if touchup_info:
                 has_touchup = True
                 found_text = touchup_info.get("found_text", {})
@@ -4998,6 +5100,17 @@ class PDFReconApp:
                     touchup_texts_by_page = found_text
                 elif isinstance(found_text, list):
                     touchup_texts_by_page = {0: found_text}
+
+            ela_info = indicator_keys.get("ErrorLevelAnalysis", {})
+            jpeg_info = indicator_keys.get("JPEG_Analysis", {})
+            if ela_info or jpeg_info:
+                has_ela = True
+                findings = ela_info.get("findings", []) + jpeg_info.get("findings", [])
+                for f in findings:
+                    page_num = f.get("page", 1) - 1 # Output pages are 1-indexed, internally 0-indexed
+                    xref = f.get("xref")
+                    if xref:
+                        ela_xrefs_by_page.setdefault(page_num, []).append(xref)
 
         try:
             # --- Popup Window Setup ---
@@ -5011,6 +5124,8 @@ class PDFReconApp:
             popup.has_touchup = has_touchup
             popup.touchup_texts_by_page = touchup_texts_by_page
             popup.touchup_regions_cache = {}  # Cache for extracted regions per page
+            popup.has_ela = has_ela
+            popup.ela_xrefs_by_page = ela_xrefs_by_page
             
             # --- Widget Layout ---
             main_frame = ttk.Frame(popup, padding=10)
@@ -5021,9 +5136,14 @@ class PDFReconApp:
             # Info label for TouchUp highlighting
             info_frame = ttk.Frame(main_frame)
             info_frame.grid(row=0, column=0, sticky="ew")
-            if has_touchup:
-                info_label = ttk.Label(info_frame, text=f"🔴 TouchUp_TextEdit detected - edited regions highlighted in red", 
-                                       foreground="red", font=("Segoe UI", 9, "italic"))
+            if has_touchup or has_ela:
+                messages = []
+                if has_touchup:
+                    messages.append("🔴 TouchUp_TextEdit detected (highlighted in red)")
+                if has_ela:
+                    messages.append("🟠 Image Anomalies detected (highlighted in orange)")
+                info_label = ttk.Label(info_frame, text=" | ".join(messages), 
+                                       foreground="red" if has_touchup else "orange", font=("Segoe UI", 9, "italic"))
                 info_label.pack(pady=5)
 
             image_label = ttk.Label(main_frame)
@@ -5073,7 +5193,7 @@ class PDFReconApp:
                 popup.doc = fitz.open(stream=mod_bytes, filetype="pdf")
 
             if popup_ocgs:
-                popup_layer_frame = ttk.LabelFrame(main_frame, text="Document Layers", padding=5)
+                popup_layer_frame = ttk.LabelFrame(main_frame, text=self._("doc_layers_label"), padding=5)
                 popup_layer_frame.grid(row=3, column=0, pady=(8, 0), sticky="ew")
                 name_counts = {}
                 for xref, info in popup_ocgs.items():
@@ -5131,17 +5251,39 @@ class PDFReconApp:
                         )
                     highlight_rects = popup.touchup_regions_cache[page_num]
                 
-                # Draw red rectangles on the page before rendering
-                if highlight_rects:
+                ela_rects = []
+                if popup.has_ela:
+                    xrefs = popup.ela_xrefs_by_page.get(page_num, [])
+                    for xref in xrefs:
+                        try:
+                            # Try to get the bounding box for the image xref
+                            rects = page.get_image_rects(xref)
+                            ela_rects.extend(rects)
+                        except Exception:
+                            pass
+                
+                # Draw rectangles on the page before rendering
+                if highlight_rects or ela_rects:
                     shape = page.new_shape()
-                    for rect in highlight_rects:
-                        # Draw a red rectangle outline around the text
-                        shape.draw_rect(rect)
-                        shape.finish(color=(1, 0, 0), fill=None, width=2)  # Red outline
-                        
-                        # Also draw a semi-transparent red fill
-                        shape.draw_rect(rect)
-                        shape.finish(color=None, fill=(1, 0, 0), fill_opacity=0.3)  # Light red fill
+                    if highlight_rects:
+                        for rect in highlight_rects:
+                            # Draw a red rectangle outline around the text
+                            shape.draw_rect(rect)
+                            shape.finish(color=(1, 0, 0), fill=None, width=2)  # Red outline
+                            
+                            # Also draw a semi-transparent red fill
+                            shape.draw_rect(rect)
+                            shape.finish(color=None, fill=(1, 0, 0), fill_opacity=0.3)  # Light red fill
+                    
+                    if ela_rects:
+                        for rect in ela_rects:
+                            # Draw an orange rectangle outline around the image
+                            shape.draw_rect(rect)
+                            shape.finish(color=(1, 0.5, 0), fill=None, width=2)  # Orange outline
+                            
+                            # Also draw a semi-transparent orange fill
+                            shape.draw_rect(rect)
+                            shape.finish(color=None, fill=(1, 0.5, 0), fill_opacity=0.3)  # Light orange fill
                     
                     shape.commit()
                 
@@ -5204,7 +5346,7 @@ class PDFReconApp:
                 # Handle both dict (new format) and list (legacy format)
                 if isinstance(found_text, dict):
                     # New format: {page_num: [text1, text2, ...]}
-                    lines = ["(Note: │ separates individual text operations)"]
+                    lines = ["(Note: [n] indicates individual text operations)"]
                     for page_num in sorted(found_text.keys()):
                         texts = found_text[page_num]
                         if page_num == 0:
@@ -5283,30 +5425,44 @@ class PDFReconApp:
             return "\n".join(lines)
             
         # --- Advanced Forensics Indicators ---
+        if key == 'TimestampSpoofing':
+            return self._("timestamp_spoofing").format(note=details.get('note', ''))
+        if key == 'HiddenAnnotations':
+            count = details.get('count', 0)
+            if count == 0: return None
+            annots = details.get('details', [])
+            annot_str = "\n    • " + "\n    • ".join(f"Page {a['page']}: {a['type']} (Flags: {a['flags']}) at {a['rect']}" for a in annots)
+            if count > len(annots): annot_str += self._("hidden_annotations_more").format(more=count-len(annots))
+            return self._("hidden_annotations").format(count=count, details=annot_str.lstrip('\n    • '))
+        if key == 'SubmitFormAction':
+            return self._("submit_form_action").format(count=details.get('count', 0))
+        if key == 'LaunchShellAction':
+            return self._("launch_shell_action").format(count=details.get('count', 0))
+            
         if key == 'EmailAddresses':
             count = details.get('count', 0)
             if count == 0: return None
             emails = details.get('emails', [])
             emails_str = "\n    • " + "\n    • ".join(emails[:20])
-            if count > 20: emails_str += f"\n    ... (+{count-20} more)"
-            return f"Email Addresses (Found {count}):{emails_str}"
+            if count > 20: emails_str += self._("email_addresses_more").format(more=count-20)
+            return self._("email_addresses").format(count=count, emails=emails_str.lstrip('\n    • '))
         if key == 'URLs':
             count = details.get('count', 0)
             if count == 0: return None
             domains = details.get('domains', [])
             domains_str = "\n    • " + "\n    • ".join(domains[:20])
-            if count > 20: domains_str += f"\n    ... (+{count-20} more)"
-            return f"URLs (Found {count} unique domains):{domains_str}"
+            if count > 20: domains_str += self._("urls_more").format(more=count-20)
+            return self._("urls_found").format(count=count, domains=domains_str.lstrip('\n    • '))
         if key == 'UNCPaths':
             count = details.get('count', 0)
             if count == 0: return None
             paths = details.get('paths', [])
             paths_str = ", ".join(paths[:5])
-            if count > 5: paths_str += f", ... (+{count-5} more)"
-            return f"UNC Paths (Found {count}): {paths_str}"
+            if count > 5: paths_str += self._("unc_paths_more").format(more=count-5)
+            return self._("unc_paths").format(count=count, paths=paths_str)
         if key == 'Languages':
             langs_list = ", ".join(details.get('languages', []))
-            return f"Languages: {langs_list}"
+            return self._("languages").format(languages=langs_list)
         if key == 'Encrypted' or key == 'PasswordRequired' or key == 'EncryptedButOpen' or key == 'EncryptionDictionary' or key == 'SecurityRestrictions':
             status = details.get('status', 'Present')
             if key == 'SecurityRestrictions' and 'restrictions' in details:
@@ -5355,6 +5511,39 @@ class PDFReconApp:
             return result
             
         # --- Scanner Anomaly Indicators ---
+        if key == 'ErrorLevelAnalysis':
+            findings = details.get('findings', [])
+            lines = [f"Image Error Level Analysis ({len(findings)} anomalies):"]
+            for f in findings:
+                lines.append(f"  • Page {f.get('page')} (Image XREF: {f.get('xref')}): Map Variance {f.get('variance', 0):.2f}")
+            return "\n".join(lines)
+        if key == 'TextOperatorAnomaly':
+            anomalies = details.get('anomalies', [])
+            lines = [f"Text Positioning Anomalies ({len(anomalies)} found):"]
+            for a in anomalies[:5]:
+                lines.append(f"  • {a.get('desc')} -> {a.get('snippet')}")
+            if len(anomalies) > 5:
+                lines.append(f"  • ... (+{len(anomalies)-5} more)")
+            return "\n".join(lines)
+        if key == 'TimestampMismatch':
+            mismatches = details.get('mismatches', [])
+            lines = ["Timestamp Mismatches (Info vs XMP):"]
+            for m in mismatches:
+                lines.append(f"  • {m.get('type')}: Info={m.get('info_date', '?')}, XMP={m.get('xmp_date', '?')}")
+            return "\n".join(lines)
+        if key == 'PageInconsistency':
+            pages = details.get('pages', [])
+            lines = [f"Page Inconsistencies ({len(pages)} anomalous pages):"]
+            for p in pages:
+                lines.append(f"  • Page {p.get('page')}: {p.get('type')} ({p.get('details')})")
+            return "\n".join(lines)
+        if key == 'ColorSpaceAnomaly':
+            findings = details.get('findings', [])
+            lines = [f"Color Space Anomalies ({len(findings)} found):"]
+            for f in findings:
+                page_str = f"Page {f.get('page')}: " if f.get('page') else ""
+                lines.append(f"  • {page_str}{f.get('desc')}")
+            return "\n".join(lines)
         if key == 'OrphanedObjects' or key == 'MissingObjects':
             count = details.get('count', 0)
             label = "Orphaned Objects" if key == 'OrphanedObjects' else "Missing Objects"
