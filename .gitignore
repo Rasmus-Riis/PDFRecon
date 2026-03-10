@@ -5,6 +5,7 @@ pdfrecon.log
 PDFRecon.spec
 /exiftool_files
 exiftool.exe
+.pytest_cache/
 __pycache__/
 */__pycache__/
 *.pyc
