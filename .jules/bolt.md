@@ -1,0 +1,3 @@
+## 2024-05-19 - Fast-fail substring checks vs multiple regexes for indicator detection
+**Learning:** In large string processing like PDF text extraction, case-insensitive regular expressions are extremely computationally expensive compared to native string methods. The `re.search(..., re.I)` approach takes orders of magnitude longer than `str.lower()` combined with the `in` operator.
+**Action:** When scanning large texts for multiple case-insensitive patterns, cache the `.lower()` version of the string once. Use fast substring checks (`if "pattern" in text_lower`) as a prerequisite gate before evaluating more complex regexes. Apply this fast-fail pattern whenever porting or adding new indicator detection logic.

@@ -267,7 +267,7 @@ def detect_indicators(filepath: Path, txt: str, doc, exif_output: str = "", app_
         _detect_object_anomalies(txt, doc, indicators)
         
         # JavaScript detection
-        _detect_javascript(txt, indicators)
+        _detect_javascript(txt, indicators, txt_lower)
         
         # Image forensics
         if doc:
@@ -536,7 +536,7 @@ def _detect_object_anomalies(txt: str, doc, indicators: dict):
         logging.debug(f"Error detecting object anomalies: {e}")
 
 
-def _detect_javascript(txt: str, indicators: dict):
+def _detect_javascript(txt: str, indicators: dict, txt_lower: str = None):
     """
     Detects JavaScript code in PDFs which can hide malicious alterations,
     as well as phishing or local machine execution directives.
@@ -544,19 +544,26 @@ def _detect_javascript(txt: str, indicators: dict):
     Args:
         txt (str): Raw PDF content as text
         indicators (dict): Dictionary to add indicators to
+        txt_lower (str, optional): Pre-computed lowercase text for fast substring checks
     """
     try:
+        # PERFORMANCE OPTIMIZATION (Bolt ⚡):
+        # Use fast substring check on cached lowercase text before expensive regex
+        if txt_lower is None:
+            txt_lower = txt.lower()
+
         # Check for JavaScript in the PDF
-        js_matches = re.findall(r"/JavaScript\b", txt, re.I)
-        if js_matches:
+        if "/javascript" in txt_lower:
+            js_matches = re.findall(r"/JavaScript\b", txt, re.I)
+            if js_matches:
             indicators['ContainsJavaScript'] = {}
             
             # Check for OpenAction (auto-execute on open)
-            if re.search(r"/OpenAction\b", txt, re.I):
+            if "/openaction" in txt_lower and re.search(r"/OpenAction\b", txt, re.I):
                 indicators['JavaScriptAutoExecute'] = {}
             
             # Check for AA (Additional Actions)
-            if re.search(r"/AA\s*<<", txt, re.I):
+            if "/aa" in txt_lower and re.search(r"/AA\s*<<", txt, re.I):
                 indicators['AdditionalActions'] = {}
             
             # Try to count JavaScript actions
