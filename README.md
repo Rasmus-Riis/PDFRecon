@@ -256,27 +256,6 @@ PDFRecon/
 ├── PDFRecon.spec           # PyInstaller config
 └── requirements.txt        # Dependencies
 ```
-
----
-
-## Changelog
-
-### v17.3.5 (Current)
-- ✨ Comprehensive forensic manual with parsing instructions
-- ✨ TouchUp text extraction with per-page display
-- ✨ Related document detection via XMP IDs
-- ✨ Version history with visual diff
-- 🐛 Fixed case loading errors
-- 🐛 Fixed restricted environment support
-
-### v17.3.0
-- ✨ 40+ forensic indicators
-- ✨ Advanced detection methods
-- ✨ Polyglot file detection
-- ✨ Image forensics (EXIF in embedded images)
-
----
-
 ## License
 
 PDFRecon is provided for forensic and educational purposes.
