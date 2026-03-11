@@ -26,6 +26,13 @@ from pathlib import Path
 import fitz
 from PIL import Image, ImageChops
 
+try:
+    import exiftool as _exiftool_module
+    _EXIFTOOL_MODULE_AVAILABLE = True
+except ImportError:
+    _EXIFTOOL_MODULE_AVAILABLE = False
+    _exiftool_module = None
+
 from .config import (
     PDFReconConfig,
     PDFCorruptionError,
@@ -39,6 +46,14 @@ from .config import (
 )
 from .pdf_processor import safe_pdf_open, count_layers
 from .scanner import detect_indicators as scanner_detect_indicators
+
+
+# ---------------------------------------------------------------------------
+# Per-worker-process persistent ExifTool singleton
+# ---------------------------------------------------------------------------
+
+# Set once per OS worker process by _worker_init(); stays None in the GUI process.
+_et_process = None
 
 
 # ---------------------------------------------------------------------------
@@ -257,7 +272,39 @@ def _resolve_exiftool_path() -> Path | None:
 
 
 def _run_exiftool(path: Path, detailed: bool = False) -> str:
-    """Run exiftool on a file and return its output as a string."""
+    """
+    Run exiftool on a file and return its output as a string.
+
+    Primary path: uses the persistent ExifToolHelper process started by
+    _worker_init() (one per OS worker process) to avoid per-file startup cost.
+
+    Fallback: spawns a fresh subprocess as before, used when the persistent
+    process is unavailable (GUI thread, ExifTool not found, or on error).
+    """
+    global _et_process
+
+    # ------------------------------------------------------------------
+    # Fast path: persistent process (available after _worker_init runs)
+    # ------------------------------------------------------------------
+    if _et_process is not None:
+        try:
+            args = ["-a", "-u", "-s", "-G1"]
+            if detailed:
+                args.append("-struct")
+            args.append(str(path))
+            raw_output = _et_process.execute(*args)
+            # execute() returns str; strip blank lines to match subprocess output
+            return "\n".join(line for line in raw_output.splitlines() if line.strip())
+        except Exception as e:
+            logging.warning(
+                f"ExifToolHelper.execute failed for {path.name}: {e} "
+                "— falling back to subprocess"
+            )
+            # Fall through to subprocess below
+
+    # ------------------------------------------------------------------
+    # Slow path: spawn a fresh subprocess (original behaviour)
+    # ------------------------------------------------------------------
     exe_path = _resolve_exiftool_path()
     if not exe_path:
         return "ExifTool not found."
@@ -686,6 +733,53 @@ def _apply_scan_config(cfg: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Worker-process initializer — called once per OS worker process
+# ---------------------------------------------------------------------------
+
+def _worker_init(cfg: dict) -> None:
+    """
+    Initializer for ProcessPoolExecutor worker processes.
+
+    Called exactly once per spawned OS process.  Applies config and starts
+    a persistent ExifToolHelper instance so every file handled by this
+    worker reuses the same ExifTool background process instead of spawning
+    a new one for each file.
+    """
+    global _et_process
+
+    # Apply config snapshot in this process
+    _apply_scan_config(cfg)
+
+    # Set up logging once per worker process
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s [worker] %(message)s")
+
+    if not _EXIFTOOL_MODULE_AVAILABLE:
+        logging.warning("pyexiftool not available — using subprocess fallback for ExifTool.")
+        return
+
+    exe_path = _resolve_exiftool_path()
+    if exe_path is None:
+        logging.warning("ExifTool executable not found — using subprocess fallback.")
+        return
+
+    try:
+        _et_process = _exiftool_module.ExifToolHelper(
+            executable=str(exe_path),
+            # Pass no common_args so we control all flags per execute() call.
+            # This lets us toggle -struct on/off for detailed vs. non-detailed mode.
+            common_args=[],
+            # Suppress the console window on Windows
+            win_shell=True,
+        )
+        # Trigger auto-start immediately so the first file isn't slow
+        _et_process.run()
+        logging.info(f"ExifToolHelper started (pid={_et_process.process.pid if hasattr(_et_process, 'process') else '?'})")
+    except Exception as e:
+        logging.warning(f"Could not start ExifToolHelper: {e} — using subprocess fallback.")
+        _et_process = None
+
+
+# ---------------------------------------------------------------------------
 # Top-level worker function (must be module-level for pickling on Windows)
 # ---------------------------------------------------------------------------
 
@@ -704,7 +798,12 @@ def process_single_file_worker(fp_str: str, cfg: dict) -> list:
         A list of plain dicts (one for the original, one per revision).
         All Path objects are converted to strings so they survive pickling.
     """
-    _apply_scan_config(cfg)
+    # Note: _apply_scan_config(cfg) is now called in _worker_init() (once per
+    # worker process) rather than once per file.  When running outside of a
+    # ProcessPoolExecutor (e.g. unit tests or direct calls), apply it here as
+    # a safe fallback so the function still works standalone.
+    if _et_process is None:
+        _apply_scan_config(cfg)
     fp = Path(fp_str)
 
     # Set up basic logging in the subprocess so errors are visible

@@ -57,7 +57,7 @@ from .utils import CaseEncoder, case_decoder
 from .pdf_processor import count_layers
 from .scanner import detect_indicators as scanner_detect_indicators
 from .exporter import clean_cell_value
-from .scan_worker import process_single_file_worker, build_scan_config
+from .scan_worker import process_single_file_worker, build_scan_config, _worker_init
 
 
 
@@ -2611,8 +2611,13 @@ class PDFReconApp:
             # all platforms and is reconstructed on the other side)
             fp_strings = [str(fp) for fp in pdf_files]
 
-            # Use ProcessPoolExecutor for true CPU parallelism (bypasses the GIL)
-            with ProcessPoolExecutor(max_workers=PDFReconConfig.MAX_WORKER_THREADS) as executor:
+            # Use ProcessPoolExecutor for true CPU parallelism (bypasses the GIL).
+            # The initializer starts one persistent ExifToolHelper per worker process.
+            with ProcessPoolExecutor(
+                max_workers=PDFReconConfig.MAX_WORKER_THREADS,
+                initializer=_worker_init,
+                initargs=(cfg,),
+            ) as executor:
                 future_to_path = {
                     executor.submit(process_single_file_worker, fp_s, cfg): Path(fp_s)
                     for fp_s in fp_strings
