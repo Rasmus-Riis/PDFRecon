@@ -2508,18 +2508,62 @@ class PDFReconApp:
                     rev_md5 = hashlib.md5(rev_raw, usedforsecurity=False).hexdigest()
                     rev_exif = self.exiftool_output(rev_path, detailed=True)
                     rev_parsed_exif = self._parse_exif_data(rev_exif)
+                    
+                    # Revisions with invalid XREF tables are always flagged but only skipped if export setting is enabled
+                    if PDFReconConfig.EXPORT_INVALID_XREF and "Warning" in rev_exif and "Invalid xref table" in rev_exif:
+                        logging.info(f"Submitting invalid XREF revision for {rev_path.name} to be copied and SKIPPING from results.")
+                        invalid_xref_dir = self.last_scan_folder / "Invalid XREF"
+                        invalid_xref_dir.mkdir(exist_ok=True)
+                        dest_path = invalid_xref_dir / rev_path.name
+                        if self.copy_executor:
+                            self.copy_executor.submit(self._perform_copy, rev_raw, dest_path)
+                        continue # Skip adding this invalid revision to the main results
+
                     rev_txt = self.extract_text(rev_raw)
                     revision_timeline = self.generate_comprehensive_timeline(rev_path, rev_txt, rev_exif, parsed_exif_data=rev_parsed_exif)
                     
+                    # Perform a visual comparison to see if the revision is identical to the original
+                    is_identical = False
+                    try:
+                        # Re-open original and current revision for visual check
+                        with fitz.open(fp) as doc_orig, fitz.open(rev_path) as doc_rev:
+                            pages_to_compare = min(doc_orig.page_count, doc_rev.page_count, PDFReconConfig.VISUAL_DIFF_PAGE_LIMIT)
+                            if pages_to_compare > 0:
+                                is_identical = True
+                                for i in range(pages_to_compare):
+                                    page_orig, page_rev = doc_orig.load_page(i), doc_rev.load_page(i)
+                                    if page_orig.rect != page_rev.rect: 
+                                        is_identical = False
+                                        break
+                                    pix_orig, pix_rev = page_orig.get_pixmap(dpi=96), page_rev.get_pixmap(dpi=96)
+                                    img_orig = Image.frombytes("RGB", [pix_orig.width, pix_orig.height], pix_orig.samples)
+                                    img_rev = Image.frombytes("RGB", [pix_rev.width, pix_rev.height], pix_rev.samples)
+                                    if img_orig.size != img_rev.size:
+                                        is_identical = False
+                                        break
+                                    if ImageChops.difference(img_orig, img_rev).getbbox() is not None: 
+                                        is_identical = False
+                                        break
+                    except Exception as ve:
+                        logging.warning(f"Could not visually compare revision {rev_path.name} to {fp.name}: {ve}")
+                        is_identical = False
+                    
+                    if is_identical:
+                        logging.info(f"Revision {rev_path.name} is visually identical to its parent {fp.name}")
+                    
+                    indicator_keys = {"Revision": {}}
+                    if is_identical:
+                        indicator_keys["VisuallyIdentical"] = {}
+                    
                     revision_row_data = {
                         "path": rev_path,
-                        "indicator_keys": {"Revision": {}},
+                        "indicator_keys": indicator_keys,
                         "md5": rev_md5,
                         "exif": rev_exif,
                         "is_revision": True,
                         "timeline": revision_timeline,
                         "original_path": fp,
-                        "is_identical": False,
+                        "is_identical": is_identical,
                         "status": "success"
                     }
                     results.append(revision_row_data)
@@ -4525,78 +4569,7 @@ class PDFReconApp:
         close_button.grid(row=1, column=0, pady=(10, 0))
         
     
-    def _process_and_validate_revisions(self, potential_revisions, original_fp, scan_root_folder):
-        """
-        Processes, validates, and compares a list of potential PDF revisions.
-        Returns a list of dictionaries for valid revisions that should be reported.
-        """
-        valid_revision_results = []
-        invalid_xref_dir = scan_root_folder / "Invalid XREF"
-
-        for rev_path, basefile, rev_raw in potential_revisions:
-            tmp_path = None
-            try:
-                # Use a temporary file to run ExifTool without writing to the final destination first
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-                    tmp_file.write(rev_raw)
-                    tmp_path = Path(tmp_file.name)
-                
-                rev_exif = self.exiftool_output(tmp_path, detailed=True)
-
-                # Conditionally copy revisions with invalid XREF tables if the setting is enabled
-                if PDFReconConfig.EXPORT_INVALID_XREF and "Warning" in rev_exif and "Invalid xref table" in rev_exif:
-                    logging.info(f"Submitting invalid XREF revision for {basefile} to be copied.")
-                    dest_path = invalid_xref_dir / rev_path.name
-                    if self.copy_executor:
-                        self.copy_executor.submit(self._perform_copy, rev_raw, dest_path)
-                    continue  # Skip adding this invalid revision to the results
-
-                # If valid, write the revision to its final destination
-                rev_path.parent.mkdir(exist_ok=True)
-                rev_path.write_bytes(rev_raw)
-                
-                rev_md5 = hashlib.md5(rev_raw, usedforsecurity=False).hexdigest()
-                rev_txt = self.extract_text(rev_raw)
-                revision_timeline = self.generate_comprehensive_timeline(rev_path, rev_txt, rev_exif)
-
-                # Perform a visual comparison to see if the revision is identical to the original
-                is_identical = False
-                try:
-                    with fitz.open(original_fp) as doc_orig, fitz.open(rev_path) as doc_rev:
-                        pages_to_compare = min(doc_orig.page_count, doc_rev.page_count, PDFReconConfig.VISUAL_DIFF_PAGE_LIMIT)
-                        if pages_to_compare > 0:
-                            is_identical = True
-                            for i in range(pages_to_compare):
-                                page_orig, page_rev = doc_orig.load_page(i), doc_rev.load_page(i)
-                                if page_orig.rect != page_rev.rect: 
-                                    is_identical = False
-                                    break
-                                pix_orig, pix_rev = page_orig.get_pixmap(dpi=96), page_rev.get_pixmap(dpi=96)
-                                img_orig = Image.frombytes("RGB", [pix_orig.width, pix_orig.height], pix_orig.samples)
-                                img_rev = Image.frombytes("RGB", [pix_rev.width, pix_rev.height], pix_rev.samples)
-                                # Ensure images are same size before comparison
-                                if img_orig.size != img_rev.size:
-                                    is_identical = False
-                                    break
-                                if ImageChops.difference(img_orig, img_rev).getbbox() is not None: 
-                                    is_identical = False
-                                    break
-                except Exception as e:
-                    logging.warning(f"Could not visually compare {rev_path.name}, keeping it. Error: {e}")
-                
-                revision_row_data = { 
-                    "path": rev_path, "indicator_keys": {"Revision": {}}, "md5": rev_md5, "exif": rev_exif, 
-                    "is_revision": True, "timeline": revision_timeline, "original_path": original_fp, 
-                    "is_identical": is_identical, "status": "success"
-                }
-                valid_revision_results.append(revision_row_data)
-            finally:
-                if tmp_path and tmp_path.exists():
-                    os.remove(tmp_path)
-        
-        return valid_revision_results
-
-
+    
     def _prompt_and_export(self, file_format):
         """Prompts the user for a file path and calls the relevant export function."""
         if not self.report_data:
