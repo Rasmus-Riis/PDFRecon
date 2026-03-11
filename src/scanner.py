@@ -207,7 +207,7 @@ def detect_indicators(filepath: Path, txt: str, doc, exif_output: str = "", app_
             indicators['XMPHistory'] = {}
             
         # NEW: Check for creator/producer mismatch with PDF features
-        _detect_metadata_inconsistencies(txt, doc, indicators)
+        _detect_metadata_inconsistencies(txt, txt_lower, doc, indicators)
 
         # --- Structural and Content Indicators ---
         try:
@@ -243,15 +243,15 @@ def detect_indicators(filepath: Path, txt: str, doc, exif_output: str = "", app_
             indicators['LinearizedUpdated'] = {}
 
         # --- Feature Indicators ---
-        if re.search(r"/Redact\b", txt, re.I): 
+        if "/redact" in txt_lower and re.search(r"/Redact\b", txt, re.I):
             indicators['HasRedactions'] = {}
-        if re.search(r"/Annots\b", txt, re.I): 
+        if "/annots" in txt_lower and re.search(r"/Annots\b", txt, re.I):
             indicators['HasAnnotations'] = {}
-        if re.search(r"/PieceInfo\b", txt, re.I): 
+        if "/pieceinfo" in txt_lower and re.search(r"/PieceInfo\b", txt, re.I):
             indicators['HasPieceInfo'] = {}
-        if re.search(r"/AcroForm\b", txt, re.I):
+        if "/acroform" in txt_lower and re.search(r"/AcroForm\b", txt, re.I):
             indicators['HasAcroForm'] = {}
-            if re.search(r"/NeedAppearances\s+true\b", txt, re.I):
+            if "needappearances" in txt_lower and re.search(r"/NeedAppearances\s+true\b", txt, re.I):
                 indicators['AcroFormNeedAppearances'] = {}
 
         # PERFORMANCE OPTIMIZATION (Bolt ⚡): List comprehension with findall is faster
@@ -385,19 +385,24 @@ def analyze_fonts(filepath: Path, doc):
     return conflicting_fonts
 
 
-def _detect_metadata_inconsistencies(txt: str, doc, indicators: dict):
+def _detect_metadata_inconsistencies(txt: str, txt_lower: str, doc, indicators: dict):
     """
     Detects inconsistencies between metadata claims and actual PDF features.
     
     Args:
         txt (str): Raw PDF content as text
+        txt_lower (str): Lowercased raw PDF content for fast checks
         doc: PyMuPDF document object
         indicators (dict): Dictionary to add indicators to
     """
     try:
         # Check if metadata claims a specific creator but features suggest otherwise
-        creator_match = re.search(r"/Creator\s*\((.*?)\)", txt, re.I)
-        producer_match = re.search(r"/Producer\s*\((.*?)\)", txt, re.I)
+        creator_match = None
+        producer_match = None
+        if "/creator" in txt_lower:
+            creator_match = re.search(r"/Creator\s*\((.*?)\)", txt, re.I)
+        if "/producer" in txt_lower:
+            producer_match = re.search(r"/Producer\s*\((.*?)\)", txt, re.I)
         
         if creator_match or producer_match:
             creator = creator_match.group(1) if creator_match else ""
@@ -546,6 +551,7 @@ def _detect_javascript(txt: str, indicators: dict, txt_lower: str = None):
     
     Args:
         txt (str): Raw PDF content as text
+        txt_lower (str): Lowercased raw PDF content for fast checks
         indicators (dict): Dictionary to add indicators to
         txt_lower (str, optional): Pre-computed lowercase text for fast substring checks
     """
