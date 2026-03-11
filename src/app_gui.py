@@ -4143,14 +4143,16 @@ class PDFReconApp:
             except (ValueError, IndexError):
                 continue
         return events        
+    # PERFORMANCE OPTIMIZATION (Bolt ⚡): Precompile regex for reuse across many function calls
+    _INVALID_XML_CHARS_RE = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F]")
+
     def _clean_cell_value(self, value):
         """Fjerner tegn, der kan give XLSX/XML-fejl (BOM/mojibake/kontroltegn)."""
-        import re
         if value is None:
             return ""
         s = str(value)
         # ulovlige XML-kontroltegn (tillader \t \n \r)
-        s = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F]", "", s)
+        s = self._INVALID_XML_CHARS_RE.sub("", s)
         # reelle BOM-tegn
         if s.startswith("\ufeff") or s.startswith("\ufffe"):
             s = s.lstrip("\ufeff\ufffe")
