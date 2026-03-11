@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import Mock, MagicMock
 from pathlib import Path
-from pdfrecon.utils import safe_stat_times
+from src.utils import safe_stat_times
 
 class TestSafeStatTimes(unittest.TestCase):
     def test_safe_stat_times_success(self):
