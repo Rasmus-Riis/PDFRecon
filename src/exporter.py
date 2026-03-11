@@ -15,7 +15,7 @@ from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill
 
-from .config import UI_COLORS
+from .config import UI_COLORS, XML_CONTROL_RE
 
 
 def clean_cell_value(value):
@@ -29,12 +29,12 @@ def clean_cell_value(value):
     Returns:
         str: Cleaned cell value
     """
-    import re
     if value is None:
         return ""
     s = str(value)
+    # ⚡ Bolt Optimization: Use pre-compiled regex for stripping invalid XML chars instead of compiling inline per cell
     # Remove illegal XML control characters (allow \t \n \r)
-    s = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F]", "", s)
+    s = XML_CONTROL_RE.sub("", s)
     # Remove BOM characters
     if s.startswith("\ufeff") or s.startswith("\ufffe") or s.startswith("\xef\xbb\xbf"):
         s = s.lstrip("\ufeff\ufffe")

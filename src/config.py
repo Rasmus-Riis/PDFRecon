@@ -102,3 +102,6 @@ LAYER_OC_REF_RE = re.compile(rb"/OC\s+(\d+)\s+(\d+)\s+R")
 PDF_DATE_PATTERN = re.compile(r"\/([A-Z][a-zA-Z0-9_]+)\s*\(\s*D:(\d{14})")
 KV_PATTERN = re.compile(r'^\[(?P<group>[^\]]+)\]\s*(?P<tag>[\w\-/ ]+?)\s*:\s*(?P<value>.+)$')
 DATE_TZ_PATTERN = re.compile(r"^(?P<date>\d{4}[-:]\d{2}[-:]\d{2}[ T]\d{2}:\d{2}:\d{2})(?:\.\d+)?(?P<tz>[+\-]\d{2}:\d{2}|Z)?")
+
+# ⚡ Bolt Optimization: Pre-compiled regex for XML control characters to avoid repeated compilation during large spreadsheet exports.
+XML_CONTROL_RE = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F]")
