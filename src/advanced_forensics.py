@@ -17,13 +17,38 @@ try:
 except ImportError:
     Image = None
 
+# Pre-compiled regular expressions for performance optimization
+EMAIL_PATTERN_RE = re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b')
+URL_PATTERN_RE = re.compile(r'https?://[^\s<>"{}|\\^`\[\]]+', re.IGNORECASE)
+UNC_PATTERN_RE = re.compile(r'\\\\[a-zA-Z0-9_\-\.]+\\[a-zA-Z0-9_\-\.\$\\]+')
+ENCRYPT_DICT_RE = re.compile(r'/Encrypt\s+\d+\s+\d+\s+R')
+ENCRYPT_PERM_RE = re.compile(r'/P\s+(-?\d+)')
+INVISIBLE_TEXT_RE = re.compile(r'\s3\s+Tr\b')
+WHITE_COLOR_RE = re.compile(r'\b1\s+1\s+1\s+(rg|RG)\b')
+EMBEDDED_FILE_RE = re.compile(r'/Type\s*/EmbeddedFile', re.IGNORECASE)
+EMBEDDED_FILE_NAME_RE = re.compile(r'/F\s*\(([^)]+)\)')
+FILE_ATTACHMENT_RE = re.compile(r'/Subtype\s*/FileAttachment')
+THREE_D_RE = re.compile(r'/Subtype\s*/3D')
+SOUND_RE = re.compile(r'/Subtype\s*/Sound')
+MOVIE_RE = re.compile(r'/Subtype\s*/Movie')
+SCREEN_RE = re.compile(r'/Subtype\s*/Screen')
+RICH_MEDIA_RE = re.compile(r'/Subtype\s*/RichMedia')
+DATE_PATTERN_RE = re.compile(r'D:(\d{4})(\d{2})(\d{2})(\d{2})?(\d{2})?(\d{2})?')
+PDFA_PART_RE = re.compile(r'pdfaid:part>(\d+)</pdfaid:part', re.IGNORECASE)
+PDFA_CONFORMANCE_RE = re.compile(r'pdfaid:conformance>([A-Z])</pdfaid:conformance', re.IGNORECASE)
+TJ_ANOMALY_RE = re.compile(r"-\d{4,}\s+(?=\(|<)")
+TW_ANOMALY_RE = re.compile(r"(?:^|[^0-9\.])(1[0-9]{2,}|-[1-9][0-9]+)\s+Tw\b")
+TC_ANOMALY_RE = re.compile(r"(?:^|[^0-9\.])(1[0-9]{2,}|-[1-9][0-9]+)\s+Tc\b")
+CLEAN_DATE_RE = re.compile(r"[^0-9]")
+XMP_CREATE_RE = re.compile(r"<xmp:CreateDate>([^<]+)")
+XMP_MOD_RE = re.compile(r"<xmp:ModifyDate>([^<]+)")
+
 
 def detect_emails_and_urls(txt: str, indicators: dict):
     """Extract email addresses and URLs from PDF content."""
     try:
         # Email pattern (more restrictive)
-        email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b'
-        raw_emails = set(re.findall(email_pattern, txt))
+        raw_emails = set(EMAIL_PATTERN_RE.findall(txt))
         
         # Validation: Filter out garbage (random binary strings often look like short emails)
         emails = []
@@ -80,8 +105,7 @@ def detect_emails_and_urls(txt: str, indicators: dict):
             }
         
         # URL pattern (http, https, ftp)
-        url_pattern = r'https?://[^\s<>"{}|\\^`\[\]]+'
-        raw_urls = set(re.findall(url_pattern, txt, re.IGNORECASE))
+        raw_urls = set(URL_PATTERN_RE.findall(txt))
 
         # Clean URLs and filter common metadata namespaces
         urls = set()
@@ -123,8 +147,7 @@ def detect_unc_paths(txt: str, indicators: dict):
     try:
         # UNC path pattern: \\servername\share\path
         # Require server name and share name (at least 2 slashes total including prefix)
-        unc_pattern = r'\\\\[a-zA-Z0-9_\-\.]+\\[a-zA-Z0-9_\-\.\$\\]+'
-        raw_paths = set(re.findall(unc_pattern, txt))
+        raw_paths = set(UNC_PATTERN_RE.findall(txt))
         
         unc_paths = []
         for path in raw_paths:
@@ -204,14 +227,13 @@ def detect_encryption_status(doc, txt: str, indicators: dict):
                 indicators['EncryptedButOpen'] = {'status': 'Opened without password (empty or known)'}
         
         # Check for encryption dictionary in raw content
-        if re.search(r'/Encrypt\s+\d+\s+\d+\s+R', txt):
+        if ENCRYPT_DICT_RE.search(txt):
             if 'Encrypted' not in indicators:
                 indicators['EncryptionDictionary'] = {'status': 'Encryption dictionary present'}
                 
         # Check for security settings
-        if re.search(r'/P\s+-?\d+', txt):  # Permissions integer
-            perm_match = re.search(r'/P\s+(-?\d+)', txt)
-            if perm_match:
+        perm_match = ENCRYPT_PERM_RE.search(txt)
+        if perm_match:
                 perm_value = int(perm_match.group(1))
                 restrictions = []
                 
@@ -243,11 +265,11 @@ def detect_hidden_text_patterns(txt: str, doc, indicators: dict):
         # Let's add more sophisticated patterns
         
         # Check for text rendering mode 3 (invisible text)
-        if re.search(r'\s3\s+Tr\b', txt):
+        if INVISIBLE_TEXT_RE.search(txt):
             indicators['InvisibleTextMode'] = {'status': 'Text rendering mode 3 (invisible) detected'}
         
         # Check for white color (1 1 1 RG or #FFFFFF)
-        white_color_matches = len(re.findall(r'\b1\s+1\s+1\s+(rg|RG)\b', txt))
+        white_color_matches = len(WHITE_COLOR_RE.findall(txt))
         if white_color_matches > 20:  # Threshold for suspicion
             indicators['ExcessiveWhiteColor'] = {
                 'count': white_color_matches,
@@ -313,9 +335,9 @@ def detect_attachments(doc, txt: str, indicators: dict):
     """Detect embedded file attachments."""
     try:
         # Check for embedded files
-        if re.search(r'/Type\s*/EmbeddedFile', txt, re.IGNORECASE):
+        if EMBEDDED_FILE_RE.search(txt):
             # Count embedded files
-            embedded_count = len(re.findall(r'/Type\s*/EmbeddedFile', txt, re.IGNORECASE))
+            embedded_count = len(EMBEDDED_FILE_RE.findall(txt))
             
             indicators['EmbeddedFiles'] = {
                 'count': embedded_count,
@@ -323,12 +345,12 @@ def detect_attachments(doc, txt: str, indicators: dict):
             }
             
             # Try to extract filenames
-            filenames = re.findall(r'/F\s*\(([^)]+)\)', txt)
+            filenames = EMBEDDED_FILE_NAME_RE.findall(txt)
             if filenames:
                 indicators['EmbeddedFiles']['filenames'] = filenames[:10]
         
         # Check for file attachment annotations
-        if re.search(r'/Subtype\s*/FileAttachment', txt):
+        if FILE_ATTACHMENT_RE.search(txt):
             indicators['FileAttachmentAnnotations'] = {
                 'status': 'PDF has file attachment annotations'
             }
@@ -401,18 +423,18 @@ def detect_3d_and_multimedia(txt: str, indicators: dict):
     """Detect 3D objects and multimedia content."""
     try:
         # Check for 3D annotations
-        if re.search(r'/Subtype\s*/3D', txt):
+        if THREE_D_RE.search(txt):
             indicators['3DObjects'] = {'status': 'PDF contains 3D objects'}
         
         # Check for multimedia (sound, video)
-        if re.search(r'/Subtype\s*/Sound', txt):
+        if SOUND_RE.search(txt):
             indicators['SoundAnnotations'] = {'status': 'PDF contains sound annotations'}
         
-        if re.search(r'/Subtype\s*/Movie', txt) or re.search(r'/Subtype\s*/Screen', txt):
+        if MOVIE_RE.search(txt) or SCREEN_RE.search(txt):
             indicators['VideoContent'] = {'status': 'PDF contains video/multimedia content'}
         
         # Check for RichMedia (Flash, etc.)
-        if re.search(r'/Subtype\s*/RichMedia', txt):
+        if RICH_MEDIA_RE.search(txt):
             indicators['RichMedia'] = {
                 'status': 'PDF contains RichMedia (potentially Flash)',
                 'note': 'High security risk - may execute code'
@@ -430,8 +452,7 @@ def detect_temporal_anomalies(txt: str, indicators: dict):
         
         # Extract timestamps from PDF
         # Pattern: D:YYYYMMDDHHmmSS or D:YYYYMMDD
-        date_pattern = r'D:(\d{4})(\d{2})(\d{2})(\d{2})?(\d{2})?(\d{2})?'
-        dates = re.findall(date_pattern, txt)
+        dates = DATE_PATTERN_RE.findall(txt)
         
         future_dates = []
         for date_tuple in dates:
@@ -468,9 +489,9 @@ def detect_pdf_a_compliance(txt: str, indicators: dict):
     """Check if PDF claims PDF/A compliance (archival format - should never change)."""
     try:
         # Check for PDF/A identifier in XMP metadata
-        if re.search(r'pdfaid:part', txt, re.IGNORECASE):
-            part_match = re.search(r'pdfaid:part>(\d+)</pdfaid:part', txt, re.IGNORECASE)
-            conformance_match = re.search(r'pdfaid:conformance>([A-Z])</pdfaid:conformance', txt, re.IGNORECASE)
+        part_match = PDFA_PART_RE.search(txt)
+        if part_match:
+            conformance_match = PDFA_CONFORMANCE_RE.search(txt)
             
             part = part_match.group(1) if part_match else 'Unknown'
             conformance = conformance_match.group(1) if conformance_match else 'Unknown'
@@ -664,11 +685,11 @@ def detect_text_operator_anomalies(txt: str, indicators: dict):
     """Detect text positioning operations used to obscure or misalign text."""
     try:
         # Detect large negative values in TJ arrays (e.g., [ (T) -2000 (e) ])
-        tj_anomalies = len(re.findall(r"-\d{4,}\s+(?=\(|<)", txt))
+        tj_anomalies = len(TJ_ANOMALY_RE.findall(txt))
         
         # Word spacing (Tw) or Character spacing (Tc) being excessively large
-        tw_anomalies = len(re.findall(r"(?:^|[^0-9\.])(1[0-9]{2,}|-[1-9][0-9]+)\s+Tw\b", txt))
-        tc_anomalies = len(re.findall(r"(?:^|[^0-9\.])(1[0-9]{2,}|-[1-9][0-9]+)\s+Tc\b", txt))
+        tw_anomalies = len(TW_ANOMALY_RE.findall(txt))
+        tc_anomalies = len(TC_ANOMALY_RE.findall(txt))
         
         total = tj_anomalies + tw_anomalies + tc_anomalies
         if total > 0:
@@ -685,7 +706,7 @@ def detect_timestamp_mismatches(txt: str, doc, indicators: dict):
     try:
         def parse_pdf_date(date_str):
             if not date_str: return None
-            clean = re.sub(r"[^0-9]", "", date_str)
+            clean = CLEAN_DATE_RE.sub("", date_str)
             if len(clean) >= 14:
                 try:
                     return datetime.strptime(clean[:14], "%Y%m%d%H%M%S")
@@ -699,8 +720,8 @@ def detect_timestamp_mismatches(txt: str, doc, indicators: dict):
             info_create = parse_pdf_date(doc.metadata.get('creationDate', ''))
             info_mod = parse_pdf_date(doc.metadata.get('modDate', ''))
             
-        xmp_create_match = re.search(r"<xmp:CreateDate>([^<]+)", txt)
-        xmp_mod_match = re.search(r"<xmp:ModifyDate>([^<]+)", txt)
+        xmp_create_match = XMP_CREATE_RE.search(txt)
+        xmp_mod_match = XMP_MOD_RE.search(txt)
         
         xmp_create = parse_pdf_date(xmp_create_match.group(1)) if xmp_create_match else None
         xmp_mod = parse_pdf_date(xmp_mod_match.group(1)) if xmp_mod_match else None
