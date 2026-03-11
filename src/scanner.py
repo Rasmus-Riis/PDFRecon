@@ -553,23 +553,24 @@ def _detect_javascript(txt: str, indicators: dict, txt_lower: str = None):
             txt_lower = txt.lower()
 
         # Check for JavaScript in the PDF
+        js_matches = []
         if "/javascript" in txt_lower:
             js_matches = re.findall(r"/JavaScript\b", txt, re.I)
             if js_matches:
-            indicators['ContainsJavaScript'] = {}
-            
-            # Check for OpenAction (auto-execute on open)
-            if "/openaction" in txt_lower and re.search(r"/OpenAction\b", txt, re.I):
-                indicators['JavaScriptAutoExecute'] = {}
-            
-            # Check for AA (Additional Actions)
-            if "/aa" in txt_lower and re.search(r"/AA\s*<<", txt, re.I):
-                indicators['AdditionalActions'] = {}
-            
-            # Try to count JavaScript actions
-            js_count = len(js_matches)
-            if js_count > 1:
-                indicators['MultipleJavaScripts'] = {'count': js_count}
+                indicators['ContainsJavaScript'] = {}
+                
+                # Check for OpenAction (auto-execute on open)
+                if "/openaction" in txt_lower and re.search(r"/OpenAction\b", txt, re.I):
+                    indicators['JavaScriptAutoExecute'] = {}
+                
+                # Check for AA (Additional Actions)
+                if "/aa" in txt_lower and re.search(r"/AA\s*<<", txt, re.I):
+                    indicators['AdditionalActions'] = {}
+                
+        # Try to count JavaScript actions
+        js_count = len(js_matches)
+        if js_count > 1:
+            indicators['MultipleJavaScripts'] = {'count': js_count}
                 
         # Explicit Phishing Directives
         submit_forms = re.findall(r"/SubmitForm\b", txt, re.I)
