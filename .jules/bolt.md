@@ -3,9 +3,7 @@
 **Action:** When scanning large texts for multiple case-insensitive patterns, cache the `.lower()` version of the string once. Use fast substring checks (`if "pattern" in text_lower`) as a prerequisite gate before evaluating more complex regexes. Apply this fast-fail pattern whenever porting or adding new indicator detection logic.
 
 ## 2025-02-17 - Optimize Regex Pre-checks and C-level comprehension
-
 **Learning:** Large PDF text buffers are expensive to search with case-insensitive regex or complex capturing groups. Using `in` operator substring checks acts as a fast-fail mechanism that bypasses the regex engine entirely when patterns are absent. Further, replacing `re.finditer` with `re.findall` combined with list/set comprehensions leverages C-level implementations, yielding significant speedups for gathering elements like object definitions (`obj` and `R`).
-
 **Action:** Whenever parsing large text buffers (like raw PDF text streams), identify static substrings that *must* exist for a complex regex to match. Use `if "substring" in txt:` as a guard clause before applying `re.search` or `re.findall`. Default to `re.findall` within comprehensions rather than iterating over `re.finditer` when building collections of matches.
 
 ## 2024-06-25 - Cache lowercased text for fast pre-checks
@@ -19,3 +17,7 @@
 ## 2024-05-18 - Optimized `sha256_file` and added `usedforsecurity=False`
 **Learning:** `hashlib.md5(usedforsecurity=False)` provides a small performance optimization and avoids crashes on FIPS compliant machines. Also `sha256_file` was not using `buffering=0` with `bytearray` and `memoryview`, leading to excessive allocations, fixing it improved speed by 20%. The regex optimization `txt.lower()` cache was already implemented in earlier PR.
 **Action:** Use `usedforsecurity=False` for all md5 hashes unless used for cryptography. Always use `bytearray` and `memoryview` when hashing files in chunks.
+
+## 2026-03-12 - [Optimize `in` operator membership checks]
+**Learning:** Checking for membership `in` against list literals (e.g., `in ["A", "B"]`) results in O(N) execution time because CPython creates a new list object each time. By replacing list literals with set literals (e.g., `in {"A", "B"}`), CPython's peephole optimizer / AST optimizer applies constant folding, converting the set to a `frozenset`. This changes the membership check to O(1) time complexity, leading to faster execution, especially inside tight processing loops like PDF content stream parsing. Additionally, in iterations, tuple unpacking/iteration is slightly faster or equal to list iteration and set iteration is no better, so `for x in (...)` should be preferred over `for x in [...]` or `for x in {...}`.
+**Action:** Always use set literals `in {"A", "B"}` rather than list literals `in ["A", "B"]` when performing constant membership checks, particularly inside high-frequency or critical loops. Use tuple literals for iteration over constants.

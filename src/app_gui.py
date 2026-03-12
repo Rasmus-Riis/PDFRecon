@@ -893,7 +893,7 @@ class PDFReconApp:
             self.tree.heading(self.columns[i], text=self._(key), 
                             command=lambda c=self.columns[i]: self._sort_column(c, False))
             width = col_widths.get(self.columns[i], 120)
-            anchor = "center" if self.columns[i] in ["ID", "Revisions"] else "w"
+            anchor = "center" if self.columns[i] in {"ID", "Revisions"} else "w"
             self.tree.column(self.columns[i], anchor=anchor, width=width)
         
         tree_scrollbar = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
@@ -4857,7 +4857,7 @@ class PDFReconApp:
                             op_name = str(operator)
                             
                             # Track TouchUp scope (BDC / BMC)
-                            if op_name in ["BDC", "BMC"]:
+                            if op_name in {"BDC", "BMC"}:
                                 is_touchup = False
                                 tag = ""
                                 if operands and (isinstance(operands[0], pikepdf.Name) or isinstance(operands[0], str)):
@@ -4879,7 +4879,7 @@ class PDFReconApp:
                                 mp_flag = False
                             
                             # Handle Marked Points (MP / DP)
-                            elif op_name in ["MP", "DP"]:
+                            elif op_name in {"MP", "DP"}:
                                 tag = ""
                                 if operands and (isinstance(operands[0], pikepdf.Name) or isinstance(operands[0], str)):
                                     tag = str(operands[0])
@@ -4903,7 +4903,7 @@ class PDFReconApp:
                             # Determine if current operator should be masked
                             is_inside_touchup = touchup_stack[-1] or in_flagged_bt
                             
-                            if not is_inside_touchup and op_name in ["Tj", "TJ", "'", '"']:
+                            if not is_inside_touchup and op_name in {"Tj", "TJ", "'", '"'}:
                                 # Mask non-TouchUp text by replacing it with spaces
                                 if op_name == "TJ":
                                     new_list = []
