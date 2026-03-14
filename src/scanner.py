@@ -152,7 +152,7 @@ def detect_indicators(filepath: Path, txt: str, doc, exif_output: str = "", app_
         txt_lower = txt.lower()
 
         # --- High-Confidence Indicators ---
-        if "touchup_textedit" in txt_lower and re.search(r"touchup_textedit", txt, re.I):
+        if "touchup_textedit" in txt_lower:
             found_text = None
             if app_instance and hasattr(app_instance, '_extract_touchup_text'):
                 try:

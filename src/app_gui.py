@@ -4281,7 +4281,7 @@ class PDFReconApp:
                 txt_segments.append(m.group(1).decode("latin1", "ignore"))
 
         # Ensure TouchUp_TextEdit is detectable by scanner.py if found anywhere
-        if found_touchup_marker or re.search(rb"touchup_textedit", raw, re.I):
+        if found_touchup_marker or b"touchup_textedit" in raw.lower():
             txt_segments.append("TouchUp_TextEdit")
 
         return "\n".join(txt_segments)
