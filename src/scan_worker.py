@@ -112,7 +112,7 @@ def _extract_text_for_scanning(raw: bytes) -> str:
         except Exception:
             txt_segments.append(xmp_match.group(1).decode("latin1", "ignore"))
 
-    if found_touchup_marker or re.search(rb"touchup_textedit", raw, re.I):
+    if found_touchup_marker or b"touchup_textedit" in raw.lower():
         txt_segments.append("TouchUp_TextEdit")
 
     return "\n".join(txt_segments)
