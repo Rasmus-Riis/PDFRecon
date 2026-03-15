@@ -4847,7 +4847,7 @@ class PDFReconApp:
                             op_name = str(operator)
                             
                             # Track TouchUp scope (BDC / BMC)
-                            if op_name in ["BDC", "BMC"]:
+                            if op_name in {"BDC", "BMC"}:
                                 is_touchup = False
                                 tag = ""
                                 if operands and (isinstance(operands[0], pikepdf.Name) or isinstance(operands[0], str)):
@@ -4869,7 +4869,7 @@ class PDFReconApp:
                                 mp_flag = False
                             
                             # Handle Marked Points (MP / DP)
-                            elif op_name in ["MP", "DP"]:
+                            elif op_name in {"MP", "DP"}:
                                 tag = ""
                                 if operands and (isinstance(operands[0], pikepdf.Name) or isinstance(operands[0], str)):
                                     tag = str(operands[0])
@@ -4893,7 +4893,7 @@ class PDFReconApp:
                             # Determine if current operator should be masked
                             is_inside_touchup = touchup_stack[-1] or in_flagged_bt
                             
-                            if not is_inside_touchup and op_name in ["Tj", "TJ", "'", '"']:
+                            if not is_inside_touchup and op_name in {"Tj", "TJ", "'", '"'}:
                                 # Mask non-TouchUp text by replacing it with spaces
                                 if op_name == "TJ":
                                     new_list = []
