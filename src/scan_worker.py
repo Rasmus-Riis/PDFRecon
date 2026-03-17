@@ -325,14 +325,16 @@ def _run_exiftool(path: Path, detailed: bool = False) -> str:
             command.extend(["-a", "-u", "-s", "-G1"])
         command.append("-")   # read from stdin
 
-        process = subprocess.run(
-            command,
-            input=file_content,
+        run_kw = dict(
             capture_output=True,
             check=False,
-            startupinfo=startupinfo,
             timeout=PDFReconConfig.EXIFTOOL_TIMEOUT,
         )
+        if startupinfo is not None:
+            run_kw["startupinfo"] = startupinfo
+        if sys.platform == "win32" and hasattr(subprocess, "CREATE_NO_WINDOW"):
+            run_kw["creationflags"] = subprocess.CREATE_NO_WINDOW
+        process = subprocess.run(command, input=file_content, **run_kw)
 
         if process.returncode != 0 or process.stderr:
             error_message = process.stderr.decode("latin-1", "ignore").strip()
