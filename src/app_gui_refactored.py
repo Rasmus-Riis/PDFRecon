@@ -4231,13 +4231,15 @@ class PDFReconApp:
 
         # Try to find all streams more robustly
         # This regex handles cases with different line endings or extra spaces
-        stream_matches = list(re.finditer(rb"(?s)stream\b(.*?)\bendstream", raw))
+        # PERFORMANCE OPTIMIZATION (Bolt ⚡): List comprehension with findall is implemented
+        # in C and faster than python-level iteration with finditer
+        stream_matches = re.findall(rb"(?s)stream\b(.*?)\bendstream", raw)
         
         # Track if we found any TouchUp forensic markers during decompression
         found_touchup_marker = False
 
-        for m in stream_matches:
-            body = m.group(1).strip(b"\r\n ")
+        for body_raw in stream_matches:
+            body = body_raw.strip(b"\r\n ")
             if len(body) <= 500_000:  # Increased limit for complex content streams
                 try:
                     decompressed = PDFReconApp.decompress_stream(body)

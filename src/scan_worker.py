@@ -80,11 +80,13 @@ def _extract_text_for_scanning(raw: bytes) -> str:
     This is the standalone equivalent of PDFReconApp.extract_text().
     """
     txt_segments = []
-    stream_matches = list(re.finditer(rb"(?s)stream\b(.*?)\bendstream", raw))
+    # PERFORMANCE OPTIMIZATION (Bolt ⚡): List comprehension with findall is implemented
+    # in C and faster than python-level iteration with finditer
+    stream_matches = re.findall(rb"(?s)stream\b(.*?)\bendstream", raw)
 
     found_touchup_marker = False
-    for m in stream_matches:
-        body = m.group(1).strip(b"\r\n ")
+    for body_raw in stream_matches:
+        body = body_raw.strip(b"\r\n ")
         if len(body) <= 500_000:
             try:
                 decompressed = _decompress_stream(body)
