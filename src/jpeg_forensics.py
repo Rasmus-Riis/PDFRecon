@@ -27,14 +27,14 @@ KNOWN_QT_SIGNATURES = {
     '09060609090609090909090a0b0a0909': 'GIMP Quality 90',
     
     # Common scanner signatures
-    '02020202020202020202020202020202': 'Generic Scanner (Very low compression)',
-    '04030403040504040404050706050404': 'HP Scanner (Standard quality)',
-    '06040506050506060606070908070606': 'Canon Scanner (Standard)',
-    '08060608080608080808090b0a090808': 'Epson Scanner (Standard)',
+    '02020202020202020202020202020202': 'Generic Scanner (Low compression)',
+    '04030403040504040404050706050404': 'HP Scanner signature',
+    '06040506050506060606070908070606': 'Canon Scanner signature',
+    '08060608080608080808090b0a090808': 'Epson Scanner signature',
     
     # Camera signatures (examples - real cameras have more variation)
-    '0202020202020202020202020202020': 'Suspicious: All identical values (possibly forged)',
-    '01010101010101010101010101010101': 'Critical: QT=1 (Invalid - likely manipulated)',
+    '0202020202020202020202020202020': 'Suspicious: Computer-generated pattern (All values identical)',
+    '01010101010101010101010101010101': 'Critical: Invalid digital fingerprint (Likely manipulated/fake)',
 }
 
 
@@ -105,13 +105,13 @@ def extract_jpeg_qt_from_bytes(jpeg_bytes: bytes) -> dict:
         warnings = []
         
         if qt_min == qt_max:
-            warnings.append('CRITICAL: All QT values identical (likely forged)')
+            warnings.append('CRITICAL: Forged fingerprint (Real photos have variations; identical values are impossible in original scans)')
         elif qt_uniformity < 10:
-            warnings.append('SUSPICIOUS: Very low QT diversity (unusual for real camera/scanner)')
+            warnings.append('SUSPICIOUS: Low digital diversity (Unusual for original hardware scans)')
         elif qt_min < 2:
-            warnings.append('SUSPICIOUS: QT values below 2 (unusual compression)')
+            warnings.append('SUSPICIOUS: Ultra-low compression (Often used during image manipulation)')
         elif qt_max > 250:
-            warnings.append('WARNING: Very high QT values (extreme compression)')
+            warnings.append('WARNING: Extreme compression (Image quality heavily degraded)')
         
         # Check for common editing software patterns
         if any(sig in signature for sig in ['181818', '1c1c1c', '282828']):

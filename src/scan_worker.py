@@ -46,6 +46,8 @@ from .config import (
 )
 from .pdf_processor import safe_pdf_open, count_layers
 from .scanner import detect_indicators as scanner_detect_indicators
+from .revision_diff import extract_text_from_pdf_bytes, compute_highlighted_changes
+from .js_extractor import extract_embedded_javascript
 
 
 # ---------------------------------------------------------------------------
@@ -355,13 +357,17 @@ def _run_exiftool(path: Path, detailed: bool = False) -> str:
 
 def _parse_exif_data(exiftool_out: str) -> dict:
     """Parse EXIFTool output into a structured dict (standalone, no self needed)."""
+    # Must match DataProcessingMixin.SOFTWARE_TOKENS (Wikipedia "List of PDF software" + project-specific).
     software_tokens = re.compile(
-        r"(adobe|acrobat|cairo|canva|chrome|chromium|clibpdf|dinero|dynamics|"
-        r"economic|edge|excel|firefox|foxit|fpdf|framemaker|ghostscript|"
-        r"illustrator|indesign|ilovepdf|itext|kmd|lasernet|latex|libreoffice|"
-        r"microsoft|navision|nitro|office|openoffice|pdflatex|pdf24|photoshop|"
-        r"powerpoint|prince|quartz|reportlab|safari|skia|tcpdf|tex|visma|word|"
-        r"wkhtml|wkhtmltopdf|xetex)",
+        r"(abbey|abbyy|acrobat|adobe|apache|birt|billy|bluebeam|bullzip|businesscentral|cairo|canva|chrome|chromium|"
+        r"clibpdf|collabora|cups|cutepdf|deskpdf|dinero|dynamics|ecopy|economic|edge|eboks|evince|excel|firefox|"
+        r"finereader|formpipe|foxit|fpdf|framemaker|gdoc|ghostscript|ghostview|gimp|helpndoc|illustrator|ilovepdf|"
+        r"imagemagick|indesign|inkscape|itext|javelin|jasperreports|karbon|kmd|lasernet|latex|libharu|libreoffice|"
+        r"luatex|mathcad|microsoft|mobipocket|mupdf|navision|netcompany|nitro|okular|office|openoffice|openpdf|"
+        r"paperport|pagestream|pageplus|pdf24|pdfarranger|pdfbox|pdfcreator|pdfedit|pdfescape|pdfgear|pdflatex|"
+        r"pdfjs|pdfsam|pdfsharp|pdfstudio|pdftk|pdfxchange|photoshop|poppler|powerpoint|pstoedit|primopdf|prince|"
+        r"qpdf|qiqqa|quartz|reportlab|revu|safari|scribus|serif|skim|skia|smallpdf|sodapdf|solidconverter|"
+        r"stdu|sumatra|swftools|tcpdf|tex|utopia|visma|word|wkhtml|wkhtmltopdf|xara|xetex|xpdf)",
         re.IGNORECASE,
     )
 
@@ -704,6 +710,8 @@ def _extract_all_document_ids(txt: str, exif_output: str) -> dict:
     return {"own_ids": own_ids, "ref_ids": ref_ids}
 
 
+
+
 # ---------------------------------------------------------------------------
 # Config snapshot helper (called in the GUI process before spawning workers)
 # ---------------------------------------------------------------------------
@@ -822,6 +830,7 @@ def process_single_file_worker(fp_str: str, cfg: dict) -> list:
         # --- Extract raw text for indicator detection ---
         txt = _extract_text_for_scanning(raw)
 
+
         # --- ExifTool ---
         exif = _run_exiftool(fp, detailed=True)
         parsed_exif = _parse_exif_data(exif)
@@ -831,6 +840,18 @@ def process_single_file_worker(fp_str: str, cfg: dict) -> list:
 
         # --- Forensic indicators ---
         indicator_keys = scanner_detect_indicators(fp, txt, doc, exif_output=exif, app_instance=None)
+
+        # --- Embedded JavaScript extraction (for malicious file analysis) ---
+        if "ContainsJavaScript" in indicator_keys:
+            try:
+                js_list = extract_embedded_javascript(raw)
+                if js_list:
+                    indicator_keys["ExtractedJavaScript"] = [
+                        {"source": s.get("source"), "code": s.get("code", ""), "xref": s.get("xref")}
+                        for s in js_list
+                    ]
+            except Exception as e:
+                logging.warning("JS extraction failed for %s: %s", fp.name, e)
 
         # --- TouchUp text extraction (normally done via app_instance callback) ---
         # Since app_instance=None in worker mode, we call _extract_touchup_text directly.
@@ -890,6 +911,16 @@ def process_single_file_worker(fp_str: str, cfg: dict) -> list:
                 rev_txt = _extract_text_for_scanning(rev_raw)
                 revision_timeline = _generate_timeline(rev_path, rev_txt, rev_exif, rev_parsed_exif)
 
+                # Text comparison between revision and final for investigative reports
+                revision_diff = None
+                try:
+                    orig_text = extract_text_from_pdf_bytes(raw)
+                    rev_text = extract_text_from_pdf_bytes(rev_raw)
+                    if orig_text or rev_text:
+                        revision_diff = compute_highlighted_changes(rev_text, orig_text)
+                except Exception as e:
+                    logging.debug("Revision diff for %s: %s", rev_path.name, e)
+
                 # Visual identity check
                 is_identical = False
                 try:
@@ -935,6 +966,7 @@ def process_single_file_worker(fp_str: str, cfg: dict) -> list:
                     "original_path": str(fp),
                     "is_identical": is_identical,
                     "status": "success",
+                    "revision_diff": revision_diff,
                 })
             except Exception as e:
                 logging.warning(f"Error processing revision {rev_path.name}: {e}")

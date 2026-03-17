@@ -8,7 +8,7 @@ import re
 import os
 
 # --- Application Version ---
-APP_VERSION = "17.5.1"
+APP_VERSION = "17.6.0"
 
 # --- UI Configuration Constants ---
 UI_COLORS = {
@@ -68,6 +68,7 @@ class PDFReconConfig:
     # Security Configuration
     EXIFTOOL_PATH = None  # Path to ExifTool executable (optional, overrides default search)
     EXIFTOOL_HASH = None  # SHA256 hash of ExifTool executable (optional, enforces integrity)
+    SIGNING_KEY_PATH = None  # Path to PEM private key for signing exports (xlsx, signed report); optional
     
     # File processing timeouts (from hang prevention improvements)
     TEXT_EXTRACTION_TIMEOUT = 15  # seconds

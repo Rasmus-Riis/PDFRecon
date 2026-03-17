@@ -4,3 +4,5 @@ tkinterdnd2
 pillow
 requests
 customtkinter
+# Optional: for CLI report signing with --sign-key
+# cryptography

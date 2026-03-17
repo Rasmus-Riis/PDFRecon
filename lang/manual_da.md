@@ -15,6 +15,92 @@ Programmet klassificerer hver fil baseret på de fundne indikatorer. Dette gøre
 
 <green><b>IKKE PÅVIST (Lav Risiko):</b></green> Tildeles filer, hvor programmet ikke har fundet nogen af de kendte indikatorer. Dette betyder ikke, at filen med 100% sikkerhed er uændret, men at den ikke udviser de typiske tegn på ændring, som værktøjet leder efter.
 
+---
+
+## Generel brug (GUI)
+
+### Grundlæggende arbejdsgang
+1. **Start PDFRecon** (kør `app.py` eller `PDFRecon.exe`).
+2. **Vælg mappe og scan** – Klik på hovedknappen og vælg en mappe med PDF-filer. Programmet scanner rekursivt og viser alle PDF’er med fundne indikatorer.
+3. **Gennemse tabellen** – Rækkerne er farvemærket: rød = høj tillid til ændring, gul = indikationer fundet, grøn = ingen indikatorer. Brug kolonnen "Tegn på ændring" og filtre.
+4. **Inspector** – Vælg en fil for at åbne Inspector. Brug fanerne: **Details** (alle indikatorer og noter), **EXPTool** (ExifTool-output), **Timeline**, **Revisionshistorik** og **PDF Viewer** (visuel visning med valgfrie lag for TouchUp, ELA, JPEG-anomalier, dublerede billeder m.m.).
+5. **Gem sag** – Brug **Fil → Gem sag som...** for at gemme sessionen som en `.prc`-sag. Du kan senere åbne med **Fil → Åbn sag...** og fortsætte (noter, eksport, verifikation).
+6. **Eksport** – Brug **Eksporter rapport** til Excel, CSV, JSON eller HTML. Alle eksporter kan digitalt signeres (SHA-256 sidecar og valgfri detached signatur) og logges i kæde-of-custody, når en sag er indlæst.
+7. **Noter** – Højreklik på en fil → **Note** for at tilføje noter; de gemmes i sagen og markeres som ændret, indtil du gemmer sagen.
+8. **Verificer integritet** – Med en indlæst sag: **Fil → Verificer integritet** sammenligner nuværende fil-hashes med de gemte evidence-hashes.
+
+### Tastatur og navigation
+- **Piletaster (Op/Ned)** – Flyt valg i fillisten (én række ad gangen). Virker også når Inspector er åben.
+- **Højreklik** – Genvejsmenu: Vis PDF, Vis tidslinje, Revisionshistorik, Visuel diff (for revisioner), Note m.m.
+
+---
+
+## CLI-brug (kommandolinje)
+
+PDFRecon har et kommandolinjeinterface til scripting og automation. Kør fra projektroden: `python cli.py <kommando> ...` (eller `pdfrecon` hvis installeret).
+
+### Kommandoer
+
+**`scan <mappe>`** – Scanner en mappe for PDF’er og opretter en sag og valgfri kæde-of-custody-log.
+
+```bash
+python cli.py scan C:\Evidence\PDFs
+python cli.py scan C:\Evidence\PDFs --output-dir C:\Cases -j 4
+python cli.py scan C:\Evidence\PDFs --custody-log C:\Cases\custody.log
+```
+
+| Option | Beskrivelse |
+|--------|-------------|
+| `dir` | Mappe der skal scannes (påkrævet) |
+| `--output-dir`, `-o` | Outputmappe for sagfil (standard: samme som scanmappe) |
+| `--custody-log`, `-c` | Sti til kæde-of-custody-logfil |
+| `--jobs`, `-j` | Antal parallelle workers (standard: CPU-antál − 1) |
+
+Sagfilen gemmes som `case_cli_ÅÅÅÅMMDD_HHMMSS.prc` i outputmappen.
+
+**`export-signed <sagfil>`** – Eksporterer en digitalt signeret rapport fra en eksisterende `.prc`-sag.
+
+```bash
+python cli.py export-signed C:\Cases\case_cli_20250101_120000.prc
+python cli.py export-signed case.prc --output report.json --custody --sign-key key.pem
+```
+
+| Option | Beskrivelse |
+|--------|-------------|
+| `case` | Sti til `.prc`-sagfil (påkrævet) |
+| `--output` | Outputrapportsti (standard: &lt;case&gt;.signed_report.json) |
+| `--custody` | Tilføj eksport til kæde-of-custody-log |
+| `--sign-key` | Sti til PEM privat nøgle til detached signatur (valgfri) |
+
+**`extract-js <PDF-fil>`** – Udpakker indlejret JavaScript fra en PDF (fx til analyse af ondsindede filer).
+
+```bash
+python cli.py extract-js mistænkelig.pdf
+python cli.py extract-js mistænkelig.pdf --output scripts.txt
+```
+
+| Option | Beskrivelse |
+|--------|-------------|
+| `file` | Sti til PDF-fil (påkrævet) |
+| `--output`, `-o` | Skriv udtrukne scripts til fil (standard: stdout) |
+
+**Version:** `python cli.py --version`
+
+---
+
+## Anbefalede værktøjer til manuel analyse
+
+| Værktøj | Formål | Download |
+|---------|--------|----------|
+| HxD | Gratis hex-editor til Windows | https://mh-nexus.de/en/hxd/ |
+| 010 Editor | Professionel hex-editor med skabeloner | https://www.sweetscape.com/010editor/ |
+| QPDF | PDF-manipulation og -dekomprimering | https://github.com/qpdf/qpdf |
+| mutool | PDF-inspektion (del af MuPDF) | https://mupdf.com/ |
+| ExifTool | Metadata-udtræk | https://exiftool.org/ |
+| pdfimages | Udpak billeder fra PDF | Del af poppler-utils |
+
+---
+
 ## Forklaring af Indikatorer
 Nedenfor er en detaljeret forklaring af hver indikator, som PDFRecon leder efter.
 
@@ -41,6 +127,14 @@ Nedenfor er en detaljeret forklaring af hver indikator, som PDFRecon leder efter
 <b>Multiple DocumentID / Different InstanceID</b>
 *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
 • Hvad det betyder: Hver PDF har et unikt DocumentID, der ideelt set er det samme for alle versioner. InstanceID ændres derimod for hver gang, filen gemmes. Hvis der findes flere forskellige DocumentID'er (f.eks. Trailer ID Changed: Fra [ID1...] til [ID2...]), eller hvis der er et unormalt højt antal InstanceID'er, peger det på en kompleks redigeringshistorik, potentielt hvor dele fra forskellige dokumenter er blevet kombineret.
+
+<b>Ikke-indlejret skrifttype (Non-Embedded Font)</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: PDF'en bruger en skrifttype, der ikke er indlejret i filen. Selvom det nogle gange gøres for at spare plads, er det et typisk tegn på redigeringer foretaget efter oprettelsen (f.eks. med Acrobat "TouchUp"), som ofte benytter lokale system-skrifttyper uden at indlejre dem.
+
+<b>Hul i XMP-historik (XMP History Gap)</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Dokumentets metadata-historik (`xmpMM:History`) indeholder hændelser, der enten er i forkert rækkefølge eller har mistænkeligt store tidsspring. Dette tyder på, at historik-punkter kan være blevet slettet manuelt for at skjule bestemte redigeringstrin.
 
 <b>Multiple startxref</b>
 *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
@@ -112,6 +206,14 @@ Nedenfor er en detaljeret forklaring af hver indikator, som PDFRecon leder efter
 *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
 • Hvad det betyder: Der er betydelige huller i objektnummersekvensen (>30% mangler). Dette antyder omfattende redigering, hvor objekter blev slettet eller erstattet.
 
+<b>Strukturel rensning detekteret (Structural Scrubbing)</b>
+*<i>Ændret:</i>* <red>JA</red>
+• Hvad det betyder: Der er fundet store blokke af nul-bytes eller usædvanligt mange på hinanden følgende mellemrum i filens struktur. Dette er et typisk tegn på manuel "rensning", hvor data er blevet slettet ved at overskrive rå bytes i stedet for at generere PDF-strukturen korrekt på ny.
+
+<b>PDF/A-overtrædelse (PDF/A Violation)</b>
+*<i>Ændret:</i>* <red>JA</red>
+• Hvad det betyder: Dokumentet påstår at være en PDF/A (arkivfil), men indeholder funktioner, der er forbudt i standarden (såsom JavaScript, kryptering eller ikke-indlejrede skrifttyper). Dette beviser, at filen er blevet ændret efter sin oprindelige "arkiv-færdiggørelse".
+
 <b>Contains JavaScript</b>
 *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
 • Hvad det betyder: PDF'en indeholder JavaScript-kode. Selvom det er legitimt i nogle tilfælde, kan JavaScript bruges til at skjule ændringer eller dynamisk modificere indhold, når dokumentet åbnes.
@@ -155,3 +257,126 @@ Nedenfor er en detaljeret forklaring af hver indikator, som PDFRecon leder efter
 <b>Mulige Webadresser</b>
 *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
 • Hvad det betyder: Detekterer URL'er fundet i den rå fil, som måske peger på ondsindede payloads, interne systemer eller den webbaserede software, der genererede PDF'en.
+
+<b>JPEG-analyse (Fingeraftryk)</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Et sæt af 64 tal (Kvantiseringstabeller), der bruges under JPEG-komprimering til at bestemme, hvor mange detaljer der smides væk. Forskellige enheder (Canon, iPhone, HP-scannere) og software (Photoshop, GIMP) bruger unikke tabeller. Disse fungerer som et "digitalt fingeraftryk."
+• Mistænkelige fund: 
+    * Ugyldigt fingeraftryk (QT=1): Indikerer computergenererede forfalskninger.
+    * Forfalsket fingeraftryk (Alle værdier ens): Tegn på kunstig skabelse.
+    * Softwarematch: Hvis fingeraftrykket matcher software som "Adobe Photoshop", men filen påstår at være en original scanning.
+
+---
+
+## Detaljeret manuel verifikation
+
+For trin-for-trin hex-editor- og kommandolinje-instruktioner for hver indikator (fx TouchUp_TextEdit, Has Revisions, JavaScript, Dangling References, tidsstempler, XRef-tabeller, PDF-operatører) henvises til den fulde engelske manual (**manual_en.md**) eller PDFRecon HTML-manualen (**Help → Manual** i appen), som indeholder de samme afsnit på begge sprog.
+
+---
+
+## Forensisk ordliste
+
+**Kvantiseringstabeller (QT) / digitale fingeraftryk**  
+Sæt af 64 tal under JPEG-komprimering. Forskellige enheder og programmer bruger unikke tabeller ("digitalt fingeraftryk"). Mistænkeligt: ugyldigt fingeraftryk (QT=1), forfalsket (alle værdier ens), eller softwarematch mod "original scan".
+
+**Error Level Analysis (ELA)**  
+Teknik der viser "komprimeringsalder" i forskellige dele af et billede. Ændrede områder har ofte anden fejlniveau end baggrunden.
+
+**XREF (krydsreference)-tabel**  
+PDF-filens "indeks" der angiver hvor hvert objekt findes. Flere startxref eller inkrementelle opdateringer betyder at indekset er genopbygget (fil ændret efter første gem).
+
+**Tekstoperatører (TJ / Tj)**  
+Lavniveau-kommandoer der tegner tekst. Usædvanlige positioner eller renderingstyper kan tyde på manuel indsættelse.
+
+---
+
+## Nyttige kommandoer til manuel analyse
+
+```bash
+# Dekomprimer PDF til læsbare content streams
+qpdf --qdf --object-streams=disable input.pdf output.pdf
+
+# Udpak al tekst
+pdftotext -layout file.pdf output.txt
+
+# List objekter og typer
+mutool show file.pdf trailer
+mutool show file.pdf xref
+
+# Udpak alle billeder
+pdfimages -all file.pdf prefix
+
+# Hent metadata
+exiftool -a -G -s file.pdf
+
+# Tjek digitale signaturer
+pdfsig file.pdf
+
+# Tæl %%EOF-markører
+grep -c "%%EOF" file.pdf
+```
+
+---
+
+## Komplet indikatorliste (kort reference)
+
+Listen svarer til de indikatorer der beskrives i manualen og i appen. **JA** = høj risiko (rød); **Indikationer** = mellem (gul).
+
+| Indikator | Klassifikation | Kort betydning |
+|-----------|----------------|-----------------|
+| Has Revisions | JA | Tidligere versioner bevaret i filen; bevis på ændring efter oprettelse. |
+| TouchUp_TextEdit | JA | Acrobat TouchUp tekstværktøj brugt til at redigere tekst. |
+| JavaScript Auto-Execute / Additional Actions | JA | JavaScript kører ved åbning eller har AA-triggers. |
+| Hængende referencer | JA | PDF refererer til objekter der ikke findes. |
+| Strukturel rensning | JA | Store null/space-runs tyder på manuel byte-rensning. |
+| PDF/A-overtrædelse | JA | Dokument påstår PDF/A men indeholder forbudte funktioner. |
+| Timestamp Spoofing | JA | Filsystemdato ældre end intern PDF-dato. |
+| Phishing-direktiver (SubmitForm/Launch) | JA | SubmitForm- eller Launch-handlinger til stede. |
+| Multiple Font Subsets | Indikationer | Samme skrifttype indlejret med forskellige subsets. |
+| Multiple Creators / Producers | Indikationer | Fil behandlet af mere end ét program. |
+| xmpMM:History / DerivedFrom / DocumentAncestors | Indikationer | XMP redigeringshistorik til stede. |
+| Multiple DocumentID / Trailer ID Change | Indikationer | Dokument- eller instance-ID’er tyder på sammenlægning eller tung redigering. |
+| Ikke-indlejret skrifttype | Indikationer | Skrifttype ikke indlejret; typisk efter TouchUp/Edit PDF. |
+| XMP History Gap | Indikationer | Historikposter i forkert rækkefølge eller med mistænkelige spring. |
+| Multiple startxref | Indikationer | Flere krydsreferencetabeller (inkrementelle gemmer). |
+| Objekter med generation > 0 | Indikationer | Objektnumre genbrugt efter sletning. |
+| Flere lag end sider | Indikationer | Usædvanligt antal lag. |
+| Linearized / Linearized Updated | Indikationer | Web-optimeret PDF er senere ændret. |
+| Has PieceInfo | Indikationer | PieceInfo til stede (fx Illustrator). |
+| Has Redactions | Indikationer | Redaktionsannoteringer; skjult tekst kan stadig findes. |
+| Has Annotations | Indikationer | Kommentarer/annoteringer til stede. |
+| AcroForm NeedAppearances=true | Indikationer | Formularvisning genereret ved visning. |
+| Has Digital Signature | Indikationer | Dokument signeret; brudt signatur = ændret efter signering. |
+| Dato-inkonsistens (Info vs XMP) | Indikationer | Info- og XMP-datoer uoverensstemmende. |
+| Metadata Version Mismatch | Indikationer | Påstår gammel PDF-version men bruger moderne funktioner. |
+| Suspicious Text Positioning | Indikationer | Usædvanlig tæthed af Tm/Td-operatører. |
+| White Rectangle Overlay | Indikationer | Hvide former tegnet over indhold. |
+| Excessive Drawing Operations | Indikationer | Usædvanligt mange tegnekommandoer. |
+| Ikke-refererede objekter | Indikationer | Definerede men aldrig refereret. |
+| Large Object Number Gaps | Indikationer | Store huller i objektnumrene. |
+| Contains JavaScript | Indikationer | JavaScript til stede (ikke nødvendigvis auto-run). |
+| Duplicate Images With Different Xrefs | Indikationer | Samme billede gemt som separate objekter. |
+| Images With EXIF | Indikationer | Indlejrede billeder indeholder EXIF. |
+| CropBox/MediaBox Mismatch | Indikationer | Synligt område mindre end side; indhold kan skjules. |
+| Excessive Form Fields | Indikationer | Usædvanligt mange formularfelter. |
+| Duplicate Bookmarks | Indikationer | Bogmærker med identiske titler. |
+| Invalid Bookmark Destinations | Indikationer | Bogmærker peger på ikke-eksisterende sider. |
+| Starter med Nul-byte | Indikationer | Nul-byte før %PDF- header. |
+| Mulige e-mailadresser | Indikationer | E-mailadresser i rå data. |
+| Mulige webadresser | Indikationer | URL’er i rå data. |
+| JPEG-analyse (kvantiseringstabeller) | Indikationer | Mistænkeligt QT-fingeraftryk (fx ugyldigt/forfalsket eller softwarematch). |
+| Error Level Analysis (ELA) | Indikationer | Indlejrede billeder viser afvigende komprimeringsmønstre. |
+| Hidden Annotations | Indikationer | Annoteringer med Hidden/Invisible-flag. |
+| Invisible Text (Rendering Mode 3) | Indikationer | Tekst ikke renderet. |
+| Digital Signature (analyse) | Indikationer | Signatur til stede; verificer gyldighed og ByteRange. |
+
+---
+
+## Udvikler og kontakt
+
+**Udvikler:** Rasmus Riis  
+**E-mail:** riisras@gmail.com  
+**Projekt:** PDFRecon – PDF Forensic Analysis Tool  
+**Repository:** https://github.com/Rasmus-Riis/PDFRecon
+
+Manualen og de forensiske indikatorer vedligeholdes med PDFRecon-projektet. Bidrag, fejl eller ønsker til funktioner kan rettes via GitHub-repositoryet.

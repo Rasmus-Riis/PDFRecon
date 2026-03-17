@@ -10,12 +10,13 @@ import logging
 import hashlib
 from datetime import datetime
 from pathlib import Path
-from .jpeg_forensics import analyze_pdf_images_qt
 
 try:
     from PIL import Image, ImageChops, ImageStat
 except ImportError:
     Image = None
+
+from .jpeg_forensics import analyze_pdf_images_qt
 
 
 def detect_emails_and_urls(txt: str, indicators: dict):
@@ -425,8 +426,7 @@ def detect_3d_and_multimedia(txt: str, indicators: dict):
 def detect_temporal_anomalies(txt: str, indicators: dict):
     """Detect future-dated timestamps and temporal inconsistencies."""
     try:
-        import datetime
-        now = datetime.datetime.now()
+        now = datetime.now()
         
         # Extract timestamps from PDF
         # Pattern: D:YYYYMMDDHHmmSS or D:YYYYMMDD
@@ -591,13 +591,21 @@ def run_advanced_forensics(txt: str, doc, filepath: Path, indicators: dict):
         detect_temporal_anomalies(txt, indicators)
         detect_pdf_a_compliance(txt, indicators)
         detect_polyglot_file(pdf_bytes, indicators)
-        analyze_pdf_images_qt(doc, filepath, indicators)
         
         detect_ela_anomalies(doc, indicators)
         detect_text_operator_anomalies(txt, indicators)
         detect_timestamp_mismatches(txt, doc, indicators)
         detect_page_inconsistencies(doc, indicators)
         detect_color_space_anomalies(doc, indicators)
+
+        # New Forensic Features (v17.6)
+        detect_non_embedded_fonts(doc, indicators)
+        detect_xmp_history_gaps(txt, indicators)
+        detect_structural_scrubbing(pdf_bytes, indicators)
+        detect_pdfa_violations(doc, txt, indicators)
+
+        # Suspicious JPEG Analysis
+        analyze_pdf_images_qt(doc, filepath, indicators)
         
         logging.info(f"Advanced forensics completed for {filepath.name}")
         
@@ -808,3 +816,120 @@ def detect_color_space_anomalies(doc, indicators: dict):
             }
     except Exception as e:
         logging.debug(f"Color space check error: {e}")
+
+
+def detect_non_embedded_fonts(doc, indicators: dict):
+    """Scrutinize fonts to ensure they are embedded in the PDF."""
+    if not doc: return
+    try:
+        non_embedded = []
+        for xref in range(1, doc.xref_length()):
+            if doc.xref_is_font(xref):
+                # Font dictionaries for embedded fonts should contain FontFile, FontFile2, or FontFile3
+                font_dict = doc.xref_object(xref)
+                if not any(f in font_dict for f in ["/FontFile", "/FontFile2", "/FontFile3"]):
+                    # Get font name
+                    res = doc.xref_get_key(xref, "BaseFont")
+                    name = res[1][1:] if res[0] == "name" else f"xref {xref}"
+                    non_embedded.append(name)
+        
+        if non_embedded:
+            indicators['NonEmbeddedFont'] = {
+                'count': len(non_embedded),
+                'fonts': list(set(non_embedded))[:10]
+            }
+    except Exception as e:
+        logging.debug(f"Error detecting non-embedded fonts: {e}")
+
+
+def detect_xmp_history_gaps(txt: str, indicators: dict):
+    """Detect missing links or unusual time jumps in XMP metadata history."""
+    try:
+        # Extract XMP history items
+        items = re.findall(r"<rdf:li[^>]*stEvt:instanceID=\"([^\"]+)\"[^>]*stEvt:when=\"([^\"]+)\"", txt)
+        if not items:
+            # Try alternate XML format
+            items = re.findall(r"<stEvt:instanceID>([^<]+)</stEvt:instanceID>.*?<stEvt:when>([^<]+)</stEvt:when>", txt, re.S)
+        
+        if len(items) > 1:
+            gaps = []
+            for i in range(len(items) - 1):
+                try:
+                    # Check for ID sequence gaps if they look like v1, v2, v3...
+                    # (Note: Many tools use random UUIDs, so we prioritize timestamp gaps)
+                    d1_str = items[i][1].replace('Z', '+00:00').split('.')[0]
+                    d2_str = items[i+1][1].replace('Z', '+00:00').split('.')[0]
+                    
+                    # Convert to datetime
+                    fmt = "%Y-%m-%dT%H:%M:%S"
+                    dt1 = datetime.strptime(d1_str[:19], fmt)
+                    dt2 = datetime.strptime(d2_str[:19], fmt)
+                    
+                    # If time jumps backwards or has a huge multi-year gap unexpectedly
+                    diff = (dt2 - dt1).total_seconds()
+                    if diff < 0:
+                        gaps.append(f"Reverse sequence: {items[i+1][1]} occurs before {items[i][1]}")
+                    elif diff > 31536000 * 2: # 2 years
+                        gaps.append(f"Large history gap (>2 years) between revisions")
+                except Exception:
+                    continue
+            
+            if gaps:
+                indicators['XMPHistoryGap'] = {
+                    'count': len(gaps),
+                    'details': gaps
+                }
+    except Exception as e:
+        logging.debug(f"Error detecting XMP history gaps: {e}")
+
+
+def detect_structural_scrubbing(pdf_bytes: bytes, indicators: dict):
+    """Detect large blocks of nulls or spaces suggestive of manual data scrubbing."""
+    try:
+        findings = []
+        # Look for 200+ consecutive null bytes
+        null_runs = len(re.findall(b"\x00{200,}", pdf_bytes))
+        if null_runs > 0:
+            findings.append(f"Found {null_runs} block(s) of 200+ null bytes (potential scrubbing)")
+            
+        # Look for 1000+ consecutive space characters
+        space_runs = len(re.findall(b" {1000,}", pdf_bytes))
+        if space_runs > 0:
+            findings.append(f"Found {space_runs} block(s) of 1000+ spaces (potential manual white-out)")
+            
+        if findings:
+            indicators['StructuralScrubbing'] = {
+                'count': len(findings),
+                'details': findings
+            }
+    except Exception as e:
+        logging.debug(f"Error detecting structural scrubbing: {e}")
+
+
+def detect_pdfa_violations(doc, txt: str, indicators: dict):
+    """Check if a self-proclaimed PDF/A file violates its own strict standards."""
+    if 'PDFACompliance' not in indicators:
+        return
+    
+    try:
+        violations = []
+        # 1. PDF/A must not be encrypted
+        if doc.is_encrypted:
+            violations.append("Document claims PDF/A but is encrypted")
+            
+        # 2. PDF/A must not have JavaScript
+        if 'ContainsJavaScript' in indicators:
+            violations.append("Document claims PDF/A but contains JavaScript")
+            
+        # 3. PDF/A must embed all fonts
+        if 'NonEmbeddedFont' in indicators:
+            violations.append("Document claims PDF/A but has non-embedded fonts")
+            
+        if violations:
+            indicators['PDFAViolation'] = {
+                'count': len(violations),
+                'details': violations,
+                'note': "PDF/A status is falsified or broken"
+            }
+    except Exception as e:
+        logging.debug(f"Error detecting PDF/A violations: {e}")

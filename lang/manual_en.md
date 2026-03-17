@@ -18,6 +18,77 @@ The 'File Created' and 'File Modified' columns show timestamps from the computer
 
 ---
 
+## General Usage (GUI)
+
+### Basic workflow
+1. **Launch PDFRecon** (run `app.py` or `PDFRecon.exe`).
+2. **Choose folder and scan** – Click the main button to select a folder containing PDFs. The app scans recursively and lists all PDFs with detected indicators.
+3. **Review the table** – Rows are colour-coded: red = high confidence of alteration, yellow = indications found, green = no indicators. Use the "Signs of Alteration" column and filters to focus.
+4. **Inspector** – Select a file to open the Inspector. Use the tabs: **Details** (all indicators and notes), **EXPTool** (ExifTool output), **Timeline**, **Revision History**, and **PDF Viewer** (visual view with optional overlays for TouchUp, ELA, JPEG anomalies, duplicate images, etc.).
+5. **Save case** – Use **File → Save Case As...** to save the session as a `.prc` case file. You can later open it with **File → Open Case...** and continue (add notes, export, verify integrity).
+6. **Export** – Use **Export Report** to export to Excel, CSV, JSON, or HTML. All exports can be digitally signed (SHA-256 sidecar and optional detached signature) and logged to the chain of custody when a case is loaded.
+7. **Notes** – Right‑click a file → **Note** to add investigator notes; they are stored in the case and marked dirty until you save the case.
+8. **Verify integrity** – With a case loaded, **File → Verify integrity** compares current file hashes to the stored evidence hashes and reports changes.
+
+### Keyboard and navigation
+- **Arrow keys (Up/Down)** – Move selection in the file list (one row at a time). Works when the Inspector is open as well.
+- **Right‑click** – Context menu: View PDF, Show Timeline, Revision History, Visual Diff (for revisions), Note, etc.
+
+---
+
+## CLI Usage
+
+PDFRecon provides a command-line interface for scripting and automation. Run from the project root: `python cli.py <command> ...` (or `pdfrecon` if installed).
+
+### Commands
+
+**`scan <directory>`** – Scan a folder for PDFs and create a case file and optional chain-of-custody log.
+
+```bash
+python cli.py scan C:\Evidence\PDFs
+python cli.py scan C:\Evidence\PDFs --output-dir C:\Cases -j 4
+python cli.py scan C:\Evidence\PDFs --custody-log C:\Cases\custody.log
+```
+
+| Option | Description |
+|--------|-------------|
+| `dir` | Directory to scan for PDFs (required) |
+| `--output-dir`, `-o` | Output directory for the case file (default: same as scan directory) |
+| `--custody-log`, `-c` | Path to chain-of-custody log file |
+| `--jobs`, `-j` | Number of parallel workers (default: CPU count − 1) |
+
+The case file is saved as `case_cli_YYYYMMDD_HHMMSS.prc` in the output directory.
+
+**`export-signed <case file>`** – Export a digitally signed report from an existing `.prc` case file.
+
+```bash
+python cli.py export-signed C:\Cases\case_cli_20250101_120000.prc
+python cli.py export-signed case.prc --output report.json --custody --sign-key key.pem
+```
+
+| Option | Description |
+|--------|-------------|
+| `case` | Path to `.prc` case file (required) |
+| `--output` | Output report path (default: &lt;case&gt;.signed_report.json) |
+| `--custody` | Append export event to chain-of-custody log |
+| `--sign-key` | Path to PEM private key for detached signature (optional) |
+
+**`extract-js <PDF file>`** – Extract embedded JavaScript from a PDF (e.g. for malicious file analysis).
+
+```bash
+python cli.py extract-js suspicious.pdf
+python cli.py extract-js suspicious.pdf --output scripts.txt
+```
+
+| Option | Description |
+|--------|-------------|
+| `file` | PDF file path (required) |
+| `--output`, `-o` | Write extracted scripts to file (default: stdout) |
+
+**Version:** `python cli.py --version`
+
+---
+
 ## Recommended Tools for Manual Analysis
 
 | Tool | Purpose | Download |
@@ -272,6 +343,41 @@ comm -23 referenced.txt defined.txt
 
 ---
 
+## Structural Scrubbing Analysis
+**Classification:** <red>YES</red>
+
+**What it means:** Large blocks of null bytes (`0x00`) or excessive consecutive spaces found in the file structure. This is a common sign of "manual scrubbing" where data has been erased by overwriting bytes instead of properly regenerating the PDF structure.
+
+### Manual Parsing Instructions:
+
+**Step 1: Open in Hex Editor**
+Search for hex patterns:
+- Null blocks: `00 00 00 00 00` (search for 50+ consecutive)
+- Space blocks: `20 20 20 20 20` (search for 200+ consecutive)
+
+**Step 2: Compare with typical PDF markers**
+Legitimate PDFs rarely have large gaps of hundreds of nulls unless they are aligned to specific XREF stream boundaries. Large runs of spaces in the middle of a stream often indicate erased text.
+
+---
+
+## PDF/A Compliance Violation
+**Classification:** <red>YES</red>
+
+**What it means:** The document claims to be a PDF/A (Archival) file, but contains features that are forbidden by the standard (like JavaScript, encryption, or non-embedded fonts). This proves the file was modified after its archival "finalization."
+
+### Manual Parsing Instructions:
+
+**Step 1: Verify PDF/A Claim**
+Search for `pdfaid:part` in XMP metadata.
+
+**Step 2: Check for Violations**
+Search for the following prohibited elements:
+- `/Encrypt` dictionary.
+- `/JS` or `/JavaScript` entries.
+- Non-embedded fonts (see Non-Embedded Font Alarm section).
+
+---
+
 # MEDIUM-CONFIDENCE INDICATORS (Indications Found - Yellow)
 
 ---
@@ -452,6 +558,45 @@ Search for:
 
 **Step 4: Check for ID changes**
 If `OriginalDocumentID` ≠ `DocumentID`, the document was derived from another.
+
+---
+
+## Non-Embedded Font Alarm
+**Classification:** <yellow>Indications Found</yellow>
+
+**What it means:** The PDF uses a font that is not embedded in the file. While sometimes done to save space, it is a hallmark of post-creation edits using Acrobat's "TouchUp" or "Edit PDF" tools, which often use system fonts without embedding them into the document.
+
+### Manual Parsing Instructions:
+
+**Step 1: Check Font Properties**
+In Adobe Acrobat/Reader: File → Properties → Fonts.
+Look for any font that does *not* have "(Embedded)" or "(Embedded Subset)" next to its name.
+
+**Step 2: Inspect via Hex**
+Find the font dictionary (e.g., `/Type /Font`). Look for these keys:
+- `/FontFile` (for Type 1)
+- `/FontFile2` (for TrueType)
+- `/FontFile3` (for OpenType/CIDFont)
+
+If these keys are missing, the font is NOT embedded.
+
+---
+
+## XMP History Sequence Gap
+**Classification:** <yellow>Indications Found</yellow>
+
+**What it means:** The metadata history (`xmpMM:History`) contains entries that are either out of chronological order or have massive, suspicious gaps in time. This suggests that history entries may have been manually deleted to hide specific editing steps.
+
+### Manual Parsing Instructions:
+
+**Step 1: Locate History RDF**
+Search for `<xmpMM:History>` in the XMP metadata stream.
+
+**Step 2: Check Timestamps**
+Verify that each `<stEvt:when>` timestamp is later than the previous one. If a "Later" revision has an "Earlier" timestamp, the metadata has been tampered with.
+
+**Step 3: Check for ID gaps**
+Review the `<stEvt:instanceID>` sequence. If IDs skip numbers or jump significantly, it may indicate deleted history events.
 
 ---
 
@@ -779,6 +924,94 @@ grep -oP '/JS\s*\([^)]+\)' file.pdf
 
 ---
 
-## Contact
-Developer: Rasmus Riis  
-Email: riisras@gmail.com
+# FORENSIC GLOSSARY
+
+---
+
+## Quantization Tables (QT) / Digital Fingerprints
+**What it is:** A set of 64 numbers used during JPEG compression to determine how much detail is discarded. 
+**Forensic Value:** Different devices (Canon, iPhone, HP Scanners) and software (Photoshop, GIMP) use unique tables. These act as a "digital fingerprint."
+**Suspicious Findings:**
+- **Invalid Fingerprint (QT=1):** Indicates the image was saved with "mathematically perfect" quality, which never happens in real scans but is common in computer-generated fakes.
+- **Forged Fingerprint (All values identical):** Real hardware sensors always have variations. Perfectly uniform tables are a sign of artificial creation.
+- **Software Match:** If an image's fingerprint matches "Adobe Photoshop," but the file claims to be an "Original Scan," it has been tampered with.
+
+## Error Level Analysis (ELA)
+**What it is:** A technique that identifies the "compression age" of different parts of an image.
+**Forensic Value:** When an image is modified (e.g., a "copy-paste" edit), the modified area often has a different error level than the original background.
+**Suspicious Findings:** High variance in specific areas suggests those parts were added or modified later.
+
+## XREF (Cross-Reference) Table
+**What it is:** The "index" of the PDF file that tells the reader where every object (text, image, page) is located.
+**Forensic Value:** Deleting objects or adding new ones requires updating the XREF.
+**Suspicious Findings:** "Multiple startxref" or "Incremental Updates" mean the index was rebuilt, proving the file was edited after it was first saved.
+
+## Text Operators (TJ / Tj)
+**What it is:** The low-level commands that draw text on the page.
+**Forensic Value:** Standard software (Word, InDesign) uses very predictable patterns for positioning text.
+**Suspicious Findings:** Unusual positioning jumps or mixed rendering modes often indicate manual text insertion.
+
+---
+
+## Complete indicator list (short reference)
+
+This list matches the indicators described elsewhere in the manual and in the app. **YES** = high risk (red); **Indications** = medium (yellow).
+
+| Indicator | Classification | Brief meaning |
+|-----------|----------------|---------------|
+| Has Revisions | YES | Previous versions preserved in file; proof of post-creation modification. |
+| TouchUp_TextEdit | YES | Acrobat TouchUp text tool was used to edit text. |
+| JavaScript Auto-Execute / Additional Actions | YES | JavaScript runs on open or has AA triggers. |
+| Dangling References | YES | PDF references objects that do not exist. |
+| Structural Scrubbing | YES | Large null/space runs indicate manual byte scrubbing. |
+| PDF/A Violation | YES | Document claims PDF/A but contains forbidden features. |
+| Timestamp Spoofing | YES | File system date older than internal PDF date. |
+| Phishing Directives (SubmitForm/Launch) | YES | SubmitForm or Launch actions present. |
+| Multiple Font Subsets | Indications | Same font embedded with different subsets; text added at different times. |
+| Multiple Creators / Producers | Indications | File processed by more than one application. |
+| xmpMM:History / DerivedFrom / DocumentAncestors | Indications | XMP editing history present. |
+| Multiple DocumentID / Trailer ID Change | Indications | Document IDs or instance IDs indicate merging or heavy editing. |
+| Non-Embedded Font | Indications | Font not embedded; common after TouchUp/Edit PDF. |
+| XMP History Gap | Indications | History entries out of order or with suspicious gaps. |
+| Multiple startxref | Indications | Multiple cross-reference tables (incremental saves). |
+| Objects with Generation > 0 | Indications | Object numbers reused after deletion. |
+| More Layers Than Pages | Indications | Unusual layer count. |
+| Linearized / Linearized Updated | Indications | Web-optimized PDF was later modified. |
+| Has PieceInfo | Indications | PieceInfo present (e.g. Illustrator). |
+| Has Redactions | Indications | Redaction annotations; hidden text may still exist. |
+| Has Annotations | Indications | Comments/annotations present. |
+| AcroForm NeedAppearances=true | Indications | Form appearance generated at view time. |
+| Has Digital Signature | Indications | Document signed; broken signature = modified after signing. |
+| Creation/Modification Date Mismatch (Info vs XMP) | Indications | Info and XMP dates inconsistent. |
+| Metadata Version Mismatch | Indications | Claims old PDF version but uses modern features. |
+| Suspicious Text Positioning | Indications | Unusual density of Tm/Td operators. |
+| White Rectangle Overlay | Indications | White shapes drawn over content. |
+| Excessive Drawing Operations | Indications | Unusually many drawing commands. |
+| Orphaned Objects | Indications | Defined but never referenced. |
+| Large Object Number Gaps | Indications | Large gaps in object numbering. |
+| Contains JavaScript | Indications | JavaScript present (not necessarily auto-run). |
+| Duplicate Images With Different Xrefs | Indications | Same image stored as separate objects. |
+| Images With EXIF | Indications | Embedded images contain EXIF. |
+| CropBox/MediaBox Mismatch | Indications | Visible area smaller than page; content may be hidden. |
+| Excessive Form Fields | Indications | Unusually many form fields. |
+| Duplicate Bookmarks | Indications | Bookmarks with identical titles. |
+| Invalid Bookmark Destinations | Indications | Bookmarks point to non-existent pages. |
+| Starts With Zero Byte | Indications | Null byte before %PDF- header. |
+| Possible Email Addresses | Indications | Email addresses in raw data. |
+| Possible URLs | Indications | URLs in raw data. |
+| JPEG Analysis (quantization tables) | Indications | Suspicious QT fingerprint (e.g. invalid/forged or software match). |
+| Error Level Analysis (ELA) | Indications | Embedded images show anomalous compression patterns. |
+| Hidden Annotations | Indications | Annotations with Hidden/Invisible flags. |
+| Invisible Text (Rendering Mode 3) | Indications | Text not rendered. |
+| Digital Signature (analysis) | Indications | Signature present; verify validity and ByteRange. |
+
+---
+
+## Developer and Contact
+
+**Developer:** Rasmus Riis  
+**Email:** riisras@gmail.com  
+**Project:** PDFRecon – PDF Forensic Analysis Tool  
+**Repository:** https://github.com/Rasmus-Riis/PDFRecon
+
+This manual and the forensic indicators are maintained with the PDFRecon project. For contributions, issues, or feature requests, use the GitHub repository.

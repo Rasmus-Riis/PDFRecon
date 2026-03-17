@@ -19,6 +19,8 @@ from pathlib import Path
 from typing import Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+import fitz
+
 from .config import (
     PDFReconConfig, PDFProcessingError, PDFCorruptionError, 
     PDFTooLargeError, PDFEncryptedError,
@@ -270,10 +272,6 @@ def detect_indicators(filepath: Path, txt: str, doc, exif_output: str = "", app_
         # JavaScript detection
         _detect_javascript(txt, indicators, txt_lower)
         
-        # Image forensics
-        if doc:
-            _detect_image_anomalies(doc, filepath, indicators)
-        
         # Structural anomalies
         if doc:
             _detect_structural_anomalies(doc, indicators)
@@ -349,29 +347,32 @@ def analyze_fonts(filepath: Path, doc):
         # Iterate through xrefs instead of pages to find fonts.
         # This avoids O(N) page iteration and parsing, which is slow for large docs.
         for xref in range(1, doc.xref_length()):
-            if doc.xref_is_font(xref):
-                res = doc.xref_get_key(xref, "BaseFont")
-                if res[0] == "name":
-                    basefont_name = res[1]
-                    # PDF names usually start with /, strip it
-                    if basefont_name.startswith("/"):
-                        basefont_name = basefont_name[1:]
+            try:
+                if doc.xref_is_font(xref):
+                    res = doc.xref_get_key(xref, "BaseFont")
+                    if res[0] == "name":
+                        basefont_name = res[1]
+                        # PDF names usually start with /, strip it
+                        if basefont_name.startswith("/"):
+                            basefont_name = basefont_name[1:]
 
-                    # Decode PDF name (e.g. #20 -> space)
-                    basefont_name = re.sub(r"#([0-9A-Fa-f]{2})", lambda m: chr(int(m.group(1), 16)), basefont_name)
+                        # Decode PDF name (e.g. #20 -> space)
+                        basefont_name = re.sub(r"#([0-9A-Fa-f]{2})", lambda m: chr(int(m.group(1), 16)), basefont_name)
 
-                    if "+" in basefont_name:
-                        try:
-                            subset_prefix, full_font_name = basefont_name.split("+", 1)
-                            # Keep the FULL font name including style (Arial-Bold, Arial-Regular, etc.)
-                            # This way we track subsets per STYLE, not per base font
-                            if full_font_name not in font_subsets:
-                                font_subsets[full_font_name] = set()
-                            font_subsets[full_font_name].add(basefont_name)
-                        except ValueError:
-                            continue
+                        if "+" in basefont_name:
+                            try:
+                                subset_prefix, full_font_name = basefont_name.split("+", 1)
+                                if full_font_name not in font_subsets:
+                                    font_subsets[full_font_name] = set()
+                                font_subsets[full_font_name].add(basefont_name)
+                            except ValueError:
+                                continue
+            except Exception as inner_e:
+                logging.warning(f"Skipping problematic font xref {xref} in {filepath.name}: {inner_e}")
+                continue
     except Exception as e:
-        logging.error(f"Error accessing font xrefs for {filepath.name}: {e}")
+        # If we hit a major error here, log it as a warning and return what we have
+        logging.warning(f"Error during font analysis for {filepath.name}: {e}")
         return {}
     
     # Filter for only those font STYLES that have multiple subsets
