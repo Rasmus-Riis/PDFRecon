@@ -887,15 +887,19 @@ def detect_structural_scrubbing(pdf_bytes: bytes, indicators: dict):
     """Detect large blocks of nulls or spaces suggestive of manual data scrubbing."""
     try:
         findings = []
+        # PERFORMANCE OPTIMIZATION (Bolt ⚡): Fast substring pre-check avoids expensive regex
         # Look for 200+ consecutive null bytes
-        null_runs = len(re.findall(b"\x00{200,}", pdf_bytes))
-        if null_runs > 0:
-            findings.append(f"Found {null_runs} block(s) of 200+ null bytes (potential scrubbing)")
+        if b"\x00" * 200 in pdf_bytes:
+            null_runs = len(re.findall(b"\x00{200,}", pdf_bytes))
+            if null_runs > 0:
+                findings.append(f"Found {null_runs} block(s) of 200+ null bytes (potential scrubbing)")
             
+        # PERFORMANCE OPTIMIZATION (Bolt ⚡): Fast substring pre-check avoids expensive regex
         # Look for 1000+ consecutive space characters
-        space_runs = len(re.findall(b" {1000,}", pdf_bytes))
-        if space_runs > 0:
-            findings.append(f"Found {space_runs} block(s) of 1000+ spaces (potential manual white-out)")
+        if b" " * 1000 in pdf_bytes:
+            space_runs = len(re.findall(b" {1000,}", pdf_bytes))
+            if space_runs > 0:
+                findings.append(f"Found {space_runs} block(s) of 1000+ spaces (potential manual white-out)")
             
         if findings:
             indicators['StructuralScrubbing'] = {
