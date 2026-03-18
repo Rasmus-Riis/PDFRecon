@@ -39,7 +39,7 @@ PDFRecon is a **forensic analysis tool** for detecting signs of alteration in PD
 ## Screenshots / Demo
 
 
-| Ispector - TouchUp | Inspector – details | Visual diff (revision vs final) |
+| Inspector - TouchUp | Inspector – details | Visual diff (revision vs final) |
 |:--------------------------:|:--------------------------------:|:-------------------------------:|
 | ![Overview](assets/PDFRecon_TouchUp.png) | ![Inspector](assets/PDFRecon_Details.png) | ![Visual Diff](assets/PDFRecon_VisualDiff.png) |
 
