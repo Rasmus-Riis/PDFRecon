@@ -1,7 +1,7 @@
 <div align="center">
 
 <!-- PLACEHOLDER: Hero / header image (e.g. app logo + tagline). Suggested size: ~860px wide -->
-<img src="assets/PLACEHOLDER_HEADER.png" alt="PDFRecon" width="860"/>
+<img src="assets/PDFRecon_Screenshot.png" alt="PDFRecon" width="860"/>
 
 # PDFRecon
 
@@ -39,9 +39,9 @@ PDFRecon is a **forensic analysis tool** for detecting signs of alteration in PD
 ## Screenshots / Demo
 
 
-| Main window – scan results | Inspector – details & PDF viewer | Visual diff (revision vs final) |
+| Ispector - TouchUp | Inspector – details | Visual diff (revision vs final) |
 |:--------------------------:|:--------------------------------:|:-------------------------------:|
-| ![Overview](assets/PDFRecon_Screenshot.png) | ![Inspector](assets/PDFRecon_Details.png) | ![Visual Diff](assets/PDFRecon_VisualDiff.png) |
+| ![Overview](assets/PDFRecon_TouchUp.png) | ![Inspector](assets/PDFRecon_Details.png) | ![Visual Diff](assets/PDFRecon_VisualDiff.png) |
 
 | Timeline | Export (Excel) | Chain of custody / audit log |
 |:-------:|:--------------:|:-----------------------------:|
