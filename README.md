@@ -1,135 +1,83 @@
-<p align="center">
-  <img src="assets/PDFRecon_Screenshot.png" alt="PDFRecon" width="800"/>
-</p>
+<div align="center">
 
-<h1 align="center">PDFRecon</h1>
-<h3 align="center">PDF Forensic Analysis Tool</h3>
+<!-- PLACEHOLDER: Hero / header image (e.g. app logo + tagline). Suggested size: ~860px wide -->
+<img src="assets/PLACEHOLDER_HEADER.png" alt="PDFRecon" width="860"/>
 
-<p align="center">
-  <b>Detect alterations, extract revisions, and analyze PDF documents for signs of manipulation</b>
-</p>
+# PDFRecon
 
-<p align="center">
-  <a href="#features">Features</a> •
-  <a href="#indicators">Indicators</a> •
-  <a href="#installation">Installation</a> •
-  <a href="#usage">Usage</a> •
-  <a href="#manual-verification">Manual Verification</a>
-</p>
+### PDF Forensic Analysis Tool
+
+**Detect alterations, extract revisions, and analyze PDF documents with 40+ forensic indicators**
+
+[Features](#features) • [Screenshots](#screenshots--demo) • [Installation](#installation) • [Quickstart](#quickstart) • [CLI](#cli) • [Manual](#forensic-manual)
+
+</div>
 
 ---
 
-## What is PDFRecon?
+## Overview
 
-PDFRecon is a **forensic analysis tool** designed to detect signs of alteration in PDF documents. It scans PDF files for over **40 technical indicators** that reveal editing, manipulation, or hidden content—essential for:
+PDFRecon is a **forensic analysis tool** for detecting signs of alteration in PDF documents. It scans PDFs for **40+ technical indicators** that reveal editing, manipulation, hidden content, and post‑signing changes. It supports case management, chain of custody, exports with sidecar signing, and visual/text diffing of revisions.
 
-- 🏛️ **Legal proceedings** - Verify authenticity of contracts and evidence
-- 💰 **Financial audits** - Detect altered invoices and statements  
-- 🎓 **Academic integrity** - Check for modified transcripts and certificates
-- 🔍 **Digital forensics** - Comprehensive PDF analysis for investigations
-- 🛡️ **Fraud detection** - Identify manipulated documentation
+**Use cases:** Legal & evidence authenticity • Audits & fraud detection • Digital forensics • Academic verifications
 
 ---
 
 ## Features
 
-### 🔍 Deep PDF Analysis
-PDFRecon examines the internal structure of PDF files to detect forensic indicators that are invisible to normal PDF viewers.
-
-### 📜 Revision Extraction
-When a PDF is edited with "Save" instead of "Save As", the previous version remains hidden inside the file. PDFRecon automatically extracts ALL previous versions.
-
-<p align="center">
-  <i>Example: A document saved 5 times contains 5 complete versions—PDFRecon extracts them all</i>
-</p>
-
-### 📊 Timeline Generation
-Creates a chronological view of all timestamps found in metadata, showing when the document was:
-- Created
-- Modified
-- Printed
-- Signed
-- Accessed
-
-### 🔐 Digital Signature Analysis
-- Detects signed documents
-- Verifies signature validity
-- Identifies modifications made AFTER signing
-
-### 📋 Comprehensive Reports
-Export findings to:
-- **Excel (.xlsx)** - Full analysis with all indicators
-- **CSV** - For data processing
-- **JSON** - For programmatic access
-- **HTML** - For web viewing
-
-### 💼 Case Management
-- Save analysis sessions as `.prc` case files
-- Reload cases to continue investigation
-- Add notes to individual files
-- Verify file integrity with MD5 hashes
-
-### 📦 Reader Export
-Create self-contained analysis packages that can be shared with colleagues who don't have PDFRecon installed.
+- **Deep PDF inspection** — 40+ indicators (TouchUp edits, revisions, hidden/invisible text, overlays, JavaScript, XMP history, PDF/A violations, etc.)
+- **Case management** — Save/load `.prc` cases, add notes, verify integrity (hashes)
+- **Exports** — Excel, CSV, JSON, HTML + sidecar SHA‑256 and optional detached signature for all exports
+- **Chain of custody** — Automated, tamper‑evident logging
+- **Revision extraction & comparison** — Text diff and visual diff
+- **Image forensics** — ELA overlays, JPEG fingerprint anomalies, duplicate images
+- **Powerful GUI** — Inspector, Timeline, PDF Viewer overlays, version history
+- **CLI** — Batch scanning, signed report export, JavaScript extraction
 
 ---
 
-## Indicators
+## Screenshots / Demo
 
-PDFRecon detects **40+ forensic indicators** organized by confidence level:
+Replace the placeholders below with your own images. Suggested sizes: ~600–800px wide for consistency.
 
-### 🔴 High Confidence (Red Flag)
+| Main window – scan results | Inspector – details & PDF viewer | Visual diff (revision vs final) |
+|:--------------------------:|:--------------------------------:|:-------------------------------:|
+| ![Overview](assets/PDFRecon_Screenshot.png) | ![Inspector](assets/PDFRecon_Details.png) | ![Visual Diff](assets/PDFRecon_VisualDiff.png) |
 
-| Indicator | Description |
-|-----------|-------------|
-| **TouchUp_TextEdit** | Adobe Acrobat's text editing tool leaves this marker when text is manually modified |
-| **Has Revisions** | Previous document versions found embedded in the file |
-| **JavaScript Auto-Execute** | Scripts configured to run when the document opens |
-| **Missing Objects** | References to objects that don't exist (indicates improper editing) |
+| Timeline | Export (Excel) | Chain of custody / audit log |
+|:-------:|:--------------:|:-----------------------------:|
+| ![Timeline](assets/PDFRecon_Timeline.png) | ![Export](assets/PDFRecon_Export.png) | ![Custody](assets/PDFRecon_Audit.png) |
 
-### 🟡 Medium Confidence (Yellow Flag)
-
-| Indicator | Description |
-|-----------|-------------|
-| **Multiple Font Subsets** | Same font embedded multiple times (text added at different times) |
-| **Multiple Creators/Producers** | File processed by multiple applications |
-| **XMP History** | Editing history recorded in metadata |
-| **Document ID Mismatch** | IDs don't match (document merged or heavily edited) |
-| **Multiple startxref** | Multiple cross-reference tables (incremental saves) |
-| **Objects Gen > 0** | Objects were deleted and their numbers reused |
-| **White Rectangle Overlay** | White shapes drawn to hide content |
-| **Invisible Text** | Text with rendering mode 3 (not displayed) |
-| **Date Mismatch** | Creation/modification dates don't match between Info and XMP |
-| **Linearized + Updated** | Web-optimized PDF was later modified |
-| **Has Redactions** | Document contains redaction annotations |
-| **Digital Signature** | Document is signed (broken = modified after signing) |
-| ...and 25+ more | See full manual for complete list |
+**Placeholder files to add under `assets/`:**
+- `PLACEHOLDER_HEADER.png` — Hero/header image
+- `PLACEHOLDER_OVERVIEW.png` — Main GUI with file list
+- `PLACEHOLDER_INSPECTOR.png` — Inspector with Details/PDF Viewer
+- `PLACEHOLDER_VISUAL_DIFF.png` — Visual comparison window
+- `PLACEHOLDER_TIMELINE.png` — Timeline view
+- `PLACEHOLDER_EXPORT.png` — Export menu or Excel output
+- `PLACEHOLDER_CUSTODY.png` — Audit/custody log
+- `PLACEHOLDER_FOOTER.png` — Optional footer banner
 
 ---
 
 ## Installation
 
-### Option 1: Download Executable (Recommended)
+### Option A — Download executable (recommended)
 
-1. Go to [**Releases**](../../releases)
+1. Go to [**Releases**](https://github.com/Rasmus-Riis/PDFRecon/releases)
 2. Download `PDFRecon.exe`
-3. (Optional) Download ExifTool for enhanced metadata extraction
+3. (Optional) Place `exiftool.exe` and `exiftool_files/` next to the exe for better metadata extraction
 
-### Option 2: Run from Source
+### Option B — Run from source
 
 ```bash
-# Clone repository
-git clone https://github.com/yourusername/PDFRecon.git
+git clone https://github.com/Rasmus-Riis/PDFRecon.git
 cd PDFRecon
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Run
 python app.py
 ```
 
-### Option 3: Build Executable
+### Option C — Build executable
 
 ```bash
 pip install pyinstaller
@@ -137,159 +85,112 @@ pyinstaller PDFRecon.spec
 # Output: dist/PDFRecon.exe
 ```
 
-### ExifTool Integration (Optional but Recommended)
-
-For best results, place these in the same folder as PDFRecon:
-- `exiftool.exe`
-- `exiftool_files/` folder
-
-Download from: https://exiftool.org/
+> **ExifTool** (optional): [exiftool.org](https://exiftool.org/)
 
 ---
 
-## Usage
+## Quickstart
 
-### Basic Workflow
+1. Launch PDFRecon
+2. Click **“Choose folder and scan”** → select a folder with PDFs
+3. Review the table (red = high risk, yellow = indications, green = clean)
+4. Select a file → **Inspector** shows indicators, timeline, PDF overlays, revisions
+5. **File → Save Case As…** to store a `.prc` case
+6. **Export Report** → Excel / CSV / JSON / HTML (with sidecar hash/signature)
+7. **File → Verify integrity** (when a case is loaded) to re‑hash evidence files
 
-1. **Launch PDFRecon**
-2. **Click "Choose folder and scan"** - Select a folder containing PDF files
-3. **Review results** - Files are color-coded by risk level:
-   - 🔴 **Red** = High confidence of alteration
-   - 🟡 **Yellow** = Suspicious patterns found
-   - 🟢 **Green** = No indicators detected
-4. **Click any file** - View detailed indicators in the Inspector panel
-5. **Right-click** - Access additional options:
-   - View PDF
-   - Show Timeline
-   - Extract Revisions
-   - Visual Comparison
-6. **Export Report** - Save findings to Excel/CSV/JSON/HTML
-
-### Inspector Panel
-
-When you select a file, the Inspector shows:
-- **Details Tab** - All detected indicators with explanations
-- **PDF Tab** - View the document with TouchUp text overlay
-- **Version History** - Compare extracted revisions
-- **Timeline** - Chronological view of all timestamps
-
-### Keyboard Shortcuts
-
-| Key | Action |
-|-----|--------|
-| `Ctrl+O` | Open case file |
-| `Ctrl+S` | Save case |
-| `F5` | Refresh/Rescan |
-| `Delete` | Remove selected file from list |
+**Tips:** Arrow keys move selection; right‑click for PDF, Timeline, Visual Diff, Note. Inspector’s PDF Viewer can overlay ELA, JPEG, TouchUp, and duplicate‑image findings.
 
 ---
 
-## Manual Verification
-
-PDFRecon includes a comprehensive **forensic manual** (Help → Manual) that explains:
-
-### For Each Indicator:
-- ✅ What it means forensically
-- ✅ Step-by-step hex editor instructions
-- ✅ Exact byte patterns to search for
-- ✅ How to decode the data
-- ✅ Command-line verification methods
-
-### Example: Finding TouchUp_TextEdit Manually
-
-```
-1. Open PDF in hex editor (HxD, 010 Editor)
-2. Search for: TouchUp_TextEdit
-3. Or search hex: 2F 54 6F 75 63 68 55 70
-4. Look for /PieceInfo dictionary containing:
-   /LastModified (D:20240115143000+01'00')
-   /Private << /TouchUp_TextEdit true >>
-```
-
-### Useful Commands
+## CLI
 
 ```bash
-# Decompress PDF for analysis
-qpdf --qdf --object-streams=disable input.pdf output.pdf
+# Version
+python cli.py --version
 
-# Count revisions (%%EOF markers)
-grep -c "%%EOF" file.pdf
+# Scan directory → .prc case + custody log
+python cli.py scan C:\Evidence\PDFs
+python cli.py scan C:\Evidence\PDFs --output-dir C:\Cases -j 4
+python cli.py scan C:\Evidence\PDFs --custody-log C:\Cases\custody.log
 
-# Extract all metadata
-exiftool -a -G file.pdf
+# Export signed report from a case
+python cli.py export-signed C:\Cases\case_cli_20250101_120000.prc
+python cli.py export-signed case.prc --output report.json --custody --sign-key key.pem
 
-# Check digital signatures
-pdfsig file.pdf
+# Extract embedded JavaScript from a PDF
+python cli.py extract-js suspicious.pdf
+python cli.py extract-js suspicious.pdf --output scripts.txt
 ```
 
 ---
 
-## System Requirements
+## Forensic Manual
+
+- **In app:** Help → Manual (full HTML manual, EN/DA)
+- **Markdown:** `lang/manual_en.md`, `lang/manual_da.md`
+
+The manual explains each indicator and how to verify findings with hex editors and CLI tools (qpdf, mutool, exiftool, pdfsig, etc.).
+
+---
+
+## Indicators (examples)
+
+**High confidence (red):** TouchUp_TextEdit • Has Revisions • JavaScript Auto‑Execute • Dangling References • Structural Scrubbing • PDF/A Violation • Timestamp Spoofing • Phishing Directives
+
+**Indications (yellow):** Multiple Font Subsets • Multiple Creators/Producers • XMP History / Gaps • Document ID Mismatch • Multiple startxref • Objects Gen > 0 • White Rectangle Overlay • Invisible Text • Date Mismatch • Linearized + Updated • Has Redactions • Digital Signature • Duplicate Images • Images with EXIF • JPEG Fingerprints • ELA • Excessive Drawing Ops • Orphaned/Missing Objects • Bookmark anomalies • …
+
+See the manual for the full list and verification steps.
+
+---
+
+## Exports, signing & custody
+
+- **Exports:** Excel (.xlsx), CSV, JSON, HTML
+- **Sidecar signing:** SHA‑256 `.sha256` file + optional detached `.sig` for all exports
+- **Chain of custody:** Ingestion, export events, integrity checks
+
+---
+
+## System requirements
 
 - **OS:** Windows 10/11
-- **RAM:** 4GB minimum, 8GB recommended
-- **Disk:** 200MB for application + space for analysis
-
-### For Running from Source
-- Python 3.10 or higher
-- Dependencies in `requirements.txt`
+- **RAM:** 4 GB minimum, 8 GB recommended
+- **From source:** Python 3.10+, dependencies in `requirements.txt`
 
 ---
 
-## Project Structure
-
-```
-PDFRecon/
-├── app.py                    # Entry point
-├── pdfrecon/
-│   ├── app_gui.py           # Main GUI (5000+ lines)
-│   ├── scanner.py           # Indicator detection
-│   ├── advanced_forensics.py # Extended detection
-│   ├── pdf_processor.py     # PDF utilities
-│   ├── exporter.py          # Report generation
-│   └── utils.py             # Helpers
-├── lang/
-│   ├── translations.json    # EN/DA translations
-│   ├── manual_en.md         # English manual
-│   └── manual_da.md         # Danish manual
-├── assets/                  # Screenshots, icons
-├── PDFRecon.spec           # PyInstaller config
-└── requirements.txt        # Dependencies
-```
 ## License
 
-PDFRecon is provided for forensic and educational purposes.
-
-This software includes **ExifTool** by Phil Harvey, distributed under the Artistic/GPL license.
-
-See [license.txt](license.txt) for full license information.
+PDFRecon is provided for forensic and educational purposes. Third‑party tools (e.g. ExifTool) have their own licenses. See [license.txt](license.txt).
 
 ---
 
 ## Author
 
-**Rasmus Riis**  
+**Rasmus Riis** — riisras@gmail.com
+
 ---
 
 ## Acknowledgments
 
-- [ExifTool](https://exiftool.org/) by Phil Harvey
+- [ExifTool](https://exiftool.org/) — Phil Harvey
 - [PyMuPDF](https://pymupdf.readthedocs.io/)
 - [CustomTkinter](https://github.com/TomSchimansky/CustomTkinter)
 
 ---
 
-## ⚠️ Disclaimer
+## Disclaimer
 
-PDFRecon is a forensic **analysis** tool. The presence of indicators does **not** constitute proof of malicious intent—many indicators can result from legitimate editing operations (form filling, digital signing, normal saves).
-
-**Always combine automated analysis with:**
-- Manual verification
-- Expert judgment
-- Context about document origin
+PDFRecon is a forensic **analysis** tool. Indicators do **not** prove malicious intent; many stem from legitimate use (form filling, signing, normal saves). Always combine with manual verification and context.
 
 ---
 
-<p align="center">
-  <b>Found PDFRecon useful? Give it a ⭐ on GitHub!</b>
-</p>
+<div align="center">
+
+<!-- PLACEHOLDER: Optional footer banner. Suggested width: ~720px -->
+<img src="assets/PLACEHOLDER_FOOTER.png" alt="Footer" width="720"/>
+
+**If PDFRecon is useful to you, consider giving the repo a ⭐**
+
+</div>
