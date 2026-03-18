@@ -38,7 +38,6 @@ PDFRecon is a **forensic analysis tool** for detecting signs of alteration in PD
 
 ## Screenshots / Demo
 
-Replace the placeholders below with your own images. Suggested sizes: ~600–800px wide for consistency.
 
 | Main window – scan results | Inspector – details & PDF viewer | Visual diff (revision vs final) |
 |:--------------------------:|:--------------------------------:|:-------------------------------:|
@@ -178,8 +177,6 @@ PDFRecon is a forensic **analysis** tool. Indicators do **not** prove malicious 
 
 <div align="center">
 
-<!-- PLACEHOLDER: Optional footer banner. Suggested width: ~720px -->
-<img src="assets/PLACEHOLDER_FOOTER.png" alt="Footer" width="720"/>
 
 **If PDFRecon is useful to you, consider giving the repo a ⭐**
 
