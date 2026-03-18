@@ -874,14 +874,47 @@ class ActionsMixin:
         self.tree.delete(*self.tree.get_children())
         self.report_data.clear()
 
-        parent_display_ids = {}
-        parent_counter = 0
-        for d in self.all_scan_data.values(): 
+        # Build a stable parent-id lookup (used when a revision's parent isn't visible
+        # in the current filtered view).
+        fallback_parent_ids: dict[str, int] = {}
+        _pc = 0
+        for d in self.all_scan_data.values():
             if not d.get("is_revision") and d.get("status") != "error":
-                parent_counter += 1
-                parent_display_ids[str(d["path"])] = parent_counter
+                _pc += 1
+                fallback_parent_ids[str(d["path"])] = _pc
 
-        for i, d in enumerate(data_list):
+        # Group revisions directly under their parent in the current view so IDs can be
+        # assigned sequentially (parent=10 -> rev1=11 -> rev2=12 ...).
+        #
+        # IMPORTANT: revisions may appear *after* the parent in the raw dict insertion order,
+        # so do a 2-pass build: collect all revisions first, then walk parents.
+        revs_by_parent: dict[str, list] = {}
+        parents_in_order: list = []
+        for d in data_list:
+            if d.get("is_revision"):
+                parent_path = str(d.get("original_path") or "")
+                revs_by_parent.setdefault(parent_path, []).append(d)
+            else:
+                parents_in_order.append(d)
+
+        ordered: list = []
+        for parent in parents_in_order:
+            p = str(parent.get("path"))
+            ordered.append(parent)
+            if p in revs_by_parent:
+                # Keep a stable, human-friendly order for revisions (filename/path).
+                revs = sorted(revs_by_parent.pop(p), key=lambda x: str(x.get("path", "")))
+                ordered.extend(revs)
+
+        # Any revisions whose parent is not visible in the filtered view are appended at the end.
+        for leftover_parent, revs in list(revs_by_parent.items()):
+            ordered.extend(sorted(revs, key=lambda x: str(x.get("path", ""))))
+            revs_by_parent.pop(leftover_parent, None)
+
+        next_id = 1
+        visible_parent_row_ids: dict[str, int] = {}
+
+        for d in ordered:
             path_obj = Path(d["path"])
             path_str = str(d["path"])
             is_rev = d.get("is_revision", False)
@@ -896,13 +929,21 @@ class ActionsMixin:
             exif_display = "✔" if d.get("exif") else ""
 
             if is_rev:
-                parent_display_id = parent_display_ids.get(str(d.get("original_path")))
-                display_id = parent_display_id if parent_display_id else i + 1
-                flag = self._("status_identical").format(pages=PDFReconConfig.VISUAL_DIFF_PAGE_LIMIT) if d.get("is_identical") else self.get_flag({}, True, parent_display_id)
+                parent_path = str(d.get("original_path") or "")
+                parent_id = visible_parent_row_ids.get(parent_path) or fallback_parent_ids.get(parent_path)
+                display_id = next_id
+                next_id += 1
+                flag = (
+                    self._("status_identical").format(pages=PDFReconConfig.VISUAL_DIFF_PAGE_LIMIT)
+                    if d.get("is_identical")
+                    else self.get_flag({}, True, parent_id)
+                )
                 tag = "gray_row" if d.get("is_identical") else "blue_row"
                 revisions_display, created_time, modified_time, indicators_display = "", "", "", ""
             else: 
-                display_id = parent_display_ids.get(path_str, i + 1)
+                display_id = next_id
+                next_id += 1
+                visible_parent_row_ids[path_str] = display_id
                 flag = self.get_flag(indicator_keys, False)
                 tag = self.tree_tags.get(flag, "")
                 if "RelatedFiles" in indicator_keys:

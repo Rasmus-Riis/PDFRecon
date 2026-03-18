@@ -689,14 +689,14 @@
             </div>
             <h2>Manuel verifikation</h2>
             <div class="step">
-                <span class="step-number">1</span> Søg efter <code>/Handling</code> ordbøger i PDF-indholdet.
+                <span class="step-number">1</span> Søg efter <code>/Action</code> ordbøger i PDF-indholdet.
             </div>
             <div class="step">
-                <span class="step-number">2</span> Se efter <code>/S /SendForm</code> og tjek <code>/F</code> nøgle til
+                <span class="step-number">2</span> Se efter <code>/S /SubmitForm</code> og tjek <code>/F</code> nøgle til
                 mål-URL'er.
             </div>
             <div class="step">
-                <span class="step-number">3</span> Se efter <code>/S /Lancering</code> og kontroller for automatiseret
+                <span class="step-number">3</span> Se efter <code>/S /Launch</code> og kontroller for automatiseret
                 udførelse af <code>cmd.exe</code> eller lignende kommandoer.
             </div>
         </div>
@@ -937,7 +937,7 @@ grep -A 20 "ToUnicode" readable.pdf</code></pre>
                 <span class="step-number">3</span> Søg efter <code>/C2_0</code> i PDF'en for at finde dens
                 skrifttypeordbog:
                 <pre><code>/C2_0 &lt;&lt;
-  /Skriv /Skrifttype
+  /Type /Font
   /Undertype /Type0
   /BaseFont /BCDFGH+Arial-BoldMT
   /Kodning /Identitet-H
@@ -1164,14 +1164,14 @@ Bytes 0 → sidste %%EOF = Aktuel version</code></pre>
 &lt;&lt;
   /Størrelse 150
   /Root 1 0 R
-  /Forrige 12345 ← Byte offset af forrige xref
+  /Prev 12345 ← Byte offset af forrige xref
 &gt;&gt;
 startxref
 45.000
 %%EOF</code></pre>
             <div class="step">
-                <span class="step-number">4</span> Søg efter <code>/Forrige</code> efterfulgt af et tal. hver
-                <code>/Forrige</code> værdi peger på en tidligere krydsreferencetabel.
+                <span class="step-number">4</span> Søg efter <code>/Prev</code> efterfulgt af et tal. hver
+                <code>/Prev</code> værdi peger på en tidligere krydsreferencetabel.
             </div>
             <h2>Kommandolinjeudtrækning</h2>
             <pre><code># Find alle %%EOF-stillinger
@@ -1315,11 +1315,11 @@ ASCII: a p p.  a l e r t</code></pre>
             </div>
             <h2>Manuel verifikation</h2>
             <div class="step">
-                <span class="step-number">1</span> Søg efter <code>/Annoter</code> arrays i PDF-dokumentet.
+                <span class="step-number">1</span> Søg efter <code>/Annots</code> arrays i PDF-dokumentet.
             </div>
             <div class="step">
                 <span class="step-number">2</span> Undersøg individuelle anmærkningsobjekter
-                (<code>/Skriv /Annot</code>) for <code>/F</code> (Flag) tast.
+                (<code>/Type /Annot</code>) for <code>/F</code> (Flag) tast.
             </div>
             <div class="step">
                 <span class="step-number">3</span> Kontroller, om bit 2 (skjult, værdi 2) eller bit 1 (usynlig, værdi 1)
@@ -1366,7 +1366,7 @@ comm -23 referenced.txt defined.txt</code></pre>
 endobj</code></pre>
             <h2>Trin 2: Vis alle objektreferencer</h2>
             <p>Referencer bruger format <code>X Y R</code>:</p>
-            <pre><code>/Børn [3 0 R 5 0 R 7 0 R] ← Referencer objekter 3, 5 og 7</code></pre>
+            <pre><code>/Kids [3 0 R 5 0 R 7 0 R] ← Referencer objekter 3, 5 og 7</code></pre>
             <h2>Trin 3: Sammenlign lister</h2>
             <pre><code># Liste over alle definitioner
 grep -oP '\d+(?= 0 obj)' file.pdf | sortere -n | uniq &gt; defineret.txt
@@ -1701,9 +1701,9 @@ startxref
             <h2>Følger Kæden</h2>
             <ol>
                 <li>Gå til byte-offset angivet med <code>startxref</code></li>
-                <li>Finde <code>/Forrige XXXXXX</code> i traileren</li>
+                <li>Find <code>/Prev XXXXX</code> i traileren</li>
                 <li>Gå til den offset for forrige xref</li>
-                <li>Gentag indtil ikke mere <code>/Forrige</code> poster</li>
+                <li>Gentag indtil der ikke er flere <code>/Prev</code> poster</li>
             </ol>
         </div>
         <!-- GENERATION > 0 -->
@@ -2632,7 +2632,7 @@ trailer
   /Root 1 0 R ← Dokumentkatalog
   /Info 5 0 R ← Infoordbog
   /ID [&lt;abc&gt; &lt;def&gt;] ← Dokument-id'er
-  /Forrige 12345 ← Forrige xref (inkremental)
+  /Prev 12345 ← Forrige xref (inkremental)
 &gt;&gt;
 startxref
 500 ← Byte offset af denne xref
