@@ -157,7 +157,7 @@ PDFRecon is provided for forensic and educational purposes. Third‑party tools 
 
 ## Author
 
-**Rasmus Riis** — riisras@gmail.com
+**Rasmus Riis** — riisras[at]gmail.com
 
 ---
 
