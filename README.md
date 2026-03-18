@@ -48,16 +48,6 @@ Replace the placeholders below with your own images. Suggested sizes: ~600–800
 |:-------:|:--------------:|:-----------------------------:|
 | ![Timeline](assets/PDFRecon_Timeline.png) | ![Export](assets/PDFRecon_Export.png) | ![Custody](assets/PDFRecon_Audit.png) |
 
-**Placeholder files to add under `assets/`:**
-- `PLACEHOLDER_HEADER.png` — Hero/header image
-- `PLACEHOLDER_OVERVIEW.png` — Main GUI with file list
-- `PLACEHOLDER_INSPECTOR.png` — Inspector with Details/PDF Viewer
-- `PLACEHOLDER_VISUAL_DIFF.png` — Visual comparison window
-- `PLACEHOLDER_TIMELINE.png` — Timeline view
-- `PLACEHOLDER_EXPORT.png` — Export menu or Excel output
-- `PLACEHOLDER_CUSTODY.png` — Audit/custody log
-- `PLACEHOLDER_FOOTER.png` — Optional footer banner
-
 ---
 
 ## Installation
