@@ -37,6 +37,14 @@ class PDFReconApp(UILayoutMixin, ActionsMixin, PopupsMixin, ExportMixin, DataPro
         
         self.app_version = APP_VERSION
         self.root = root
+
+        # Ensure correct Windows taskbar grouping/icon (exe icon alone is not enough for Tk apps)
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("PDFRecon")
+            except Exception:
+                pass
         
         self.is_reader_mode = "reader" in Path(sys.executable).stem.lower()
         
@@ -104,7 +112,13 @@ class PDFReconApp(UILayoutMixin, ActionsMixin, PopupsMixin, ExportMixin, DataPro
         try:
             icon_path = self._resolve_path('icon.ico')
             if icon_path.exists():
-                self.root.iconbitmap(icon_path)
+                # Title bar icon (and often taskbar icon)
+                self.root.iconbitmap(default=str(icon_path))
+                # Some Tk builds prefer explicit iconbitmap call too
+                try:
+                    self.root.iconbitmap(str(icon_path))
+                except Exception:
+                    pass
             else:
                 logging.warning("icon.ico not found. Using default icon.")
         except tk.TclError:
