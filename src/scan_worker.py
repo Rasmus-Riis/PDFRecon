@@ -661,52 +661,57 @@ def _extract_all_document_ids(txt: str, exif_output: str) -> dict:
 
     own_ids: set = set()
     ref_ids: set = set()
+    txt_lower = txt.lower()
 
-    for tag in ("xmpMM:DocumentID", "xmpMM:InstanceID"):
-        m = re.search(rf'{tag}(?:>|=")([^<"]+)', txt, re.I)
+    if "xmpmm:documentid" in txt_lower:
+        m = re.search(r'xmpMM:DocumentID(?:>|=")([^<"]+)', txt, re.I)
         if m:
             v = _norm(m.group(1))
-            if v:
-                own_ids.add(v)
+            if v: own_ids.add(v)
 
-    for m in re.finditer(r"/ID\s*\[\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*\]", txt):
-        for grp in (m.group(1), m.group(2)):
-            v = _norm(grp)
-            if v:
-                own_ids.add(v)
+    if "xmpmm:instanceid" in txt_lower:
+        m = re.search(r'xmpMM:InstanceID(?:>|=")([^<"]+)', txt, re.I)
+        if m:
+            v = _norm(m.group(1))
+            if v: own_ids.add(v)
 
-    m = re.search(r'xmpMM:OriginalDocumentID(?:>|=")([^<"]+)', txt, re.I)
-    if m:
-        v = _norm(m.group(1))
-        if v:
-            ref_ids.add(v)
+    if "/id" in txt_lower:
+        for v1_raw, v2_raw in re.findall(r"/ID\s*\[\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*\]", txt):
+            v1, v2 = _norm(v1_raw), _norm(v2_raw)
+            if v1: own_ids.add(v1)
+            if v2: own_ids.add(v2)
 
-    for pattern, block_re in [
-        (r"<xmpMM:DerivedFrom\b[^>]*>(.*?)</xmpMM:DerivedFrom>", (r'stRef:documentID(?:>|=")([^<"]+)', r'stRef:instanceID(?:>|=")([^<"]+)')),
-        (r"<xmpMM:Ingredients\b[^>]*>(.*?)</xmpMM:Ingredients>", (r'stRef:documentID(?:>|=")([^<"]+)',)),
-    ]:
-        block_match = re.search(pattern, txt, re.I | re.S)
-        if block_match:
-            blk = block_match.group(1)
-            for sub_re in block_re:
-                for m in re.finditer(sub_re, blk, re.I):
-                    v = _norm(m.group(1))
-                    if v:
-                        ref_ids.add(v)
+    if "xmpmm:originaldocumentid" in txt_lower:
+        m = re.search(r'xmpMM:OriginalDocumentID(?:>|=")([^<"]+)', txt, re.I)
+        if m:
+            v = _norm(m.group(1))
+            if v: ref_ids.add(v)
+
+    if "<xmpmm:derivedfrom" in txt_lower:
+        df = re.search(r"<xmpMM:DerivedFrom\b[^>]*>(.*?)</xmpMM:DerivedFrom>", txt, re.I | re.S)
+        if df:
+            blk = df.group(1)
+            blk_lower = blk.lower()
+            if "stref:documentid" in blk_lower:
+                ref_ids.update(v for v in (_norm(x) for x in re.findall(r'stRef:documentID(?:>|=")([^<"]+)', blk, re.I)) if v)
+            if "stref:instanceid" in blk_lower:
+                ref_ids.update(v for v in (_norm(x) for x in re.findall(r'stRef:instanceID(?:>|=")([^<"]+)', blk, re.I)) if v)
+
+    if "<xmpmm:ingredients" in txt_lower:
+        ing = re.search(r"<xmpMM:Ingredients\b[^>]*>(.*?)</xmpMM:Ingredients>", txt, re.I | re.S)
+        if ing:
+            blk = ing.group(1)
+            if "stref:documentid" in blk.lower():
+                ref_ids.update(v for v in (_norm(x) for x in re.findall(r'stRef:documentID(?:>|=")([^<"]+)', blk, re.I)) if v)
 
     if exif_output:
-        for m in re.finditer(r"Document\s*ID\s*:\s*(\S+)", exif_output, re.I):
-            v = _norm(m.group(1))
-            if v:
-                own_ids.add(v)
-        for m in re.finditer(r"Instance\s*ID\s*:\s*(\S+)", exif_output, re.I):
-            v = _norm(m.group(1))
-            if v:
-                own_ids.add(v)
-        for m in re.finditer(r"Original\s*Document\s*ID\s*:\s*(\S+)", exif_output, re.I):
-            v = _norm(m.group(1))
-            if v:
-                ref_ids.add(v)
+        exif_lower = exif_output.lower()
+        if "document id" in exif_lower:
+            own_ids.update(v for v in (_norm(x) for x in re.findall(r"Document\s*ID\s*:\s*(\S+)", exif_output, re.I)) if v)
+        if "instance id" in exif_lower:
+            own_ids.update(v for v in (_norm(x) for x in re.findall(r"Instance\s*ID\s*:\s*(\S+)", exif_output, re.I)) if v)
+        if "original document id" in exif_lower:
+            ref_ids.update(v for v in (_norm(x) for x in re.findall(r"Original\s*Document\s*ID\s*:\s*(\S+)", exif_output, re.I)) if v)
 
     ref_ids -= own_ids
     return {"own_ids": own_ids, "ref_ids": ref_ids}
