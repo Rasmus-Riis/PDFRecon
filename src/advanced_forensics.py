@@ -675,8 +675,9 @@ def detect_text_operator_anomalies(txt: str, indicators: dict):
         tj_anomalies = len(re.findall(r"-\d{4,}\s+(?=\(|<)", txt))
         
         # Word spacing (Tw) or Character spacing (Tc) being excessively large
-        tw_anomalies = len(re.findall(r"(?:^|[^0-9\.])(1[0-9]{2,}|-[1-9][0-9]+)\s+Tw\b", txt))
-        tc_anomalies = len(re.findall(r"(?:^|[^0-9\.])(1[0-9]{2,}|-[1-9][0-9]+)\s+Tc\b", txt))
+        # PERFORMANCE OPTIMIZATION (Bolt ⚡): Fast substring pre-check avoids expensive regex
+        tw_anomalies = len(re.findall(r"(?:^|[^0-9\.])(1[0-9]{2,}|-[1-9][0-9]+)\s+Tw\b", txt)) if "Tw" in txt else 0
+        tc_anomalies = len(re.findall(r"(?:^|[^0-9\.])(1[0-9]{2,}|-[1-9][0-9]+)\s+Tc\b", txt)) if "Tc" in txt else 0
         
         total = tj_anomalies + tw_anomalies + tc_anomalies
         if total > 0:
@@ -888,14 +889,18 @@ def detect_structural_scrubbing(pdf_bytes: bytes, indicators: dict):
     try:
         findings = []
         # Look for 200+ consecutive null bytes
-        null_runs = len(re.findall(b"\x00{200,}", pdf_bytes))
-        if null_runs > 0:
-            findings.append(f"Found {null_runs} block(s) of 200+ null bytes (potential scrubbing)")
+        # PERFORMANCE OPTIMIZATION (Bolt ⚡): Fast substring pre-check avoids expensive regex
+        if b"\x00" * 200 in pdf_bytes:
+            null_runs = len(re.findall(b"\x00{200,}", pdf_bytes))
+            if null_runs > 0:
+                findings.append(f"Found {null_runs} block(s) of 200+ null bytes (potential scrubbing)")
             
         # Look for 1000+ consecutive space characters
-        space_runs = len(re.findall(b" {1000,}", pdf_bytes))
-        if space_runs > 0:
-            findings.append(f"Found {space_runs} block(s) of 1000+ spaces (potential manual white-out)")
+        # PERFORMANCE OPTIMIZATION (Bolt ⚡): Fast substring pre-check avoids expensive regex
+        if b" " * 1000 in pdf_bytes:
+            space_runs = len(re.findall(b" {1000,}", pdf_bytes))
+            if space_runs > 0:
+                findings.append(f"Found {space_runs} block(s) of 1000+ spaces (potential manual white-out)")
             
         if findings:
             indicators['StructuralScrubbing'] = {
