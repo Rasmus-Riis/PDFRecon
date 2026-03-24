@@ -878,7 +878,13 @@ class DataProcessingMixin:
         for m in re.finditer(r"<stRef:instanceID>([^<]+)</stRef:instanceID>", txt, re.I):
             v = _norm(m.group(1));  out["history_inst_ids"].add(v) if v else None
 
-        df = re.search(r"<xmpMM:DerivedFrom\b[^>]*>(.*?)</xmpMM:DerivedFrom>", txt, re.I | re.S)
+        # PERFORMANCE: Cache lowercased text for O(n) fast-fail substring checks.
+        # This bypasses the expensive O(n) case-insensitive regex engine when patterns are absent.
+        txt_lower = txt.lower()
+
+        df = None
+        if "derivedfrom" in txt_lower:
+            df = re.search(r"<xmpMM:DerivedFrom\b[^>]*>(.*?)</xmpMM:DerivedFrom>", txt, re.I | re.S)
         if df:
             blk = df.group(1)
             for m in re.finditer(r'stRef:documentID="([^"]+)"', blk, re.I):
@@ -892,7 +898,9 @@ class DataProcessingMixin:
             for m in re.finditer(r"(?:xmpMM:|)OriginalDocumentID(?:>|=\")([^<\">]+)", blk, re.I):
                 v = _norm(m.group(1)); out["derived_orig_ids"].add(v) if v else None
 
-        ing = re.search(r"<xmpMM:Ingredients\b[^>]*>(.*?)</xmpMM:Ingredients>", txt, re.I | re.S)
+        ing = None
+        if "ingredients" in txt_lower:
+            ing = re.search(r"<xmpMM:Ingredients\b[^>]*>(.*?)</xmpMM:Ingredients>", txt, re.I | re.S)
         if ing:
             blk = ing.group(1)
             for m in re.finditer(r'stRef:documentID="([^"]+)"', blk, re.I):
@@ -904,7 +912,9 @@ class DataProcessingMixin:
             for m in re.finditer(r"<stRef:instanceID>([^<]+)</stRef:instanceID>", blk, re.I):
                 v = _norm(m.group(1)); out["ingredient_inst_ids"].add(v) if v else None
 
-        hist = re.search(r"<xmpMM:History\b[^>]*>(.*?)</xmpMM:History>", txt, re.I | re.S)
+        hist = None
+        if "history" in txt_lower:
+            hist = re.search(r"<xmpMM:History\b[^>]*>(.*?)</xmpMM:History>", txt, re.I | re.S)
         if hist:
             blk = hist.group(1)
             for m in re.finditer(r'(?:InstanceID|stRef:instanceID)="([^"]+)"', blk, re.I):
@@ -918,7 +928,9 @@ class DataProcessingMixin:
             for m in re.finditer(r"(uuid:[0-9a-f\-]+|xmp\.iid:[^,<>} \]]+|xmp\.did:[^,<>} \]]+)", blk, re.I):
                 v = _norm(m.group(1)); out["history_inst_ids"].add(v) if v else None
 
-        ps = re.search(r"<photoshop:DocumentAncestors\b[^>]*>(.*?)</photoshop:DocumentAncestors>", txt, re.I | re.S)
+        ps = None
+        if "documentancestors" in txt_lower:
+            ps = re.search(r"<photoshop:DocumentAncestors\b[^>]*>(.*?)</photoshop:DocumentAncestors>", txt, re.I | re.S)
         if ps:
             for m in re.finditer(r"<rdf:li[^>]*>([^<]+)</rdf:li>", ps.group(1), re.I):
                 v = _norm(m.group(1)); out["ps_doc_ancestors"].add(v) if v else None
@@ -943,27 +955,36 @@ class DataProcessingMixin:
         own_ids = set()
         ref_ids = set()
 
-        m = re.search(r'xmpMM:DocumentID(?:>|=")([^<"]+)', txt, re.I)
-        if m:
-            v = _norm(m.group(1))
-            if v: own_ids.add(v)
+        # PERFORMANCE: Cache lowercased text for O(n) fast-fail substring checks.
+        # This bypasses the expensive O(n) case-insensitive regex engine when patterns are absent.
+        txt_lower = txt.lower()
 
-        m = re.search(r'xmpMM:InstanceID(?:>|=")([^<"]+)', txt, re.I)
-        if m:
-            v = _norm(m.group(1))
-            if v: own_ids.add(v)
+        if "documentid" in txt_lower:
+            m = re.search(r'xmpMM:DocumentID(?:>|=")([^<"]+)', txt, re.I)
+            if m:
+                v = _norm(m.group(1))
+                if v: own_ids.add(v)
+
+        if "instanceid" in txt_lower:
+            m = re.search(r'xmpMM:InstanceID(?:>|=")([^<"]+)', txt, re.I)
+            if m:
+                v = _norm(m.group(1))
+                if v: own_ids.add(v)
 
         for m in re.finditer(r"/ID\s*\[\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*\]", txt):
             v1, v2 = _norm(m.group(1)), _norm(m.group(2))
             if v1: own_ids.add(v1)
             if v2: own_ids.add(v2)
 
-        m = re.search(r'xmpMM:OriginalDocumentID(?:>|=")([^<"]+)', txt, re.I)
-        if m:
-            v = _norm(m.group(1))
-            if v: ref_ids.add(v)
+        if "originaldocumentid" in txt_lower:
+            m = re.search(r'xmpMM:OriginalDocumentID(?:>|=")([^<"]+)', txt, re.I)
+            if m:
+                v = _norm(m.group(1))
+                if v: ref_ids.add(v)
 
-        df = re.search(r"<xmpMM:DerivedFrom\b[^>]*>(.*?)</xmpMM:DerivedFrom>", txt, re.I | re.S)
+        df = None
+        if "derivedfrom" in txt_lower:
+            df = re.search(r"<xmpMM:DerivedFrom\b[^>]*>(.*?)</xmpMM:DerivedFrom>", txt, re.I | re.S)
         if df:
             blk = df.group(1)
             for m in re.finditer(r'stRef:documentID(?:>|=")([^<"]+)', blk, re.I):
@@ -973,20 +994,26 @@ class DataProcessingMixin:
                 v = _norm(m.group(1))
                 if v: ref_ids.add(v)
 
-        ing = re.search(r"<xmpMM:Ingredients\b[^>]*>(.*?)</xmpMM:Ingredients>", txt, re.I | re.S)
+        ing = None
+        if "ingredients" in txt_lower:
+            ing = re.search(r"<xmpMM:Ingredients\b[^>]*>(.*?)</xmpMM:Ingredients>", txt, re.I | re.S)
         if ing:
             blk = ing.group(1)
             for m in re.finditer(r'stRef:documentID(?:>|=")([^<"]+)', blk, re.I):
                 v = _norm(m.group(1))
                 if v: ref_ids.add(v)
 
-        ps = re.search(r"<photoshop:DocumentAncestors\b[^>]*>(.*?)</photoshop:DocumentAncestors>", txt, re.I | re.S)
+        ps = None
+        if "documentancestors" in txt_lower:
+            ps = re.search(r"<photoshop:DocumentAncestors\b[^>]*>(.*?)</photoshop:DocumentAncestors>", txt, re.I | re.S)
         if ps:
             for m in re.finditer(r"<rdf:li[^>]*>([^<]+)</rdf:li>", ps.group(1), re.I):
                 v = _norm(m.group(1))
                 if v: ref_ids.add(v)
 
-        hist = re.search(r"<xmpMM:History\b[^>]*>(.*?)</xmpMM:History>", txt, re.I | re.S)
+        hist = None
+        if "history" in txt_lower:
+            hist = re.search(r"<xmpMM:History\b[^>]*>(.*?)</xmpMM:History>", txt, re.I | re.S)
         if hist:
             blk = hist.group(1)
             for m in re.finditer(r'stRef:documentID(?:>|=")([^<"]+)', blk, re.I):
