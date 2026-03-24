@@ -124,6 +124,27 @@ Nedenfor er en detaljeret forklaring af hver indikator, som PDFRecon leder efter
 *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
 • Hvad det betyder: Dette er forskellige typer af XMP-metadata, som gemmer information om filens historik. De kan indeholde tidsstempler for, hvornår filen er gemt, ID'er fra tidligere versioner, og hvilket software der er brugt. Fund af disse felter beviser, at filen har en redigeringshistorik.
 
+---
+
+<b>Historik og Relationer (xmpMM & Revisioner)</b>
+*<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
+• Hvad det betyder: Denne fane kombinerer to typer historik: logisk XMP-historik (Asset Relationships) og fysiske inkrementelle gemninger (revisioner).
+- **Afledning (Source)**: Identificerer det umiddelbare forældredokument (kilde), som dette dokument er skabt fra.
+- **Ingredienser (Ingredients)**: Lister de komponenter (billeder, PDF'er), der er indsat i filen. Hvis filen findes i det scannede materiale, kan du navigere direkte til den.
+- **Pantry**: Indeholder komplette metadata-pakker for de indsatte komponenter.
+- **Revisioner**: Viser tidsstempler og ændringer for hver gang filen er blevet gemt inkrementelt (fx ved digital signering eller redigering i Acrobat).
+
+> [!NOTE]
+> Pladsholder-ID'er som `xmp.did:...` undertrykkes automatisk i brugerfladen for at gøre overblikket renere. Et dokument, der viser rigtige ID'er i disse felter, har en mere sporbar oprindelse end et med kun pladsholdere. Hvis en relateret fil ikke kan findes i sagen, markeres den som "(ikke fundet)".
+
+---
+
+<b>Forensiske anomalier i dokumenthistorik</b>
+*<i>Ændret:</i>* <red>JA</red> (hvis fundet)
+• Hvad det betyder: Der er en modstrid i metadataene vedrørende dokumentets eller dets komponenters identitet.
+- **ID-uoverensstemmelse**: Dokument-ID'et refereret i en `xmpMM:Ingredients`-indgang matcher ikke det Dokument-ID, der findes i den tilsvarende `xmpMM:Pantry`-pakke.
+- **Fortolkning**: Dette tyder kraftigt på, at en komponent er blevet udskiftet efterfølgende, eller at metadata er manuelt manipuleret for at skjule oprindelsen.
+
 <b>Multiple DocumentID / Different InstanceID</b>
 *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
 • Hvad det betyder: Hver PDF har et unikt DocumentID, der ideelt set er det samme for alle versioner. InstanceID ændres derimod for hver gang, filen gemmes. Hvis der findes flere forskellige DocumentID'er (f.eks. Trailer ID Changed: Fra [ID1...] til [ID2...]), eller hvis der er et unormalt højt antal InstanceID'er, peger det på en kompleks redigeringshistorik, potentielt hvor dele fra forskellige dokumenter er blevet kombineret.
@@ -335,6 +356,8 @@ Listen svarer til de indikatorer der beskrives i manualen og i appen. **JA** = h
 | Multiple Font Subsets | Indikationer | Samme skrifttype indlejret med forskellige subsets. |
 | Multiple Creators / Producers | Indikationer | Fil behandlet af mere end ét program. |
 | xmpMM:History / DerivedFrom / DocumentAncestors | Indikationer | XMP redigeringshistorik til stede. |
+| Dokumenthistorik | Indikationer | Kombineret visning af XMP-forhold og fysiske revisioner i filen. |
+| Relation-anomalier | JA | Modstrid mellem ingrediens-ID og pantry-ID (tegn på manipulation). |
 | Multiple DocumentID / Trailer ID Change | Indikationer | Dokument- eller instance-ID’er tyder på sammenlægning eller tung redigering. |
 | Ikke-indlejret skrifttype | Indikationer | Skrifttype ikke indlejret; typisk efter TouchUp/Edit PDF. |
 | XMP History Gap | Indikationer | Historikposter i forkert rækkefølge eller med mistænkelige spring. |
@@ -380,3 +403,52 @@ Listen svarer til de indikatorer der beskrives i manualen og i appen. **JA** = h
 **Repository:** https://github.com/Rasmus-Riis/PDFRecon
 
 Manualen og de forensiske indikatorer vedligeholdes med PDFRecon-projektet. Bidrag, fejl eller ønsker til funktioner kan rettes via GitHub-repositoryet.
+
+---
+
+## Bilag: Fuldstændig Indikatorliste
+
+Oversigt over alle tekniske forensiske indikatorer.
+
+| Indikator Nøgle | Fulde Navn |
+|---|---|
+| `HasXFAForm` | HasXFAForm |
+| `HasDigitalSignature` | HasDigitalSignature |
+| `MultipleStartxref` | MultipleStartxref |
+| `IncrementalUpdates` | IncrementalUpdates |
+| `Linearized` | Linearized |
+| `LinearizedUpdated` | LinearizedUpdated |
+| `HasRedactions` | HasRedactions |
+| `HasAnnotations` | HasAnnotations |
+| `HasPieceInfo` | HasPieceInfo |
+| `HasAcroForm` | HasAcroForm |
+| `AcroFormNeedAppearances` | AcroFormNeedAppearances |
+| `ObjGenGtZero` | ObjGenGtZero |
+| `TrailerIDChange` | TrailerIDChange |
+| `XMPIDChange` | XMPIDChange |
+| `XMPHistory` | XMPHistory |
+| `MultipleCreators` | MultipleCreators |
+| `MultipleProducers` | MultipleProducers |
+| `CreateDateMismatch` | CreateDateMismatch |
+| `ModifyDateMismatch` | ModifyDateMismatch |
+| `MultipleFontSubsets` | MultipleFontSubsets |
+| `OrphanedObjects` | OrphanedObjects |
+| `MissingObjects` | MissingObjects |
+| `LargeObjectNumberGaps` | LargeObjectNumberGaps |
+| `HiddenAnnotations` | HiddenAnnotations |
+| `TimestampSpoofing` | TimestampSpoofing |
+| `SubmitFormAction` | SubmitFormAction |
+| `LaunchShellAction` | LaunchShellAction |
+| `ExtractedJavaScript` | ExtractedJavaScript |
+| `TouchUp_TextEdit` | TouchUp_TextEdit |
+| `ExifToolMismatch` | ExifToolMismatch |
+| `SuspiciousObjectContent` | SuspiciousObjectContent |
+| `HasLayers` | HasLayers |
+| `MoreLayersThanPages` | MoreLayersThanPages |
+| `ColorProfileMismatch` | ColorProfileMismatch |
+| `HighDefImage` | HighDefImage |
+| `HiddenText` | HiddenText |
+| `XMPHistoryGap` | XMPHistoryGap |
+| `StructuralScrubbing` | StructuralScrubbing |
+| `PDFAViolation` | PDFAViolation |
+| `RelatedFiles` | RelatedFiles |

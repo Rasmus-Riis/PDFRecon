@@ -144,36 +144,62 @@ class ActionsMixin:
 
         context_menu = tk.Menu(self.root, tearoff=0)
         
-        context_menu.add_command(label="Inspector...", command=self.show_inspector_popup)
+        context_menu.add_command(label=self._("menu_inspector"), command=self.show_inspector_popup)
         context_menu.add_command(label=self._("menu_add_note"), command=self._show_note_popup)
+        context_menu.add_command(label=self._("menu_open_location"), command=lambda: self.open_file_location(item_id))
         context_menu.add_separator()
         
         text_diff_available = file_data and file_data.get("indicator_keys", {}).get("TouchUp_TextEdit", {}).get("text_diff")
         if text_diff_available:
-            context_menu.add_command(label="View Text Diff", command=lambda: self.show_text_diff_popup(item_id))
+            context_menu.add_command(label=self._("menu_view_text_diff"), command=lambda: self.show_text_diff_popup(item_id))
         
         is_revision = file_data and file_data.get('is_revision')
         if is_revision:
             context_menu.add_command(label=self._("visual_diff"), command=lambda: self.show_visual_diff_popup(item_id))
 
-        related_files = file_data and file_data.get("indicator_keys", {}).get("RelatedFiles", {}).get("files", [])
-        if related_files:
-            related_menu = tk.Menu(context_menu, tearoff=0)
-            for rel_file in related_files:
-                rel_name = rel_file.get("name", "Unknown")
-                rel_path = rel_file.get("path", "")
-                rel_type = rel_file.get("type", "related")
-                prefix = "← " if rel_type == "derived_from" else "→ " if rel_type == "parent_of" else "↔ "
-                related_menu.add_command(
-                    label=f"{prefix}{rel_name}",
-                    command=lambda p=rel_path: self._navigate_to_file(p)
-                )
-            context_menu.add_cascade(label=f"🔗 Related Files ({len(related_files)})", menu=related_menu)
+        # Handle related files
+        if file_data:
+            indicator_keys = file_data.get("indicator_keys", {})
+            related_files = indicator_keys.get("RelatedFiles", {}).get("files", [])
+            
+            # Filter placeholders like xmp.did:...
+            filtered_related = [f for f in related_files if f.get("id") and not str(f.get("id")).startswith("xmp.did:")]
+            
+            if filtered_related:
+                related_menu = tk.Menu(context_menu, tearoff=0)
+                for rel_file in filtered_related:
+                    rel_id = rel_file.get("id", "Unknown")
+                    rel_type = rel_file.get("type", "related")
+                    
+                    # Localize relation types
+                    type_labels = {
+                        "derived_from": self._("relationship_derived_from"),
+                        "parent_of": self._("relationship_parent_of"),
+                        "related_to": self._("relationship_related_to")
+                    }
+                    type_str = type_labels.get(rel_type, rel_type)
+                    
+                    # Use a prefix based on type
+                    prefix = "← " if rel_type == "derived_from" else "→ " if rel_type == "parent_of" else "↔ "
+                    
+                    label_suffix = ""
+                    cmd = lambda r=rel_id: self._navigate_to_file(r)
+                    state = "normal"
+                    if rel_id not in self.all_scan_data:
+                        label_suffix = f" ({self._('not_found_label')})"
+                        cmd = None
+                        state = "disabled"
+                    
+                    related_menu.add_command(
+                        label=f"{prefix}{type_str}: {rel_id}{label_suffix}",
+                        command=cmd,
+                        state=state
+                    )
+                context_menu.add_cascade(label=f"🔗 {self._('related_files_label')} ({len(filtered_related)})", menu=related_menu)
             
         context_menu.add_separator()
-        context_menu.add_command(label="Open File Location", command=lambda: self.open_file_location(item_id))
         
-        context_menu.tk_popup(event.x_root, event.y_root)  
+        context_menu.tk_popup(event.x_root, event.y_root)
 
     def _navigate_to_file(self, path_str):
         for item_id in self.tree.get_children():
@@ -626,20 +652,20 @@ class ActionsMixin:
         log_path = get_custody_log_path(root, case_path)
         entries, valid, bad_line, message = read_and_verify_custody_log(log_path)
         popup = tk.Toplevel(self.root)
-        popup.title("Audit log (chain of custody)")
+        popup.title(self._("audit_log_title"))
         popup.geometry("720x520")
         popup.transient(self.root)
         main = ttk.Frame(popup, padding=10)
         main.pack(fill="both", expand=True)
         # Integrity status
-        status_frame = ttk.LabelFrame(main, text="Integrity", padding=8)
+        status_frame = ttk.LabelFrame(main, text=self._("audit_integrity_label"), padding=8)
         status_frame.pack(fill="x", pady=(0, 8))
         if valid:
-            status_label = ttk.Label(status_frame, text="Integrity verified. Hash chain intact.", foreground="green")
+            status_label = ttk.Label(status_frame, text=self._("audit_integrity_ok"), foreground="green")
         else:
-            status_label = ttk.Label(status_frame, text=message or "Tampering detected.", foreground="red")
+            status_label = ttk.Label(status_frame, text=message or self._("audit_integrity_fail"), foreground="red")
         status_label.pack(anchor="w")
-        ttk.Label(status_frame, text=f"Log file: {log_path}", font=("Segoe UI", 8), foreground="gray").pack(anchor="w")
+        ttk.Label(status_frame, text=self._("audit_log_file_label").format(path=log_path), font=("Segoe UI", 8), foreground="gray").pack(anchor="w")
         # Log content
         text_frame = ttk.Frame(main)
         text_frame.pack(fill="both", expand=True)
@@ -651,9 +677,9 @@ class ActionsMixin:
         if entries:
             log_text.insert("1.0", format_custody_log_display(entries))
         else:
-            log_text.insert("1.0", message + "\n\nNo entries to display.")
+            log_text.insert("1.0", (message or "") + "\n\n" + self._("audit_no_entries"))
         log_text.config(state="disabled")
-        ttk.Button(main, text="Close", command=popup.destroy).pack(pady=(8, 0))
+        ttk.Button(main, text=self._("button_close"), command=popup.destroy).pack(pady=(8, 0))
 
     def _sort_column(self, col, reverse):
         is_id_column = col == self.columns[0]
@@ -674,9 +700,9 @@ class ActionsMixin:
             return
             
         filepath = filedialog.asksaveasfilename(
-            title="Save PDFRecon Case As",
+            title=self._("save_case_title"),
             defaultextension=".prc",
-            filetypes=[("PDFRecon Case Files", "*.prc"), ("All files", "*.*")]
+            filetypes=[(self._("case_files_type"), "*.prc"), (self._("all_files_type"), "*.*")]
         )
         if not filepath:
             return
@@ -946,8 +972,20 @@ class ActionsMixin:
                 visible_parent_row_ids[path_str] = display_id
                 flag = self.get_flag(indicator_keys, False)
                 tag = self.tree_tags.get(flag, "")
-                if "RelatedFiles" in indicator_keys:
-                    tag = "purple_row"
+                if "AssetRelationship" in indicator_keys or "RelatedFiles" in indicator_keys:
+                    rel_files = indicator_keys.get("RelatedFiles", {}).get("files", [])
+                    found_local = False
+                    for f in rel_files:
+                        doc_id = f.get('id')
+                        if doc_id:
+                            for _, sd in self.all_scan_data.items():
+                                if doc_id in sd.get('document_ids', {}).get('own_ids', set()):
+                                    found_local = True
+                                    break
+                        if found_local:
+                            break
+                    if found_local:
+                        tag = "purple_row"
                 revisions_count = indicator_keys.get("HasRevisions", {}).get("count", 0)
                 revisions_display = str(revisions_count) if revisions_count > 0 else ""
                 indicators_display = "✔" if indicator_keys else ""
@@ -991,6 +1029,7 @@ class ActionsMixin:
             elif col_name == self._("col_indicators") and original_data and original_data.get("indicator_keys"):
                 indicator_details = []
                 for k, v in original_data["indicator_keys"].items():
+                    # Include all keys in the Details pane
                     fmt = self._format_indicator_details(k, v)
                     if fmt:
                         indicator_details.append(fmt)

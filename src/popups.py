@@ -141,6 +141,10 @@ class PopupsMixin:
             self.inspector_indicators_text.pack(fill="both", expand=True)
             self.inspector_indicators_text.tag_configure("bold", font=("Segoe UI", 9, "bold"))
             self.inspector_indicators_text.tag_configure("related_link", foreground="#9999ff", underline=True)
+            self.inspector_indicators_text.tag_configure("added", foreground="#22aa55", font=("Segoe UI", 9))
+            self.inspector_indicators_text.tag_configure("removed", foreground="#cc4444", font=("Segoe UI", 9))
+            self.inspector_indicators_text.tag_configure("diffhunk", foreground="#5599cc", font=("Segoe UI", 9, "italic"))
+            self.inspector_indicators_text.tag_configure("not_found", foreground="#888888", font=("Segoe UI", 9, "italic"))
             self._make_text_copyable(self.inspector_indicators_text)
 
             exif_frame = ttk.Frame(notebook, padding="10")
@@ -163,15 +167,17 @@ class PopupsMixin:
             self.inspector_timeline_text = timeline_text_widget
             self._make_text_copyable(self.inspector_timeline_text)
 
-            version_frame = ttk.Frame(notebook, padding="10")
-            notebook.add(version_frame, text=self._("inspector_version_tab"))
-            version_text_widget = tk.Text(version_frame, wrap="word", font=("Courier New", 10))
-            version_vscroll = ttk.Scrollbar(version_frame, orient="vertical", command=version_text_widget.yview)
-            version_text_widget.config(yscrollcommand=version_vscroll.set)
-            version_vscroll.pack(side="right", fill="y")
-            version_text_widget.pack(fill="both", expand=True)
-            self.inspector_version_text = version_text_widget
-            self._make_text_copyable(self.inspector_version_text)
+            # Configure tags for the combined history view (now in Details)
+            self.inspector_indicators_text.tag_configure("header", font=("Segoe UI", 11, "bold"))
+            self.inspector_indicators_text.tag_configure("version_header", font=("Segoe UI", 11, "bold"), foreground="#1F6AA5")
+            self.inspector_indicators_text.tag_configure("label", font=("Segoe UI", 10, "bold"))
+            self.inspector_indicators_text.tag_configure("value", font=("Segoe UI", 10))
+            self.inspector_indicators_text.tag_configure("changed", font=("Segoe UI", 10, "bold"), foreground="#FF6600")
+            self.inspector_indicators_text.tag_configure("unchanged", font=("Segoe UI", 10), foreground="#666666")
+            self.inspector_indicators_text.tag_configure("separator", foreground="#444444")
+            self.inspector_indicators_text.tag_configure("anomaly", foreground="red")
+            self.inspector_indicators_text.tag_configure("indent", lmargin1=20, lmargin2=20)
+            self.inspector_indicators_text.tag_configure("bullet", lmargin1=10, lmargin2=20)
 
             pdf_view_frame = ttk.Frame(notebook)
             notebook.add(pdf_view_frame, text=self._("inspector_pdf_viewer_tab"))
@@ -205,60 +211,129 @@ class PopupsMixin:
         self._inspector_item_id = None
         self.inspector_visual_diff_btn_frame.pack_forget()
         self.inspector_touchup_btn_frame.pack_forget()
+
+        # ── File metadata fields (all columns except indicators & note) ──
+        indicator_col_name = self._("col_indicators")
+        note_col_name = self._("col_note")
         for i, val in enumerate(values):
             col_name = self.tree.heading(self.columns[i], "text")
+            if col_name in (indicator_col_name, note_col_name):
+                continue  # handled separately below
             self.inspector_indicators_text.insert(tk.END, f"{col_name}: ", ("bold",))
-            if col_name == self._("col_indicators") and file_data and file_data.get("indicator_keys"):
-                for key, details in file_data["indicator_keys"].items():
-                    formatted = self._format_indicator_details(key, details)
-                    if not formatted:
-                        continue
-                    self.inspector_indicators_text.insert(tk.END, "\n  • ")
-                    if key == "RelatedFiles":
-                        self._insert_related_files_with_links(details)
-                    elif key == "ExtractedJavaScript":
-                        scripts = details if isinstance(details, list) else details.get('scripts', [])
-                        if scripts:
-                            self.inspector_indicators_text.insert(tk.END, f"Extracted JavaScript ({len(scripts)} script(s)):\n")
-                            for i, s in enumerate(scripts, 1):
-                                self.inspector_indicators_text.insert(tk.END, f"\n--- Script {i} ({s.get('source', '?')}) ---\n", ("bold",))
-                                self.inspector_indicators_text.insert(tk.END, (s.get('code') or '')[:8000])
-                                if len(s.get('code') or '') > 8000:
-                                    self.inspector_indicators_text.insert(tk.END, "\n... (truncated)")
-                                self.inspector_indicators_text.insert(tk.END, "\n")
-                        else:
-                            self.inspector_indicators_text.insert(tk.END, formatted)
-                    elif key == "TouchUp_TextEdit":
-                        # Show a button to jump to the visual pane for TouchUp-based visual inspection
-                        self._inspector_item_id = item_id
-                        self.inspector_touchup_btn_frame.pack(fill="x", pady=(0, 4), before=self.inspector_indicators_text)
-                        self.inspector_indicators_text.insert(tk.END, formatted)
+            self.inspector_indicators_text.insert(tk.END, val + "\n")
+
+        # ── Signs-of-alteration section ──
+        if file_data and file_data.get("indicator_keys"):
+            self.inspector_indicators_text.insert(tk.END, "\n")
+            self.inspector_indicators_text.insert(
+                tk.END,
+                self._("signs_of_alteration_header") + ":\n",
+                ("bold",)
+            )
+            self.inspector_indicators_text.insert(tk.END, "─" * 40 + "\n")
+
+            for key, details in file_data["indicator_keys"].items():
+                formatted = self._format_indicator_details(key, details)
+                if not formatted:
+                    continue
+                # AssetRelationship belongs in the Historik & Relationer tab only
+                if key == "AssetRelationship":
+                    continue
+                if key == "RelatedFiles":
+                    continue  # Shown in History & Relations tab
+                elif key == "ExtractedJavaScript":
+                    scripts = details if isinstance(details, list) else details.get('scripts', [])
+                    if scripts:
+                        self.inspector_indicators_text.insert(
+                            tk.END,
+                            "\n• " + self._("js_indicator_label").format(count=len(scripts)) + "\n",
+                            ("bold",)
+                        )
+                        for idx, s in enumerate(scripts, 1):
+                            self.inspector_indicators_text.insert(
+                                tk.END,
+                                "  " + self._("js_script_label").format(num=idx, source=s.get('source', '?')) + "\n",
+                                ("bold",)
+                            )
+                            self.inspector_indicators_text.insert(tk.END, (s.get('code') or '')[:8000])
+                            if len(s.get('code') or '') > 8000:
+                                self.inspector_indicators_text.insert(tk.END, "\n" + self._("diff_truncated"))
+                            self.inspector_indicators_text.insert(tk.END, "\n")
                     else:
-                        self.inspector_indicators_text.insert(tk.END, formatted)
-                self.inspector_indicators_text.insert(tk.END, "\n")
-                # Revision comparison (manipulated content vs final)
-                if file_data.get("revision_diff"):
-                    rd = file_data["revision_diff"]
+                        self.inspector_indicators_text.insert(tk.END, "\n• " + formatted + "\n")
+                elif key == "TouchUp_TextEdit":
                     self._inspector_item_id = item_id
-                    self.inspector_visual_diff_btn_frame.pack(fill="x", pady=(0, 6), before=self.inspector_indicators_text)
-                    self.inspector_indicators_text.insert(tk.END, "\n" + "-" * 40 + "\n")
-                    self.inspector_indicators_text.insert(tk.END, "Revision comparison (vs final version)\n", ("bold",))
-                    for line in (rd.get("unified_diff_lines") or [])[:150]:
-                        self.inspector_indicators_text.insert(tk.END, line + "\n")
-                    if len(rd.get("unified_diff_lines") or []) > 150:
-                        self.inspector_indicators_text.insert(tk.END, "... (truncated)\n")
-                    adds, dels = rd.get("additions", []), rd.get("deletions", [])
-                    if adds or dels:
-                        self.inspector_indicators_text.insert(tk.END, f"\nAdditions: {len(adds)} line(s), Deletions: {len(dels)} line(s)\n")
+                    self.inspector_touchup_btn_frame.pack(fill="x", pady=(0, 4), before=self.inspector_indicators_text)
+                    self.inspector_indicators_text.insert(tk.END, "\n• " + formatted + "\n")
                 else:
-                    self.inspector_visual_diff_btn_frame.pack_forget()
+                    # Each indicator on its own bullet line
+                    for line in formatted.splitlines():
+                        if line.strip():
+                            indent = "  " if line.startswith(" ") else "• "
+                            self.inspector_indicators_text.insert(tk.END, indent + line.lstrip() + "\n")
+
+            # ── Revision diff section ──
+            if file_data.get("revision_diff"):
+                rd = file_data["revision_diff"]
+                self._inspector_item_id = item_id
+                self.inspector_visual_diff_btn_frame.pack(fill="x", pady=(0, 6), before=self.inspector_indicators_text)
+                self.inspector_indicators_text.insert(tk.END, "\n" + "─" * 40 + "\n")
+                self.inspector_indicators_text.insert(
+                    tk.END,
+                    self._("revision_comparison_title") + "\n",
+                    ("bold",)
+                )
+                for line in (rd.get("unified_diff_lines") or [])[:150]:
+                    # Style +/- diff lines
+                    if line.startswith("+"):
+                        self.inspector_indicators_text.insert(tk.END, line + "\n", ("added",))
+                    elif line.startswith("-"):
+                        self.inspector_indicators_text.insert(tk.END, line + "\n", ("removed",))
+                    elif line.startswith("@@"):
+                        self.inspector_indicators_text.insert(tk.END, line + "\n", ("diffhunk",))
+                    else:
+                        self.inspector_indicators_text.insert(tk.END, line + "\n")
+                if len(rd.get("unified_diff_lines") or []) > 150:
+                    self.inspector_indicators_text.insert(tk.END, self._("diff_truncated") + "\n")
+                adds, dels = rd.get("additions", []), rd.get("deletions", [])
+                if adds or dels:
+                    self.inspector_indicators_text.insert(
+                        tk.END,
+                        "\n" + self._("diff_summary").format(adds=len(adds), dels=len(dels)) + "\n",
+                        ("bold",)
+                    )
             else:
-                self.inspector_indicators_text.insert(tk.END, val + "\n")
+                self.inspector_visual_diff_btn_frame.pack_forget()
+        else:
+            # No indicators — show the raw col value from the tree
+            for i, val in enumerate(values):
+                col_name = self.tree.heading(self.columns[i], "text")
+                if col_name == indicator_col_name:
+                    self.inspector_indicators_text.insert(tk.END, f"{col_name}: ", ("bold",))
+                    self.inspector_indicators_text.insert(tk.END, val + "\n")
+
+        # ── Note section ──
         note = self.file_annotations.get(path_str)
         if note:
-            self.inspector_indicators_text.insert(tk.END, "\n" + "-"*40 + "\n")
+            self.inspector_indicators_text.insert(tk.END, "\n" + "─"*40 + "\n")
             self.inspector_indicators_text.insert(tk.END, f"{self._('note_label')}\n", ("bold",))
             self.inspector_indicators_text.insert(tk.END, note)
+        # ── History & Relations data (moved from separate tab) ──
+        # 1. Asset Relationships (xmpMM)
+        asset_rel = file_data.get("indicator_keys", {}).get("AssetRelationship")
+        if asset_rel:
+            self.inspector_indicators_text.insert(tk.END, "\n" + "═"*60 + "\n\n")
+            self._populate_relationship_tab(asset_rel)
+        
+        # 1b. Related Files (derived_from / parent_of links)
+        related_files = file_data.get("indicator_keys", {}).get("RelatedFiles")
+        if related_files:
+            self.inspector_indicators_text.insert(tk.END, "\n" + "═"*60 + "\n\n")
+            self._insert_related_files_with_links(related_files)
+        
+        # 2. Version History (Physical Incremental Saves)
+        self._populate_version_history(self.inspector_indicators_text, path_str, file_data)
+        
         self.inspector_indicators_text.config(state="disabled")
 
         self.inspector_exif_text.config(state="normal")
@@ -270,11 +345,6 @@ class PopupsMixin:
         self.inspector_timeline_text.delete("1.0", tk.END)
         self._populate_timeline_widget(self.inspector_timeline_text, path_str)
         self.inspector_timeline_text.config(state="disabled")
-
-        self.inspector_version_text.config(state="normal")
-        self.inspector_version_text.delete("1.0", tk.END)
-        self._populate_version_history(self.inspector_version_text, path_str, file_data)
-        self.inspector_version_text.config(state="disabled")
 
         if self.inspector_pdf_update_job:
             self.inspector_window.after_cancel(self.inspector_pdf_update_job)
@@ -523,13 +593,13 @@ class PopupsMixin:
                     touchup_text_widget.delete("1.0", tk.END)
                     
                     if page_texts:
-                        touchup_text_widget.insert("1.0", f"⚠️ Page {page_num + 1} - Extracted text segments:\n", "header")
-                        touchup_text_widget.insert(tk.END, "(Note: [n] indicates individual text operations)\n\n", "hint")
+                        touchup_text_widget.insert("1.0", self._("extracted_text_header").format(page=page_num + 1), "header")
+                        touchup_text_widget.insert(tk.END, self._("extracted_text_note"), "hint")
                         for idx, text in enumerate(page_texts, 1):
                             touchup_text_widget.insert(tk.END, f"[{idx}] ", "number")
                             touchup_text_widget.insert(tk.END, f"{text}\n")
                     else:
-                        touchup_text_widget.insert("1.0", f"(No altered text extracted from page {page_num + 1})")
+                        touchup_text_widget.insert("1.0", self._("extracted_text_none").format(page=page_num + 1))
                     
                     touchup_text_widget.config(state="disabled")
                 
@@ -686,37 +756,99 @@ class PopupsMixin:
         self.inspector_window.lift()
 
     def _insert_related_files_with_links(self, details):
-        count = details.get('count', 0)
         files = details.get('files', [])
+        # Filter out placeholder IDs (e.g. 'ID: xmp.did:...', 'xmp.did:...')
+        def _is_placeholder(name_val):
+            s = str(name_val).strip()
+            return not s or s == 'xmp.did:...' or s.startswith('ID: ') and s.endswith('...')
+        filtered = [f for f in files if f.get('name') and not _is_placeholder(f['name'])]
+        if not filtered:
+            return
         
-        self.inspector_indicators_text.insert(tk.END, f"Related Files Found ({count}):")
+        self.inspector_indicators_text.insert(
+            tk.END,
+            "• " + self._("related_files_label") + f" ({len(filtered)}):",
+            ("bold",)
+        )
         
-        for f in files:
+        for f in filtered:
             rel_type = f.get('type', 'related')
             name = f.get('name', 'Unknown')
             path = f.get('path', '')
+            found_in_case = bool(path)
             
             if rel_type == 'derived_from':
-                prefix = "\n      ← Derived from: "
+                prefix = f"\n      ← {self._('relationship_derived_from')}: "
             elif rel_type == 'parent_of':
-                prefix = "\n      → Parent of: "
+                prefix = f"\n      → {self._('relationship_parent_of')}: "
             else:
-                prefix = "\n      ↔ Related to: "
+                prefix = f"\n      ↔ {self._('relationship_related_to')}: "
             
             self.inspector_indicators_text.insert(tk.END, prefix)
             
-            tag_name = f"link_{hash(path)}"
-            self.inspector_indicators_text.tag_configure(tag_name, foreground="#9999ff", underline=True)
+            if found_in_case:
+                tag_name = f"link_{hash(path)}"
+                self.inspector_indicators_text.tag_configure(tag_name, foreground="#9999ff", underline=True)
+                self.inspector_indicators_text.insert(tk.END, name, (tag_name,))
+                self.inspector_indicators_text.tag_bind(tag_name, "<Button-1>", 
+                    lambda e, p=path: self._navigate_to_file(p))
+                self.inspector_indicators_text.tag_bind(tag_name, "<Enter>", 
+                    lambda e: self.inspector_indicators_text.config(cursor="hand2"))
+                self.inspector_indicators_text.tag_bind(tag_name, "<Leave>", 
+                    lambda e: self.inspector_indicators_text.config(cursor=""))
+            else:
+                # Not in case — show greyed out with not-found label
+                self.inspector_indicators_text.insert(
+                    tk.END, f"{name}  [{self._('not_found_label')}]",
+                    ("not_found",)
+                )
+        self.inspector_indicators_text.insert(tk.END, "\n")
+
+    def _insert_related_files_in_history(self, details):
+        """Insert related files (derived_from / parent_of) into the History & Relations tab."""
+        files = details.get('files', [])
+        # Filter out placeholder IDs (e.g. 'ID: xmp.did:...', 'xmp.did:...')
+        def _is_placeholder(name_val):
+            s = str(name_val).strip()
+            return not s or s == 'xmp.did:...' or s.startswith('ID: ') and s.endswith('...')
+        filtered = [f for f in files if f.get('name') and not _is_placeholder(f['name'])]
+        if not filtered:
+            return
+        
+        tw = self.inspector_history_text
+        tw.insert(tk.END, self._("related_files_label") + f" ({len(filtered)})\n", ("bold",))
+        
+        for f in filtered:
+            rel_type = f.get('type', 'related')
+            name = f.get('name', 'Unknown')
+            path = f.get('path', '')
+            found_in_case = bool(path)
             
-            start_idx = self.inspector_indicators_text.index(tk.END)
-            self.inspector_indicators_text.insert(tk.END, name, (tag_name,))
+            if rel_type == 'derived_from':
+                prefix = f"  ← {self._('relationship_derived_from')}: "
+            elif rel_type == 'parent_of':
+                prefix = f"  → {self._('relationship_parent_of')}: "
+            else:
+                prefix = f"  ↔ {self._('relationship_related_to')}: "
             
-            self.inspector_indicators_text.tag_bind(tag_name, "<Button-1>", 
-                lambda e, p=path: self._navigate_to_file(p))
-            self.inspector_indicators_text.tag_bind(tag_name, "<Enter>", 
-                lambda e: self.inspector_indicators_text.config(cursor="hand2"))
-            self.inspector_indicators_text.tag_bind(tag_name, "<Leave>", 
-                lambda e: self.inspector_indicators_text.config(cursor=""))
+            tw.insert(tk.END, prefix)
+            
+            if found_in_case:
+                tag_name = f"hist_link_{hash(path)}"
+                tw.tag_configure(tag_name, foreground="#9999ff", underline=True)
+                tw.insert(tk.END, name, (tag_name,))
+                tw.tag_bind(tag_name, "<Button-1>", 
+                    lambda e, p=path: self._navigate_to_file(p))
+                tw.tag_bind(tag_name, "<Enter>", 
+                    lambda e: tw.config(cursor="hand2"))
+                tw.tag_bind(tag_name, "<Leave>", 
+                    lambda e: tw.config(cursor=""))
+            else:
+                tw.insert(
+                    tk.END, f"{name}  [{self._('not_found_label')}]",
+                    ("not_found",)
+                )
+            tw.insert(tk.END, "\n")
 
     def show_text_diff_popup(self, item_id):
         path_str = self.tree.item(item_id, "values")[4]
@@ -760,6 +892,138 @@ class PopupsMixin:
         
         self._make_text_copyable(text_widget)
 
+    def _populate_relationship_tab(self, data):
+        """Populate the History tab with structured relationship info."""
+        txt = self.inspector_indicators_text
+        has_data = False
+        
+        # 1. Derivation (Source)
+        derivation = data.get('derivation')
+        if derivation:
+            doc_id = derivation.get('documentID') or derivation.get('instanceID')
+            if doc_id:
+                txt.insert(tk.END, self._("relationship_derivation") + "\n", ("header",))
+                for k, v in derivation.items():
+                    if v:
+                        txt.insert(tk.END, f"  • {k}: ", ("bold",))
+                        txt.insert(tk.END, f"{v}\n")
+                txt.insert(tk.END, "\n")
+                has_data = True
+        
+        # 2. Ingredients
+        ingredients = data.get('ingredients', [])
+        
+        if ingredients:
+            txt.insert(tk.END, f"{self._('relationship_ingredients')} ({len(ingredients)}):\n", ("header",))
+            for ing in ingredients:
+                name = ing.get('filePath') or str(ing.get('documentID') or ing.get('instanceID') or '?')
+                txt.insert(tk.END, f"  • {name}\n", ("bold",))
+                for k, v in ing.items():
+                    if k == 'filePath': continue
+                    if v:
+                        txt.insert(tk.END, f"    - {k}: {v}\n", ("indent",))
+            txt.insert(tk.END, "\n")
+            has_data = True
+        
+        # 3. Pantry
+        pantry = data.get('pantry', {})
+        
+        if pantry:
+            txt.insert(tk.END, f"{self._('relationship_pantry')} ({len(pantry)}):\n", ("header",))
+            for pid, pdata in pantry.items():
+                txt.insert(tk.END, f"  • {pid}\n", ("bold",))
+                for k in ['documentID', 'instanceID', 'originalDocumentID']:
+                    val = pdata.get('ids', {}).get(k)
+                    if val:
+                        txt.insert(tk.END, f"    - {k}: {val}\n", ("indent",))
+            txt.insert(tk.END, "\n")
+            has_data = True
+        
+        # 4. Anomalies
+        anomalies = data.get('anomalies', [])
+        if anomalies:
+            txt.insert(tk.END, self._("relationship_anomalies") + ":\n", ("header", "anomaly"))
+            for anomaly in anomalies:
+                txt.insert(tk.END, f"  [!] {anomaly}\n", ("anomaly", "bullet"))
+            has_data = True
+
+        if not has_data:
+            txt.insert(tk.END, f"{self._('no_relationship_data')}\n", ("unchanged",))
+
+    def _insert_related_files_with_links(self, details):
+        """Insert related files into the text widget, making them clickable if found in current results."""
+        files = details.get('files', [])
+        # Filter placeholders and empty names
+        def _is_placeholder_name(name_val):
+            s = str(name_val).strip()
+            return not s or s == 'xmp.did:...' or (s.startswith('ID: ') and s.endswith('...'))
+        filtered_files = [f for f in files if f.get('name') and not _is_placeholder_name(f['name'])]
+        count = len(filtered_files)
+        
+        if count == 0:
+            return
+
+        self.inspector_indicators_text.insert(tk.END, f"{self._('related_files_label')} ({count}):\n")
+        
+        for f in filtered_files:
+            rel_type = f.get('type', 'related')
+            name = f.get('name', 'Unknown')
+            doc_id = f.get('id')
+            
+            # Label
+            if rel_type == 'derived_from':
+                label = f"  \u2190 {self._('relationship_derived_from')}: "
+            elif rel_type == 'parent_of':
+                label = f"  \u2192 {self._('relationship_parent_of') if hasattr(self, '_') and self._('relationship_parent_of') != 'relationship_parent_of' else 'Parent of'}: "
+            else:
+                label = f"  \u2194 {self._('relationship_related_to') if hasattr(self, '_') and self._('relationship_related_to') != 'relationship_related_to' else 'Related to'}: "
+            
+            self.inspector_indicators_text.insert(tk.END, label)
+            
+            # Check if we can find this file in our results
+            found_path = None
+            if doc_id:
+                for p, d in self.all_scan_data.items():
+                    if doc_id in d.get('document_ids', {}).get('own_ids', set()):
+                        found_path = p
+                        break
+            
+            if found_path:
+                # Make it a link
+                tag = f"link_{found_path.replace(':', '_').replace('/', '_').replace('\\', '_')}"
+                self.inspector_indicators_text.insert(tk.END, name, (tag, "link"))
+                self.inspector_indicators_text.tag_bind(tag, "<Button-1>", lambda e, p=found_path: self._on_related_file_click(p))
+                self.inspector_indicators_text.tag_bind(tag, "<Enter>", lambda e: self.inspector_indicators_text.config(cursor="hand2"))
+                self.inspector_indicators_text.tag_bind(tag, "<Leave>", lambda e: self.inspector_indicators_text.config(cursor=""))
+            else:
+                # Just text
+                self.inspector_indicators_text.insert(tk.END, name)
+            
+            self.inspector_indicators_text.insert(tk.END, "\n")
+
+    def _on_related_file_click(self, path):
+        # Find if the file is in the tree
+        found = False
+        for item in self.tree.get_children():
+            if self.tree.item(item, "values")[2] == str(path): # Index 2 is usually the path hidden or shown
+                self.tree.selection_set(item)
+                self.tree.see(item)
+                found = True
+                break
+        
+        if not found:
+            # Maybe it's not in the visible tree but in all_scan_data?
+            # Re-select by matching path in all items
+            for item in self.tree.get_children(''):
+                if str(Path(self.tree.item(item, 'tags')[0] if self.tree.item(item, 'tags') else "")) == str(path):
+                     self.tree.selection_set(item)
+                     self.tree.see(item)
+                     found = True
+                     break
+        
+        if not found:
+            messagebox.showinfo(self._("not_found_title"), self._("related_file_not_found"), parent=self.inspector_window)
+        
     def _open_visual_diff_from_details(self):
         """Open the Visual Diff popup for the row currently shown in the Inspector Details pane."""
         item_id = getattr(self, "_inspector_item_id", None)
@@ -1556,7 +1820,7 @@ class PopupsMixin:
         text_widget.tag_configure("separator", foreground="#444444")
 
         if not file_data:
-            text_widget.insert("end", "No data available for this file.")
+            text_widget.insert("end", self._("no_data_available"))
             return
 
         indicators = file_data.get("indicator_keys", {})
@@ -1566,47 +1830,35 @@ class PopupsMixin:
         is_revision = file_data.get("is_revision", False)
 
         if is_revision:
-            text_widget.insert("end", "This is a revision. Select the parent file to see version comparison.\n")
+            text_widget.insert("end", self._("revision_select_parent") + "\n")
             return
 
         if not has_revisions and not incremental_count and startxref_count <= 1:
-            text_widget.insert("end", "No incremental updates detected in this file.\n\n", "header")
-            text_widget.insert("end", "This PDF has not been saved incrementally, so there are no embedded\n")
-            text_widget.insert("end", "previous versions to compare.\n\n")
-            text_widget.insert("end", "Note: This doesn't mean the file hasn't been edited - it may have been\n")
-            text_widget.insert("end", "saved with 'Save As' or 'Optimize' which rewrites the entire file.")
+            text_widget.insert("end", self._("no_incremental_updates") + "\n\n", "header")
+            text_widget.insert("end", self._("no_incremental_desc") + "\n\n")
+            text_widget.insert("end", self._("no_incremental_note"))
             return
 
         if not has_revisions and (incremental_count or startxref_count > 1):
             detected_versions = incremental_count if incremental_count else startxref_count
-            text_widget.insert("end", f"Incremental updates detected ({detected_versions} versions)\n\n", "header")
-            text_widget.insert("end", "⚠ IMPORTANT: ", "label")
-            text_widget.insert("end", "Incremental updates are a NORMAL PDF feature and do NOT\n", "value")
-            text_widget.insert("end", "prove the document was maliciously altered. They occur during:\n")
-            text_widget.insert("end", "  • Digital signing (required to preserve signed content)\n")
-            text_widget.insert("end", "  • Form filling\n")
-            text_widget.insert("end", "  • Adding comments or annotations\n")
-            text_widget.insert("end", "  • Normal 'Save' operations in Adobe Acrobat\n\n")
-            text_widget.insert("end", "However, the previous versions could NOT be extracted.\n\n", "changed")
-            text_widget.insert("end", "This can happen when:\n")
-            text_widget.insert("end", "  • The PDF was created by software that doesn't store complete versions\n")
-            text_widget.insert("end", "  • The incremental updates only contain small changes (not full pages)\n")
-            text_widget.insert("end", "  • The PDF structure is non-standard or corrupted\n")
-            text_widget.insert("end", "  • The revisions have invalid cross-reference tables\n\n")
-            text_widget.insert("end", "The timestamps below are from the FINAL version only:\n\n", "label")
+            text_widget.insert("end", f"{self._('incremental_detected').format(count=detected_versions)}\n\n", "header")
+            text_widget.insert("end", f"⚠ {self._('warning_title').upper()}: ", "label")
+            text_widget.insert("end", f"{self._('incremental_important')}\n\n", "value")
+            text_widget.insert("end", f"{self._('incremental_no_extract')}\n\n", "changed")
+            text_widget.insert("end", f"{self._('incremental_final_times')}\n\n", "label")
             
             current_timeline = self.timeline_data.get(path_str, {})
             current_dates = self._extract_key_dates_from_timeline(current_timeline)
             
             text_widget.insert("end", "─" * 50 + "\n", "separator")
-            for label, key in [("Created", "created"), ("Modified", "modified"), ("Metadata", "metadata")]:
+            for label_key, key in [("label_created", "created"), ("label_modified", "modified"), ("label_metadata", "metadata")]:
                 value = current_dates.get(key, "N/A")
-                text_widget.insert("end", f"  {label:12}: ", "label")
+                text_widget.insert("end", f"  {self._(label_key):12}: ", "label")
                 text_widget.insert("end", f"{value}\n", "value" if value != "N/A" else "unchanged")
             
             tool = current_dates.get("tool", "")
             if tool:
-                text_widget.insert("end", f"  {'Tool':12}: ", "label")
+                text_widget.insert("end", f"  {self._('label_tool'):12}: ", "label")
                 text_widget.insert("end", f"{tool}\n", "value")
             return
 
@@ -1615,7 +1867,7 @@ class PopupsMixin:
         current_timeline = self.timeline_data.get(path_str, {})
         current_dates = self._extract_key_dates_from_timeline(current_timeline)
         versions.append({
-            "name": "Final Version",
+            "name": self._("final_version"),
             "path": path_str,
             "dates": current_dates,
             "is_current": True
@@ -1657,16 +1909,15 @@ class PopupsMixin:
         
         versions.sort(key=sort_key)
 
-        text_widget.insert("end", f"═══ VERSION HISTORY ({len(versions)} versions found) ═══\n\n", "header")
+        text_widget.insert("end", self._("version_history_header").format(count=len(versions)) + "\n\n", "header")
         
-        text_widget.insert("end", "⚠ IMPORTANT: ", "label")
-        text_widget.insert("end", "Incremental updates are a NORMAL PDF feature and do NOT\n", "value")
-        text_widget.insert("end", "prove the document was maliciously altered. They occur during:\n")
-        text_widget.insert("end", "  • Digital signing (required to preserve signed content)\n")
-        text_widget.insert("end", "  • Form filling\n")
-        text_widget.insert("end", "  • Adding comments or annotations\n")
-        text_widget.insert("end", "  • Normal 'Save' operations in Adobe Acrobat\n\n")
-        text_widget.insert("end", "Compare the timestamps and content below to assess if changes are suspicious.\n\n", "value")
+        text_widget.insert("end", self._("important_label"), "label")
+        text_widget.insert("end", self._("incremental_normal_feature") + "\n", "value")
+        text_widget.insert("end", self._("incremental_signing") + "\n")
+        text_widget.insert("end", self._("incremental_forms") + "\n")
+        text_widget.insert("end", self._("incremental_comments") + "\n")
+        text_widget.insert("end", self._("incremental_acrobat_save") + "\n\n")
+        text_widget.insert("end", self._("compare_timestamps_desc") + "\n\n", "value")
 
         prev_dates = None
 
@@ -1674,34 +1925,34 @@ class PopupsMixin:
             dates = v["dates"]
             
             if v["is_current"]:
-                text_widget.insert("end", f"▶ {v['name']} (Current File)\n", "version_header")
+                text_widget.insert("end", f"▶ {v['name']} ({self._('current_file')})\n", "version_header")
             else:
                 text_widget.insert("end", f"  {v['name']}\n", "version_header")
             
             text_widget.insert("end", "  " + "─" * 50 + "\n", "separator")
 
             date_fields = [
-                ("Created", "created"),
-                ("Modified", "modified"),
-                ("Metadata", "metadata"),
+                ("label_created", "created"),
+                ("label_modified", "modified"),
+                ("label_metadata", "metadata"),
             ]
 
-            for label, key in date_fields:
+            for label_key, key in date_fields:
                 value = dates.get(key, "N/A")
-                text_widget.insert("end", f"  {label:12}: ", "label")
+                text_widget.insert("end", f"  {self._(label_key):12}: ", "label")
                 
                 if prev_dates and prev_dates.get(key) and value != prev_dates.get(key):
                     text_widget.insert("end", f"{value}", "changed")
-                    text_widget.insert("end", f"  ← CHANGED from {prev_dates.get(key)}\n", "changed")
+                    text_widget.insert("end", self._("label_changed_from").format(old=prev_dates.get(key)) + "\n", "changed")
                 else:
                     text_widget.insert("end", f"{value}\n", "value" if value != "N/A" else "unchanged")
 
             tool = dates.get("tool", "")
             if tool:
-                text_widget.insert("end", f"  {'Tool':12}: ", "label")
+                text_widget.insert("end", f"  {self._('label_tool'):12}: ", "label")
                 if prev_dates and prev_dates.get("tool") and tool != prev_dates.get("tool"):
                     text_widget.insert("end", f"{tool}", "changed")
-                    text_widget.insert("end", f"  ← CHANGED\n", "changed")
+                    text_widget.insert("end", self._("label_changed") + "\n", "changed")
                 else:
                     text_widget.insert("end", f"{tool}\n", "value")
 
@@ -1709,6 +1960,6 @@ class PopupsMixin:
             prev_dates = dates
 
         text_widget.insert("end", "═" * 54 + "\n", "separator")
-        text_widget.insert("end", "\nTip: ", "label")
-        text_widget.insert("end", "Orange text indicates values that changed between versions.\n", "value")
-        text_widget.insert("end", "Check the 'Altered_files' folder for the extracted revision PDFs.\n", "value")
+        text_widget.insert("end", "\n" + self._("version_history_tip_label"), "label")
+        text_widget.insert("end", self._("version_history_tip_changed") + "\n", "value")
+        text_widget.insert("end", self._("version_history_tip_folder") + "\n", "value")

@@ -24,11 +24,12 @@ The 'File Created' and 'File Modified' columns show timestamps from the computer
 1. **Launch PDFRecon** (run `app.py` or `PDFRecon.exe`).
 2. **Choose folder and scan** – Click the main button to select a folder containing PDFs. The app scans recursively and lists all PDFs with detected indicators.
 3. **Review the table** – Rows are colour-coded: red = high confidence of alteration, yellow = indications found, green = no indicators. Use the "Signs of Alteration" column and filters to focus.
-4. **Inspector** – Select a file to open the Inspector. Use the tabs: **Details** (all indicators and notes), **EXPTool** (ExifTool output), **Timeline**, **Revision History**, and **PDF Viewer** (visual view with optional overlays for TouchUp, ELA, JPEG anomalies, duplicate images, etc.).
-5. **Save case** – Use **File → Save Case As...** to save the session as a `.prc` case file. You can later open it with **File → Open Case...** and continue (add notes, export, verify integrity).
-6. **Export** – Use **Export Report** to export to Excel, CSV, JSON, or HTML. All exports can be digitally signed (SHA-256 sidecar and optional detached signature) and logged to the chain of custody when a case is loaded.
-7. **Notes** – Right‑click a file → **Note** to add investigator notes; they are stored in the case and marked dirty until you save the case.
-8. **Verify integrity** – With a case loaded, **File → Verify integrity** compares current file hashes to the stored evidence hashes and reports changes.
+    4. **Inspector** – Select a file to open the Inspector. Use the tabs: **Details** (all indicators and notes), **EXPTool** (ExifTool output), **Timeline**, **History & Relationships**, and **PDF Viewer** (visual view with optional overlays for TouchUp, ELA, JPEG anomalies, duplicate images, etc.).
+    5. **Save case** – Use **File → Save Case As...** to save the session as a `.prc` case file. You can later open it with **File → Open Case...** and continue (add notes, export, verify integrity).
+    6. **Export** – Use **Export Report** to export to Excel, CSV, JSON, or HTML. All exports can be digitally signed (SHA-256 sidecar and optional detached signature) and logged to the chain of custody when a case is loaded.
+    7. **Notes** – Right‑click a file → **Note** to add investigator notes; they are stored in the case and marked dirty until you save the case.
+    8. **Verify integrity** – With a case loaded, **File → Verify integrity** compares current file hashes to the stored evidence hashes and reports changes.
+    9. **Audit Log** – View the full Chain of Custody record via **File → Show audit log**.
 
 ### Keyboard and navigation
 - **Arrow keys (Up/Down)** – Move selection in the file list (one row at a time). Works when the Inspector is open as well.
@@ -531,9 +532,32 @@ Find `<xmpMM:History>` tag
 ---
 
 ## Document ID Mismatch
+**What it means:** Document IDs don't match, indicating merging or extensive modification.
+
+---
+
+## History & Relationships (xmpMM & Revisions)
 **Classification:** <yellow>Indications Found</yellow>
 
-**What it means:** Document IDs don't match, indicating merging or extensive modification.
+**What it means:** This tab combines two types of history: logical metadata relationships (XMP Asset Relationships) and physical incremental saves (Revisions).
+
+- **Derivation (Source)**: Identifies the immediate parent document from which this asset was created.
+- **Ingredients**: Lists component assets (images, PDFs) that were imported or placed into the document. If a related file is found in the case material, you can navigate directly to it.
+- **Pantry**: Contains the complete embedded XMP packets for ingredient assets, allowing deep forensic inspection of components.
+- **Revisions**: Displays timestamps and specific changes for each physical save operation (e.g., after digital signing or Acrobat edits).
+
+> [!NOTE]
+> Placeholder IDs like `xmp.did:...` are automatically suppressed in the UI to reduce clutter. A document showing real IDs in these fields has a more traceable provenance than one with only placeholders. If a related file cannot be found in the case, it is marked as "(not found)".
+
+---
+
+## Forensic Anomalies in Document History
+**Classification:** <red>YES</red> (if anomalies found)
+
+**What it means:** A contradiction exists within the metadata regarding document identity or component origin.
+
+- **ID Mismatch**: The Document ID referenced in an `xmpMM:Ingredients` entry does not match the Document ID found in the corresponding `xmpMM:Pantry` packet.
+- **Interpretation**: This strongly suggests that an asset was replaced, or that metadata was manually adjusted to hide the true origin of a component.
 
 ### Manual Parsing Instructions:
 
@@ -969,7 +993,7 @@ This list matches the indicators described elsewhere in the manual and in the ap
 | Phishing Directives (SubmitForm/Launch) | YES | SubmitForm or Launch actions present. |
 | Multiple Font Subsets | Indications | Same font embedded with different subsets; text added at different times. |
 | Multiple Creators / Producers | Indications | File processed by more than one application. |
-| xmpMM:History / DerivedFrom / DocumentAncestors | Indications | XMP editing history present. |
+| Document History | Indications | Combined view of XMP relationships and physical revisions in the file. |
 | Multiple DocumentID / Trailer ID Change | Indications | Document IDs or instance IDs indicate merging or heavy editing. |
 | Non-Embedded Font | Indications | Font not embedded; common after TouchUp/Edit PDF. |
 | XMP History Gap | Indications | History entries out of order or with suspicious gaps. |
@@ -1015,3 +1039,53 @@ This list matches the indicators described elsewhere in the manual and in the ap
 **Repository:** https://github.com/Rasmus-Riis/PDFRecon
 
 This manual and the forensic indicators are maintained with the PDFRecon project. For contributions, issues, or feature requests, use the GitHub repository.
+
+
+---
+
+## Appendix: Complete Indicator List
+
+Overview of all technical forensic indicators.
+
+| Indicator Key | Full Name |
+|---|---|
+| `HasXFAForm` | HasXFAForm |
+| `HasDigitalSignature` | HasDigitalSignature |
+| `MultipleStartxref` | MultipleStartxref |
+| `IncrementalUpdates` | IncrementalUpdates |
+| `Linearized` | Linearized |
+| `LinearizedUpdated` | LinearizedUpdated |
+| `HasRedactions` | HasRedactions |
+| `HasAnnotations` | HasAnnotations |
+| `HasPieceInfo` | HasPieceInfo |
+| `HasAcroForm` | HasAcroForm |
+| `AcroFormNeedAppearances` | AcroFormNeedAppearances |
+| `ObjGenGtZero` | ObjGenGtZero |
+| `TrailerIDChange` | TrailerIDChange |
+| `XMPIDChange` | XMPIDChange |
+| `XMPHistory` | XMPHistory |
+| `MultipleCreators` | MultipleCreators |
+| `MultipleProducers` | MultipleProducers |
+| `CreateDateMismatch` | CreateDateMismatch |
+| `ModifyDateMismatch` | ModifyDateMismatch |
+| `MultipleFontSubsets` | MultipleFontSubsets |
+| `OrphanedObjects` | OrphanedObjects |
+| `MissingObjects` | MissingObjects |
+| `LargeObjectNumberGaps` | LargeObjectNumberGaps |
+| `HiddenAnnotations` | HiddenAnnotations |
+| `TimestampSpoofing` | TimestampSpoofing |
+| `SubmitFormAction` | SubmitFormAction |
+| `LaunchShellAction` | LaunchShellAction |
+| `ExtractedJavaScript` | ExtractedJavaScript |
+| `TouchUp_TextEdit` | TouchUp_TextEdit |
+| `ExifToolMismatch` | ExifToolMismatch |
+| `SuspiciousObjectContent` | SuspiciousObjectContent |
+| `HasLayers` | HasLayers |
+| `MoreLayersThanPages` | MoreLayersThanPages |
+| `ColorProfileMismatch` | ColorProfileMismatch |
+| `HighDefImage` | HighDefImage |
+| `HiddenText` | HiddenText |
+| `XMPHistoryGap` | XMPHistoryGap |
+| `StructuralScrubbing` | StructuralScrubbing |
+| `PDFAViolation` | PDFAViolation |
+| `RelatedFiles` | RelatedFiles |

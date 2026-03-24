@@ -15,10 +15,15 @@ from .utils import _import_with_fallback
 from .config import PDFReconConfig, PDFProcessingError, PDFCorruptionError, \
     PDFTooLargeError, PDFEncryptedError, KV_PATTERN, DATE_TZ_PATTERN
 from .pdf_processor import count_layers
+from .xmp_relationship import XMPRelationshipManager
 
 fitz = _import_with_fallback('fitz', 'fitz', 'PyMuPDF')
 
 class DataProcessingMixin:
+    def _(self, key):
+        """Placeholder for translation method. Overridden by App."""
+        return str(key)
+
     # Tokens from known PDF creators/editors/viewers (Wikipedia "List of PDF software" + project-specific).
     SOFTWARE_TOKENS = re.compile(
         r"(abbey|abbyy|acrobat|adobe|apache|birt|billy|bluebeam|bullzip|businesscentral|cairo|canva|chrome|chromium|"
@@ -583,59 +588,74 @@ class DataProcessingMixin:
             elif diff_str:
                 return f"TouchUp TextEdit ({diff_str})"
             else:
-                return "TouchUp TextEdit: Found a flag indicating this document was edited with Acrobat's TouchUp tool. However, the exact edit cannot be determined because no textual changes were extracted from the block (it may be a layout/image edit) and no previous file revisions are attached to compare."
+                return self._("details_touchup_acrobat")
 
         if key == 'MultipleCreators':
-            return f"Multiple Creators (Found {details['count']}): " + ", ".join(f'"{v}"' for v in details['values'])
+            values_str = "\n    - " + "\n    - ".join(f'"{v}"' for v in details['values'])
+            return self._("details_multiple_creators").format(count=details['count']) + values_str
         if key == 'MultipleProducers':
-            return f"Multiple Producers (Found {details['count']}): " + ", ".join(f'"{v}"' for v in details['values'])
+            values_str = "\n    - " + "\n    - ".join(f'"{v}"' for v in details['values'])
+            return self._("details_multiple_producers").format(count=details['count']) + values_str
         if key == 'MultipleFontSubsets':
             font_details = []
             for base_font, subsets in details['fonts'].items():
                 font_details.append(f"'{base_font}': {{{{{', '.join(subsets)}}}}}")
-            return f"Multiple Font Subsets: " + "; ".join(font_details)
+            return self._("details_multiple_fonts") + "\n    - " + "\n    - ".join(font_details)
         if key == 'CreateDateMismatch':
-            return f"Creation Date Mismatch: Info='{details['info']}', XMP='{details['xmp']}'"
+            return self._("details_creation_mismatch").format(info=details['info'], xmp=details['xmp'])
         if key == 'ModifyDateMismatch':
-            return f"Modify Date Mismatch: Info='{details['info']}', XMP='{details['xmp']}'"
+            return self._("details_modify_mismatch").format(info=details['info'], xmp=details['xmp'])
         if key == 'TrailerIDChange':
-            return f"Trailer ID Changed: From [{details['from']}] to [{details['to']}]"
+            return self._("details_trailer_id_changed").format(old=details['from'], new=details['to'])
         if key == 'XMPIDChange':
-            return f"XMP DocumentID Changed: From [{details['from']}] to [{details['to']}]"
+            return self._("details_xmp_id_changed").format(old=details['from'], new=details['to'])
         if key == 'MultipleStartxref':
-            offsets = ", ".join(str(o) for o in details.get('offsets', []))
-            return f"Multiple startxref (Found {details['count']} at offsets: {offsets})"
+            offsets_str = "\n    - " + "\n    - ".join(str(o) for o in details.get('offsets', []))
+            return self._("details_multiple_startxref").format(count=details['count'], offsets="") + offsets_str
         if key == 'IncrementalUpdates':
-            return f"Incremental updates (Found {details['count']} versions) - See 'Version History' tab"
+            return self._("details_incremental_updates").format(count=details['count'])
         if key == 'XMPHistory':
-            return "XMP History: Document has a metadata revision history - See 'XMP' or 'Timeline'"
+            return self._("details_xmp_history_exists")
         if key == 'LargeObjectNumberGaps':
-            return f"Structural Anomalies (Gaps): {details['gap_percentage']} ({details['gap_count']} gaps, Max ID: {details['max_object']})"
+            return self._("details_structural_gaps").format(percent=details['gap_percentage'], count=details['gap_count'], max_id=details['max_object'])
         if key == 'OrphanedObjects':
-            ids = ", ".join(str(i) for i in details.get('ids', []))
-            return f"Unreferenced Objects (Found {details['count']}): IDs {ids}"
+            ids_str = "\n    - " + "\n    - ".join(str(i) for i in details.get('ids', []))
+            return self._("details_unreferenced_objects").format(count=details['count'], ids="") + ids_str
         if key == 'MissingObjects':
-            ids = ", ".join(str(i) for i in details.get('ids', []))
-            return f"Dangling References (Missing {details['count']} objects): IDs {ids}"
+            ids_str = "\n    - " + "\n    - ".join(str(i) for i in details.get('ids', []))
+            return self._("details_dangling_refs").format(count=details['count'], ids="") + ids_str
         if key == 'ObjGenGtZero':
-            return f"Objects with generation > 0 (Found {details['count']} objects)"
+            return self._("details_gen_gt_zero").format(count=details['count'])
+        if key == 'HasAnnotations':
+            annot_types = details.get('types', [])
+            if annot_types:
+                types_str = ", ".join(annot_types)
+                return f"{self._('details_has_annotations')}: {details.get('count', 0)} ({types_str})"
+            return self._("details_has_annotations")
         if key == 'HasLayers':
-            return f"Has Layers (Found {details['count']})"
+            return self._("details_has_layers").format(count=details['count'])
         if key == 'MoreLayersThanPages':
-            return f"More Layers ({details['layers']}) Than Pages ({details['pages']})"
+            return self._("details_more_layers_than_pages").format(layers=details['layers'], pages=details['pages'])
         if key == 'RelatedFiles':
-            count = details.get('count', 0)
             files = details.get('files', [])
-            lines = [f"Related Files Found ({count}):"]
-            for f in files:
+            # Filter out placeholder IDs (e.g. 'ID: xmp.did:...', 'xmp.did:...')
+            def _is_placeholder(name_val):
+                s = str(name_val).strip()
+                return not s or s == 'xmp.did:...' or (s.startswith('ID: ') and s.endswith('...'))
+            filtered_files = [f for f in files if f.get('name') and not _is_placeholder(f['name'])]
+            count = len(filtered_files)
+            if count == 0: return None
+            
+            lines = [f"{self._('related_files_label')} ({count}):"]
+            for f in filtered_files:
                 rel_type = f.get('type', 'related')
                 name = f.get('name', 'Unknown')
                 if rel_type == 'derived_from':
-                    lines.append(f"  ← Derived from: {name}")
+                    lines.append(f"  ← {self._('relationship_derived_from')}: {name}")
                 elif rel_type == 'parent_of':
-                    lines.append(f"  → Parent of: {name}")
+                    lines.append(f"  → {self._('relationship_parent_of') if hasattr(self, '_') and self._('relationship_parent_of') != 'relationship_parent_of' else 'Parent of'}: {name}")
                 else:
-                    lines.append(f"  ↔ Related to: {name}")
+                    lines.append(f"  ↔ {self._('relationship_related_to') if hasattr(self, '_') and self._('relationship_related_to') != 'relationship_related_to' else 'Related to'}: {name}")
             return "\n".join(lines)
             
         if key == 'TimestampSpoofing':
@@ -654,8 +674,8 @@ class DataProcessingMixin:
         if key == 'ExtractedJavaScript':
             scripts = details if isinstance(details, list) else details.get('scripts', [])
             if not scripts:
-                return "Extracted JavaScript: (none)"
-            lines = [f"Extracted JavaScript ({len(scripts)} script(s)) — see Inspector 'Details' tab for full code:"]
+                return self._("details_javascript_none")
+            lines = [self._("details_javascript_count").format(count=len(scripts))]
             for i, s in enumerate(scripts[:5], 1):
                 src = s.get('source', '?')
                 code = (s.get('code') or '')[:200]
@@ -663,7 +683,7 @@ class DataProcessingMixin:
                     code += "..."
                 lines.append(f"  [{i}] {src}: {code}")
             if len(scripts) > 5:
-                lines.append(f"  ... and {len(scripts) - 5} more (see Details tab)")
+                lines.append(self._("details_javascript_more").format(count=len(scripts) - 5))
             return "\n".join(lines)
 
         if key == 'EmailAddresses':
@@ -694,7 +714,7 @@ class DataProcessingMixin:
             status = details.get('status', 'Present')
             if key == 'SecurityRestrictions' and 'restrictions' in details:
                 rest = ", ".join(details['restrictions'])
-                return f"Security Restrictions: {rest} (P={details.get('permissions_value', 'Unknown')})"
+                return self._("details_security_restrictions").format(restrictions=rest, p_value=details.get('permissions_value', 'Unknown'))
             return f"{key.replace('_', ' ')}: {status}"
         if key == 'InvisibleTextMode' or key == 'FileAttachmentAnnotations' or key == '3DObjects' or key == 'SoundAnnotations' or key == 'VideoContent' or key == 'RichMedia':
             status = details.get('status', 'Detected')
@@ -707,24 +727,24 @@ class DataProcessingMixin:
         if key == 'EmbeddedFiles':
             count = details.get('count', 0)
             files = ", ".join(details.get('filenames', []))
-            return f"Embedded Files (Found {count}): {files}"
+            return self._("details_embedded_files").format(count=count, files=files)
         if key == 'OCRLayer':
             status = details.get('status', 'Suspected')
             note = details.get('note', '')
-            pages = f" ({details.get('pages_with_pattern', 0)} pages)"
-            return f"OCR Layer: {status} - {note}{pages}"
+            pages = details.get('pages_with_pattern', 0)
+            return self._("details_ocr_layer").format(status=status, note=note, pages=pages)
         if key == 'PolyglotFile':
             status = details.get('status', 'Suspicious')
             offset = details.get('pdf_header_offset', 0)
             fmt = details.get('detected_prefix_format', 'Unknown')
-            return f"Polyglot/Non-Standard Header: {status} (PDF header at byte {offset}, Prefix: {fmt})"
+            return self._("details_polyglot").format(status=status, offset=offset, fmt=fmt)
         if key == 'FutureDatedTimestamps':
             count = details.get('count', 0)
             dates = ", ".join([d.get('date', '') for d in details.get('dates', [])])
-            return f"Future Dated Timestamps (Found {count}): {dates}"
+            return self._("details_future_dated").format(count=count, dates=dates)
         if key == 'PDFACompliance':
             part = details.get('part', 'Unknown')
-            return f"PDF/A Compliance claimed: {part}"
+            return self._("details_pdfa_compliance").format(part=part)
             
         if key == 'NonEmbeddedFont':
             fonts = details.get('fonts', [])
@@ -739,9 +759,9 @@ class DataProcessingMixin:
             gap_summaries = []
             for g in gaps[:5]:
                 if g['type'] == 'sequence_gap':
-                    gap_summaries.append(f"Seq gap: {g['prev_id']} -> {g['current_id']}")
+                    gap_summaries.append(self._("details_seq_gap").format(old=g['prev_id'], new=g['current_id']))
                 else:
-                    gap_summaries.append(f"Time jump: {g['jump_days']} days ({g['prev_date']} -> {g['current_date']})")
+                    gap_summaries.append(self._("details_time_jump").format(days=g['jump_days'], old=g['prev_date'], new=g['current_date']))
             gap_str = "\n    • " + "\n    • ".join(gap_summaries)
             if len(gaps) > 5: gap_str += f"\n    • ... (+{len(gaps)-5} more)"
             return self._("XMPHistoryGap") + ":" + gap_str
@@ -754,11 +774,11 @@ class DataProcessingMixin:
             summary = []
             if null_blocks:
                 max_null = max(b['length'] for b in null_blocks)
-                summary.append(f"{len(null_blocks)} null blocks (max {max_null} bytes)")
+                summary.append(self._("details_null_blocks").format(count=len(null_blocks), size=max_null))
             if space_blocks:
                 max_space = max(b['length'] for b in space_blocks)
-                summary.append(f"{len(space_blocks)} space blocks (max {max_space} bytes)")
-            return self._("StructuralScrubbing") + ": " + " and ".join(summary)
+                summary.append(self._("details_space_blocks").format(count=len(space_blocks), size=max_space))
+            return self._("StructuralScrubbing") + ": " + self._("details_and").join(summary)
             
         if key == 'PDFAViolation':
             violations = details.get('violations', [])
@@ -771,7 +791,7 @@ class DataProcessingMixin:
             if suspicious == 0:
                 return None
             note = details.get('note', '')
-            result = f"JPEG Analysis: {suspicious} of {total} " + self._("details_jpeg_fingerprints") + f" {note}"
+            result = "JPEG Analysis: " + f"{suspicious} of {total} " + self._("details_jpeg_fingerprints") + f" {note}"
             if 'suspicious_details' in details:
                 det = "\n    " + "\n    ".join(details['suspicious_details'])
                 result += det
@@ -779,13 +799,13 @@ class DataProcessingMixin:
             
         if key == 'ErrorLevelAnalysis':
             findings = details.get('findings', [])
-            lines = [f"Image Error Level Analysis ({len(findings)} anomalies):"]
+            lines = [self._("details_ela_title").format(count=len(findings))]
             for f in findings:
                 lines.append(f"  • Page {f.get('page')} (Image XREF: {f.get('xref')}): Map Variance {f.get('variance', 0):.2f}")
             return "\n".join(lines)
         if key == 'TextOperatorAnomaly':
             anomalies = details.get('anomalies', [])
-            lines = [f"Text Positioning Anomalies ({len(anomalies)} found):"]
+            lines = [self._("details_text_anomaly_title").format(count=len(anomalies))]
             for a in anomalies[:5]:
                 lines.append(f"  • {a.get('desc')} -> {a.get('snippet')}")
             if len(anomalies) > 5:
@@ -793,26 +813,52 @@ class DataProcessingMixin:
             return "\n".join(lines)
         if key == 'TimestampMismatch':
             mismatches = details.get('mismatches', [])
-            lines = ["Timestamp Mismatches (Info vs XMP):"]
+            lines = [self._("details_timestamp_mismatch_title")]
             for m in mismatches:
                 lines.append(f"  • {m.get('type')}: Info={m.get('info_date', '?')}, XMP={m.get('xmp_date', '?')}")
             return "\n".join(lines)
+        if key == 'AssetRelationship':
+            lines = [f"{self._('asset_relationships_label')}:"]
+            if details.get('derivation'):
+                df = details['derivation']
+                lines.append(f"  ← {self._('relationship_derived_from')}: DocumentID={df.get('documentID', '?')}")
+            
+            ing_count = len(details.get('ingredients', []))
+            if ing_count > 0:
+                lines.append(f"  • {self._('relationship_ingredients')} ({ing_count} {self._('found_label')}):")
+                for ing in details['ingredients'][:5]:
+                    name = ing.get('filePath') or f"ID: {ing.get('documentID', '?')[:8]}..."
+                    lines.append(f"    - {name}")
+                if ing_count > 5:
+                    lines.append(f"    - ... and {ing_count - 5} more")
+            
+            pantry_count = len(details.get('pantry', {}))
+            if pantry_count > 0:
+                lines.append(f"  • {self._('details_pantry_count').format(count=pantry_count)}")
+                
+            if details.get('anomalies'):
+                lines.append(f"\n  [!] {self._('relationship_anomalies')}:")
+                for anomaly in details['anomalies']:
+                    lines.append(f"    - {anomaly}")
+            
+            return "\n".join(lines)
+
         if key == 'PageInconsistency':
             pages = details.get('pages', [])
-            lines = [f"Page Inconsistencies ({len(pages)} anomalous pages):"]
+            lines = [self._("details_page_inconsistency_title").format(count=len(pages))]
             for p in pages:
                 lines.append(f"  • Page {p.get('page')}: {p.get('type')} ({p.get('details')})")
             return "\n".join(lines)
         if key == 'ColorSpaceAnomaly':
             findings = details.get('findings', [])
-            lines = [f"Color Space Anomalies ({len(findings)} found):"]
+            lines = [self._("details_color_space_anomaly_title").format(count=len(findings))]
             for f in findings:
                 page_str = f"Page {f.get('page')}: " if f.get('page') else ""
                 lines.append(f"  • {page_str}{f.get('desc')}")
             return "\n".join(lines)
         if key == 'ImagesWithEXIF':
             count = details.get('count', 0)
-            return f"Images with EXIF Metadata: Found {count}"
+            return self._("details_exif_metadata_found").format(count=count)
             
         return key.replace("_", " ")
 
@@ -821,7 +867,7 @@ class DataProcessingMixin:
             return self._("revision_of").format(id=parent_id)
 
         keys_set = set(indicators_dict.keys())
-        YES = "YES" if self.language.get() == "en" else "JA"
+        YES = self._("status_yes")
         NO = self._("status_no")
 
         high_risk_indicators = {
@@ -839,7 +885,7 @@ class DataProcessingMixin:
             return YES
 
         if indicators_dict:
-            return "Possible" if self.language.get() == "en" else "Sandsynligt"
+            return self._("status_possible")
 
         return NO
 
@@ -1088,6 +1134,55 @@ class DataProcessingMixin:
 
         if relationships:
             logging.info(f"Document ID cross-reference found {len(relationships)} files with relationships.")
+
+    def _extract_xmp_relationships(self, xmp_str: str, indicators: dict):
+        """Extract and store XMP asset relationship information."""
+        if not xmp_str:
+            return
+            
+        manager = XMPRelationshipManager()
+        data = manager.parse_xmp(xmp_str)
+        
+        if data.get('derivation') or data.get('ingredients') or data.get('pantry'):
+            indicators['AssetRelationship'] = data
+            
+            # Also add to related files if possible
+            if 'RelatedFiles' not in indicators:
+                indicators['RelatedFiles'] = {'count': 0, 'files': []}
+            
+            # Root derivation
+            derivation = data.get('derivation')
+            if isinstance(derivation, dict):
+                doc_id = derivation.get('documentID')
+                if doc_id:
+                    # Avoid duplicates
+                    if not any(f.get('id') == doc_id for f in indicators['RelatedFiles']['files']):
+                        id_str = str(doc_id)
+                        short_id = id_str[:8] if len(id_str) >= 8 else id_str
+                        indicators['RelatedFiles']['files'].append({
+                            'type': 'derived_from',
+                            'name': f"ID: {short_id}...",
+                            'id': doc_id
+                        })
+                        indicators['RelatedFiles']['count'] += 1
+            
+            # Ingredients
+            ingredients = data.get('ingredients', [])
+            if isinstance(ingredients, list):
+                for ing in ingredients:
+                    if not isinstance(ing, dict): continue
+                    doc_id = ing.get('documentID')
+                    if doc_id:
+                        # Avoid duplicates
+                        if not any(f.get('id') == doc_id for f in indicators['RelatedFiles']['files']):
+                            id_str = str(doc_id)
+                            short_id = id_str[:8] if len(id_str) >= 8 else id_str
+                            indicators['RelatedFiles']['files'].append({
+                                'type': 'ingredient',
+                                'name': ing.get('filePath') or f"ID: {short_id}...",
+                                'id': doc_id
+                            })
+                            indicators['RelatedFiles']['count'] += 1
 
     def _extract_touchup_text(self, doc):
         import pikepdf

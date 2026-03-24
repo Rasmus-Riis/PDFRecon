@@ -28,6 +28,7 @@ from .config import (
 )
 from .pdf_processor import safe_pdf_open, safe_extract_text, validate_pdf_file, count_layers
 from .utils import md5_file
+from .xmp_relationship import XMPRelationshipManager
 from .advanced_forensics import run_advanced_forensics
 
 
@@ -248,7 +249,22 @@ def detect_indicators(filepath: Path, txt: str, doc, exif_output: str = "", app_
         if "/redact" in txt_lower and re.search(r"/Redact\b", txt, re.I):
             indicators['HasRedactions'] = {}
         if "/annots" in txt_lower and re.search(r"/Annots\b", txt, re.I):
-            indicators['HasAnnotations'] = {}
+            if doc:
+                annot_types = set()
+                annot_count = 0
+                for page in doc:
+                    for annot in page.annots():
+                        annot_count += 1
+                        if annot.type and len(annot.type) > 1:
+                            annot_types.add(annot.type[1])
+                # Only add if count > 0, otherwise it might be a false positive /Annots dictionary
+                if annot_count > 0:
+                    indicators['HasAnnotations'] = {
+                        'count': annot_count,
+                        'types': sorted(list(annot_types))
+                    }
+            else:
+                indicators['HasAnnotations'] = {}
         if "/pieceinfo" in txt_lower and re.search(r"/PieceInfo\b", txt, re.I):
             indicators['HasPieceInfo'] = {}
         if "/acroform" in txt_lower and re.search(r"/AcroForm\b", txt, re.I):
@@ -298,6 +314,37 @@ def detect_indicators(filepath: Path, txt: str, doc, exif_output: str = "", app_
         
         if xmp_orig and xmp_doc and xmp_doc != xmp_orig:
             indicators['XMPIDChange'] = {'from': xmp_orig, 'to': xmp_doc}
+
+        # --- Asset Relationship Forensics (v1.4+) ---
+        # Look for XMP packet in the txt string (extract_text adds it)
+        xmp_packet_match = re.search(r'<\?xpacket begin=.*?\?>(.*?)\<\?xpacket end=[^>]*\?\>', txt, re.S)
+        if xmp_packet_match:
+            xmp_str = xmp_packet_match.group(0)
+            if app_instance and hasattr(app_instance, '_extract_xmp_relationships'):
+                # Use the app instance if available (it handles indicator integration)
+                app_instance._extract_xmp_relationships(xmp_str, indicators)
+            else:
+                # Fallback for worker processes or standalone use
+                manager = XMPRelationshipManager()
+                rel_data = manager.parse_xmp(xmp_str)
+                if rel_data.get('derivation') or rel_data.get('ingredients') or rel_data.get('pantry'):
+                    indicators['AssetRelationship'] = rel_data
+                    # Add to RelatedFiles if not present
+                    if 'RelatedFiles' not in indicators:
+                        indicators['RelatedFiles'] = {'count': 0, 'files': []}
+                    
+                    # Add derivation to RelatedFiles
+                    derivation = rel_data.get('derivation')
+                    if isinstance(derivation, dict):
+                        doc_id = derivation.get('documentID')
+                        if doc_id and not any(f.get('id') == doc_id for f in indicators['RelatedFiles']['files']):
+                            short_id = str(doc_id)[:8]
+                            indicators['RelatedFiles']['files'].append({
+                                'type': 'derived_from',
+                                'name': f"ID: {short_id}...",
+                                'id': doc_id
+                            })
+                            indicators['RelatedFiles']['count'] += 1
 
         trailer_match = re.search(r"/ID\s*\[\s*<\s*([0-9A-Fa-f]+)\s*>\s*<\s*([0-9A-Fa-f]+)\s*>\s*\]", txt)
         if trailer_match:
