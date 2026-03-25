@@ -1416,12 +1416,13 @@ class DataProcessingMixin:
     def extract_text(raw: bytes):
         txt_segments = []
 
-        stream_matches = list(re.finditer(rb"(?s)stream\b(.*?)\bendstream", raw))
+        # Optimization: use re.findall to leverage C-level implementation instead of instantiating Match objects via finditer.
+        stream_matches = re.findall(rb"(?s)stream\b(.*?)\bendstream", raw)
         
         found_touchup_marker = False
 
         for m in stream_matches:
-            body = m.group(1).strip(b"\r\n ")
+            body = m.strip(b"\r\n ")
             if len(body) <= 500_000:
                 try:
                     decompressed = DataProcessingMixin.decompress_stream(body)
