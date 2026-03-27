@@ -23,3 +23,7 @@
 ## 2025-03-15 - [Set literals vs List literals in performance-critical loops]
 **Learning:** In Python, the `in` operator combined with a set literal (`{"A", "B"}`) is compiled into a `frozenset` at bytecode level (constant folding). This makes membership tests O(1) compared to O(n) for list literals (`["A", "B"]`). In hot paths parsing thousands of PDF operators, replacing list literals with set literals yields a 45-65% performance boost in those checks, reducing CPU overhead during PDF forensics scanning.
 **Action:** Always favor set literals (`{...}`) over list literals (`[...]`) for static membership tests (using the `in` operator), particularly in loops and parsing logic.
+
+## 2025-05-19 - Optimize stream block extraction in PDF parser
+**Learning:** `list(re.finditer(...))` creates a Python list of Match objects, which is memory-intensive and slow for large texts. Using `re.findall(...)` directly returns a list of strings (or tuples) leveraging the C-level regex implementation, which is significantly faster and more memory-efficient when you only need the matched substrings and not the match positions.
+**Action:** When extracting large blocks of text matching a pattern (like PDF streams), replace `list(re.finditer(...))` with `re.findall(...)` for patterns containing exactly one capture group to improve parsing performance.

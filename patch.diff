@@ -1,0 +1,26 @@
+--- src/data_processing.py
++++ src/data_processing.py
+@@ -219,7 +219,6 @@
+         try:
+             file_content = path.read_bytes()
+             startupinfo = None
+             if sys.platform == "win32":
+-                import subprocess
+                 startupinfo = subprocess.STARTUPINFO()
+                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+
+@@ -698,11 +697,11 @@
+     def extract_text(raw: bytes):
+         txt_segments = []
+
+-        stream_matches = list(re.finditer(rb"(?s)stream\b(.*?)\bendstream", raw))
++        stream_matches = re.findall(rb"(?s)stream\b(.*?)\bendstream", raw)
+
+         found_touchup_marker = False
+
+-        for m in stream_matches:
+-            body = m.group(1).strip(b"\r\n ")
++        for body_raw in stream_matches:
++            body = body_raw.strip(b"\r\n ")
+             if len(body) <= 500_000:
+                 try:
