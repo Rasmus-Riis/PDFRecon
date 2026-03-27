@@ -70,24 +70,24 @@ class DataProcessingMixin:
             "metadata": None,
             "tool": None
         }
-        
+
         if not timeline_data:
             return dates
 
         all_events = timeline_data.get("aware", []) + timeline_data.get("naive", [])
-        
+
         for dt_obj, description in all_events:
             desc_lower = description.lower()
             dt_str = dt_obj.strftime("%d-%m-%Y %H:%M:%S")
-            
+
             if "created" in desc_lower or "creation" in desc_lower:
                 if not dates["created"] or "exiftool" in desc_lower:
                     dates["created"] = dt_str
-            
+
             if "modified" in desc_lower or "modify" in desc_lower:
                 if not dates["modified"] or "exiftool" in desc_lower:
                     dates["modified"] = dt_str
-            
+
             if "metadata" in desc_lower:
                 if not dates["metadata"] or "exiftool" in desc_lower:
                     dates["metadata"] = dt_str
@@ -96,7 +96,7 @@ class DataProcessingMixin:
                 try:
                     tool_part = description.split("Tool:")[1].strip()
                     if tool_part and not dates["tool"]:
-                        dates["tool"] = tool_part[:50]  
+                        dates["tool"] = tool_part[:50]
                 except Exception:
                     pass
 
@@ -107,22 +107,22 @@ class DataProcessingMixin:
         offsets = []
         pos = len(raw)
         while (pos := raw.rfind(b"%%EOF", 0, pos)) != -1: offsets.append(pos)
-        
+
         sorted_offsets = sorted(offsets)
-        
+
         if sorted_offsets and sorted_offsets[-1] > len(raw) - 100:
             sorted_offsets.pop()
-            
+
         valid_offsets = [o for o in sorted_offsets if o >= 500]
-        
+
         if valid_offsets:
             altered_dir = original_path.parent / "Altered_files"
             if not altered_dir.exists():
                 altered_dir.mkdir(parents=True, exist_ok=True)
-            
+
             for offset in valid_offsets:
                 rev_bytes = raw[:offset + 5]
-                
+
                 is_valid = False
                 try:
                     test_doc = fitz.open(stream=rev_bytes, filetype="pdf")
@@ -131,14 +131,14 @@ class DataProcessingMixin:
                     test_doc.close()
                 except Exception:
                     is_valid = False
-                    
+
                 if is_valid:
                     rev_idx = len(revisions) + 1
                     rev_filename = f"{original_path.stem}_rev{rev_idx}_@{offset}.pdf"
                     rev_path = altered_dir / rev_filename
                     rev_path.write_bytes(rev_bytes)
                     revisions.append((rev_path, original_path.name, rev_bytes))
-                
+
         return revisions
 
     def exiftool_output(self, path, detailed=False):
@@ -149,13 +149,13 @@ class DataProcessingMixin:
             p = Path(PDFReconConfig.EXIFTOOL_PATH)
             if p.is_file():
                 exe_path = p
-                is_safe_location = True 
+                is_safe_location = True
 
         if not exe_path:
             system_path = shutil.which("exiftool")
             if system_path:
                 exe_path = Path(system_path)
-                is_safe_location = True 
+                is_safe_location = True
 
         if not exe_path:
             bundled_path = self._resolve_path("exiftool.exe", base_is_parent=False)
@@ -170,7 +170,7 @@ class DataProcessingMixin:
             local_path = self._resolve_path("exiftool.exe", base_is_parent=True)
             if local_path.is_file():
                 exe_path = local_path
-                is_safe_location = False 
+                is_safe_location = False
 
         if not exe_path:
             return self._("exif_err_notfound")
@@ -199,18 +199,19 @@ class DataProcessingMixin:
             except Exception as e:
                 logging.error(f"Error verifying ExifTool integrity: {e}")
                 return f"Error verifying ExifTool integrity: {e}"
-        
+
         try:
             file_content = path.read_bytes()
             startupinfo = None
             if sys.platform == "win32":
+                import subprocess
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            
+
             command = [str(exe_path)]
             if detailed: command.extend(["-a", "-u", "-s", "-G1", "-struct"])
             else: command.extend(["-a", "-u", "-s", "-G1"])
-            command.append("-") 
+            command.append("-")
 
             run_kw = dict(
                 capture_output=True,
@@ -222,7 +223,7 @@ class DataProcessingMixin:
             if sys.platform == "win32" and hasattr(subprocess, "CREATE_NO_WINDOW"):
                 run_kw["creationflags"] = subprocess.CREATE_NO_WINDOW
             process = subprocess.run(command, input=file_content, **run_kw)
-            
+
             if process.returncode != 0 or process.stderr:
                 error_message = process.stderr.decode('latin-1', 'ignore').strip()
                 if not process.stdout.strip(): return f"{self._('exif_err_prefix')}\n{error_message}"
@@ -268,32 +269,32 @@ class DataProcessingMixin:
 
         for ln in lines:
             m = KV_PATTERN.match(ln)
-            if not m: 
+            if not m:
                 continue
-            
+
             group = m.group("group").strip().lower()
             tag = m.group("tag").strip().lower().replace(" ", "")
             val = m.group("value").strip()
 
             if tag == "producer":
-                if group == "pdf" and not data["producer_pdf"]: 
+                if group == "pdf" and not data["producer_pdf"]:
                     data["producer_pdf"] = val
-                elif group in ("xmp-pdf", "xmp_pdf") and not data["producer_xmppdf"]: 
+                elif group in ("xmp-pdf", "xmp_pdf") and not data["producer_xmppdf"]:
                     data["producer_xmppdf"] = val
-            elif tag == "softwareagent" and not data["softwareagent"]: 
+            elif tag == "softwareagent" and not data["softwareagent"]:
                 data["softwareagent"] = val
-            elif tag == "application" and not data["application"]: 
+            elif tag == "application" and not data["application"]:
                 data["application"] = val
-            elif tag == "software" and not data["software"]: 
+            elif tag == "software" and not data["software"]:
                 data["software"] = val
             elif tag == "creatortool" and not data["creatortool"] and looks_like_software(val):
                 data["creatortool"] = val
-            elif tag == "xmptoolkit" and not data["xmptoolkit"]: 
+            elif tag == "xmptoolkit" and not data["xmptoolkit"]:
                 data["xmptoolkit"] = val
-        
-        if not data["producer_pdf"] and data["producer_xmppdf"]: 
+
+        if not data["producer_pdf"] and data["producer_xmppdf"]:
             data["producer_pdf"] = data["producer_xmppdf"]
-        if not data["producer_xmppdf"] and data["producer_pdf"]: 
+        if not data["producer_xmppdf"] and data["producer_pdf"]:
             data["producer_xmppdf"] = data["producer_pdf"]
 
         for ln in lines:
@@ -312,31 +313,31 @@ class DataProcessingMixin:
                 continue
 
             kv_match = KV_PATTERN.match(ln)
-            if not kv_match: 
+            if not kv_match:
                 continue
 
             val_str = kv_match.group("value").strip()
             match = DATE_TZ_PATTERN.match(val_str)
-            
+
             if match:
                 parts = match.groupdict()
                 date_part = parts.get("date").replace(":", "-", 2).replace(" ", "T")
                 tz_part = parts.get("tz")
-                
+
                 try:
                     full_date_str = date_part
                     if tz_part:
                         full_date_str += tz_part.replace('Z', '+00:00')
-                    
+
                     dt = datetime.fromisoformat(full_date_str)
-                    
+
                     tag = kv_match.group("tag").strip().lower().replace(" ", "")
                     group = kv_match.group("group").strip()
                     data["all_dates"].append({"dt": dt, "tag": tag, "group": group, "full_str": val_str})
 
                 except ValueError:
                     continue
-        
+
         for d in data["all_dates"]:
             if d["tag"] in {"createdate", "creationdate"}:
                 if data["create_dt"] is None or d["dt"] < data["create_dt"]:
@@ -344,15 +345,15 @@ class DataProcessingMixin:
             elif d["tag"] in {"modifydate", "metadatadate"}:
                 if data["modify_dt"] is None or d["dt"] > data["modify_dt"]:
                     data["modify_dt"] = d["dt"]
-        
+
         return data
 
     def _detect_tool_change_from_exif(self, exiftool_output: str, parsed_data=None):
         data = parsed_data if parsed_data else self._parse_exif_data(exiftool_output)
-        
+
         create_tool = data["producer_pdf"] or data["producer_xmppdf"] or data["application"] or data["software"] or data["creatortool"] or ""
         modify_tool = data["softwareagent"] or data["producer_pdf"] or data["producer_xmppdf"] or data["application"] or data["software"] or data["creatortool"] or ""
-        
+
         create_engine = modify_engine = ""
         if data["xmptoolkit"]:
             if data["create_dt"]: create_engine = data["xmptoolkit"]
@@ -360,7 +361,7 @@ class DataProcessingMixin:
 
         changed_tool = bool(create_tool and modify_tool and create_tool.strip() != modify_tool.strip())
         changed_engine = bool(create_engine and modify_engine and create_engine.strip() != modify_engine.strip())
-        
+
         reason = ""
         if changed_tool and changed_engine: reason = "mixed"
         elif changed_tool: reason = "producer" if (data["producer_pdf"] or data["producer_xmppdf"]) else "software"
@@ -379,7 +380,7 @@ class DataProcessingMixin:
         data = parsed_data if parsed_data else self._parse_exif_data(exiftool_output)
 
         create_tool = data["producer_pdf"] or data["producer_xmppdf"] or data["application"] or data["software"] or data["creatortool"] or ""
-        modify_tool = data["softwareagent"] or create_tool 
+        modify_tool = data["softwareagent"] or create_tool
 
         for dt_obj, details in data["history_events"]:
             action = details.get('Action', 'N/A')
@@ -399,7 +400,7 @@ class DataProcessingMixin:
             tool = create_tool if d["tag"] in {"createdate", "creationdate"} else modify_tool
             tool_part = f" | Tool: {tool}" if tool else ""
             events.append((d["dt"], f"ExifTool ({d['group']}) - {label}: {d['full_str']}{tool_part}"))
-        
+
         if data["xmptoolkit"]:
             anchor_dt = data["create_dt"] or (data["all_dates"][0]["dt"] if data["all_dates"] else datetime.now())
             label_engine = "XMP Engine" if self.language.get() == "en" else "XMP-motor"
@@ -416,7 +417,7 @@ class DataProcessingMixin:
         days, remainder = divmod(s, 86400)
         hours, remainder = divmod(remainder, 3600)
         minutes, seconds = divmod(remainder, 60)
-        
+
         parts = []
         if days > 0: parts.append(f"{int(days)}d")
         if hours > 0: parts.append(f"{int(hours)}h")
@@ -427,28 +428,28 @@ class DataProcessingMixin:
 
     def _parse_raw_content_timeline(self, file_content_string):
         events = []
-        
+
         pdf_date_extended = re.compile(
             r"\/([A-Z][a-zA-Z0-9_]+)\s*\(\s*D:(\d{14})([+\-]\d{2}'\d{2}'|[+\-]\d{2}:\d{2}|[+\-]\d{4}|Z)?"
         )
-        
+
         for match in pdf_date_extended.finditer(file_content_string):
             label, date_str, tz_str = match.groups()
             try:
                 dt_obj = datetime.strptime(date_str, "%Y%m%d%H%M%S")
-                
+
                 if tz_str:
                     if tz_str == 'Z':
                         dt_obj = dt_obj.replace(tzinfo=timezone.utc)
                     else:
                         tz_clean = tz_str.replace("'", "").replace(":", "")
-                        if len(tz_clean) == 5:  
+                        if len(tz_clean) == 5:
                             tz_clean = tz_clean[:3] + ":" + tz_clean[3:]
                         try:
                             dt_obj = datetime.fromisoformat(dt_obj.strftime("%Y-%m-%dT%H:%M:%S") + tz_clean)
                         except ValueError:
-                            pass  
-                
+                            pass
+
                 tz_display = tz_str if tz_str else ""
                 display_line = f"Raw File: /{label}: {dt_obj.strftime('%Y-%m-%d %H:%M:%S')}{tz_display}"
                 events.append((dt_obj, display_line))
@@ -458,13 +459,13 @@ class DataProcessingMixin:
         xmp_date_pattern = re.compile(r"<([a-zA-Z0-9:]+)[^>]*?>\s*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[^\s<]*)\s*<\/([a-zA-Z0-9:]+)>")
         for match in xmp_date_pattern.finditer(file_content_string):
             label, date_str, closing_label = match.groups()
-            if label != closing_label: 
+            if label != closing_label:
                 continue
             try:
                 normalized = date_str.strip()
                 has_tz = 'Z' in normalized or '+' in normalized[10:] or (normalized.count('-') > 2 and '-' in normalized[10:])
                 normalized = normalized.replace('Z', '+00:00')
-                
+
                 if '.' in normalized:
                     dot_pos = normalized.index('.')
                     tz_start = -1
@@ -476,7 +477,7 @@ class DataProcessingMixin:
                         normalized = normalized[:dot_pos] + normalized[tz_start:]
                     else:
                         normalized = normalized[:dot_pos]
-                
+
                 dt_obj = datetime.fromisoformat(normalized)
                 display_line = f"Raw File: <{label}>: {date_str}"
                 events.append((dt_obj, display_line))
@@ -503,7 +504,7 @@ class DataProcessingMixin:
                     when = max(naive_dts) if naive_dts else max(e[0] for e in all_events)
                 if not when:
                     when = datetime.now()
-                
+
                 if self.language.get() == "da":
                     label = "Værktøj skiftet"
                     parts = [f"{info.get('create_tool','?')} → {info.get('modify_tool','?')}"]
@@ -579,7 +580,7 @@ class DataProcessingMixin:
                     found_text_str = "\n".join(found_text)
             if details and details.get('text_diff'):
                 diff_str = self._("details_comparison_available")
-            
+
             if found_text_str and diff_str:
                 return f"TouchUp TextEdit:\n{found_text_str}\n\n({diff_str})"
             elif found_text_str:
@@ -644,7 +645,7 @@ class DataProcessingMixin:
             filtered_files = [f for f in files if f.get('name') and not _is_placeholder(f['name'])]
             count = len(filtered_files)
             if count == 0: return None
-            
+
             lines = [f"{self._('related_files_label')} ({count}):"]
             for f in filtered_files:
                 rel_type = f.get('type', 'related')
@@ -656,7 +657,7 @@ class DataProcessingMixin:
                 else:
                     lines.append(f"  ↔ {self._('relationship_related_to') if hasattr(self, '_') and self._('relationship_related_to') != 'relationship_related_to' else 'Related to'}: {name}")
             return "\n".join(lines)
-            
+
         if key == 'TimestampSpoofing':
             return self._("timestamp_spoofing").format(note=details.get('note', ''))
         if key == 'HiddenAnnotations':
@@ -744,14 +745,14 @@ class DataProcessingMixin:
         if key == 'PDFACompliance':
             part = details.get('part', 'Unknown')
             return self._("details_pdfa_compliance").format(part=part)
-            
+
         if key == 'NonEmbeddedFont':
             fonts = details.get('fonts', [])
             if not fonts: return None
             font_str = ", ".join(fonts[:10])
             if len(fonts) > 10: font_str += f" (+{len(fonts)-10} more)"
             return self._("NonEmbeddedFont") + f": {font_str}"
-            
+
         if key == 'XMPHistoryGap':
             gaps = details.get('gaps', [])
             if not gaps: return None
@@ -764,7 +765,7 @@ class DataProcessingMixin:
             gap_str = "\n    • " + "\n    • ".join(gap_summaries)
             if len(gaps) > 5: gap_str += f"\n    • ... (+{len(gaps)-5} more)"
             return self._("XMPHistoryGap") + ":" + gap_str
-            
+
         if key == 'StructuralScrubbing':
             blocks = details.get('blocks', [])
             if not blocks: return None
@@ -778,7 +779,7 @@ class DataProcessingMixin:
                 max_space = max(b['length'] for b in space_blocks)
                 summary.append(self._("details_space_blocks").format(count=len(space_blocks), size=max_space))
             return self._("StructuralScrubbing") + ": " + self._("details_and").join(summary)
-            
+
         if key == 'PDFAViolation':
             violations = details.get('violations', [])
             if not violations: return None
@@ -795,7 +796,7 @@ class DataProcessingMixin:
                 det = "\n    " + "\n    ".join(details['suspicious_details'])
                 result += det
             return result + "\n    " + self._("details_jpeg_note")
-            
+
         if key == 'ErrorLevelAnalysis':
             findings = details.get('findings', [])
             lines = [self._("details_ela_title").format(count=len(findings))]
@@ -821,7 +822,7 @@ class DataProcessingMixin:
             if details.get('derivation'):
                 df = details['derivation']
                 lines.append(f"  ← {self._('relationship_derived_from')}: DocumentID={df.get('documentID', '?')}")
-            
+
             ing_count = len(details.get('ingredients', []))
             if ing_count > 0:
                 lines.append(f"  • {self._('relationship_ingredients')} ({ing_count} {self._('found_label')}):")
@@ -830,16 +831,16 @@ class DataProcessingMixin:
                     lines.append(f"    - {name}")
                 if ing_count > 5:
                     lines.append(f"    - ... and {ing_count - 5} more")
-            
+
             pantry_count = len(details.get('pantry', {}))
             if pantry_count > 0:
                 lines.append(f"  • {self._('details_pantry_count').format(count=pantry_count)}")
-                
+
             if details.get('anomalies'):
                 lines.append(f"\n  [!] {self._('relationship_anomalies')}:")
                 for anomaly in details['anomalies']:
                     lines.append(f"    - {anomaly}")
-            
+
             return "\n".join(lines)
 
         if key == 'PageInconsistency':
@@ -858,7 +859,7 @@ class DataProcessingMixin:
         if key == 'ImagesWithEXIF':
             count = details.get('count', 0)
             return self._("details_exif_metadata_found").format(count=count)
-            
+
         return key.replace("_", " ")
 
     def get_flag(self, indicators_dict, is_revision, parent_id=None):
@@ -1066,13 +1067,13 @@ class DataProcessingMixin:
         for path_str, data in self.all_scan_data.items():
             if data.get("is_revision"):
                 continue
-            
+
             doc_ids = data.get("document_ids")
             if not doc_ids:
                 continue
 
             path_to_ids[path_str] = doc_ids
-            
+
             for own_id in doc_ids.get("own_ids", set()):
                 if own_id not in id_to_owners:
                     id_to_owners[own_id] = []
@@ -1113,7 +1114,7 @@ class DataProcessingMixin:
                 data = self.all_scan_data[path_str]
                 if "indicator_keys" not in data:
                     data["indicator_keys"] = {}
-                
+
                 related_info = []
                 for related_path, rel_type in related_files.items():
                     try:
@@ -1138,17 +1139,17 @@ class DataProcessingMixin:
         """Extract and store XMP asset relationship information."""
         if not xmp_str:
             return
-            
+
         manager = XMPRelationshipManager()
         data = manager.parse_xmp(xmp_str)
-        
+
         if data.get('derivation') or data.get('ingredients') or data.get('pantry'):
             indicators['AssetRelationship'] = data
-            
+
             # Also add to related files if possible
             if 'RelatedFiles' not in indicators:
                 indicators['RelatedFiles'] = {'count': 0, 'files': []}
-            
+
             # Root derivation
             derivation = data.get('derivation')
             if isinstance(derivation, dict):
@@ -1164,7 +1165,7 @@ class DataProcessingMixin:
                             'id': doc_id
                         })
                         indicators['RelatedFiles']['count'] += 1
-            
+
             # Ingredients
             ingredients = data.get('ingredients', [])
             if isinstance(ingredients, list):
@@ -1206,24 +1207,24 @@ class DataProcessingMixin:
                     try:
                         ops = pikepdf.parse_content_stream(page)
                         new_ops = []
-                        
+
                         touchup_stack = [False]
                         mp_flag = False
                         in_flagged_bt = False
-                        
+
                         properties = {}
                         if "/Resources" in page and "/Properties" in page.Resources:
                             properties = page.Resources.Properties
 
                         for operands, operator in ops:
                             op_name = str(operator)
-                            
+
                             if op_name in ["BDC", "BMC"]:
                                 is_touchup = False
                                 tag = ""
                                 if operands and (isinstance(operands[0], pikepdf.Name) or isinstance(operands[0], str)):
                                     tag = str(operands[0])
-                                
+
                                 if "TouchUp" in tag:
                                     is_touchup = True
                                 elif properties and operands and operands[0] in properties:
@@ -1232,18 +1233,18 @@ class DataProcessingMixin:
                                             is_touchup = True
                                     except Exception: pass
                                 touchup_stack.append(is_touchup or touchup_stack[-1])
-                            
+
                             elif op_name == "EMC":
                                 if len(touchup_stack) > 1:
                                     touchup_stack.pop()
                                 in_flagged_bt = False
                                 mp_flag = False
-                            
+
                             elif op_name in ["MP", "DP"]:
                                 tag = ""
                                 if operands and (isinstance(operands[0], pikepdf.Name) or isinstance(operands[0], str)):
                                     tag = str(operands[0])
-                                    
+
                                 if "TouchUp" in tag:
                                     mp_flag = True
                                 elif properties and operands and operands[0] in properties:
@@ -1251,17 +1252,17 @@ class DataProcessingMixin:
                                         if "TouchUp" in str(properties[operands[0]]):
                                             mp_flag = True
                                     except Exception: pass
-                            
+
                             elif op_name == "BT":
                                 if mp_flag:
                                     in_flagged_bt = True
                                     mp_flag = False
-                            
+
                             elif op_name == "ET":
                                 in_flagged_bt = False
-                            
+
                             is_inside_touchup = touchup_stack[-1] or in_flagged_bt
-                            
+
                             if not is_inside_touchup and op_name in ["Tj", "TJ", "'", '"']:
                                 if op_name == "TJ":
                                     new_list = []
@@ -1277,7 +1278,7 @@ class DataProcessingMixin:
                                 new_ops.append((operands, operator))
 
                         page.set_contents(pikepdf.unparse_content_stream(new_ops))
-                        
+
                     except Exception as e:
                         logging.debug(f"Failed to mask page {page_num}: {e}")
                         continue
@@ -1285,7 +1286,7 @@ class DataProcessingMixin:
                 out_buf = io.BytesIO()
                 pdf.save(out_buf)
                 out_buf.seek(0)
-                
+
                 with fitz.open(stream=out_buf, filetype="pdf") as masked_doc:
                     for i, masked_page in enumerate(masked_doc):
                         text = masked_page.get_text("text").strip()
@@ -1293,7 +1294,7 @@ class DataProcessingMixin:
                             lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
                             if lines:
                                 page_results[i + 1] = lines
-            
+
             return page_results
 
         except Exception as e:
@@ -1324,16 +1325,16 @@ class DataProcessingMixin:
         regions = []
         if not touchup_texts:
             return regions
-            
+
         try:
             page = fitz_doc.load_page(page_num)
-            
+
             searchable_fragments = []
-            
+
             for text in touchup_texts:
                 if not text:
                     continue
-                    
+
                 current_fragment = []
                 for char in text:
                     if char.isalnum() or char in ' .,:-':
@@ -1344,28 +1345,28 @@ class DataProcessingMixin:
                             if len(fragment) >= 3 and any(c.isalpha() for c in fragment):
                                 searchable_fragments.append(fragment)
                             current_fragment = []
-                
+
                 if current_fragment:
                     fragment = ''.join(current_fragment).strip()
                     if len(fragment) >= 3 and any(c.isalpha() for c in fragment):
                         searchable_fragments.append(fragment)
-            
+
             for text in touchup_texts:
                 if not text:
                     continue
                 import re
                 words = re.findall(r'[A-Za-zÀ-ÿ]{3,}', text)
                 searchable_fragments.extend(words)
-            
+
             seen = set()
             unique_fragments = []
             for f in searchable_fragments:
                 if f.lower() not in seen and len(f) >= 3:
                     seen.add(f.lower())
                     unique_fragments.append(f)
-            
+
             logging.debug(f"TouchUp searchable fragments for page {page_num + 1}: {unique_fragments[:10]}")
-            
+
             for fragment in unique_fragments[:20]:
                 try:
                     rects = page.search_for(fragment, quads=False)
@@ -1374,10 +1375,10 @@ class DataProcessingMixin:
                         logging.debug(f"Found '{fragment}' at {len(rects)} location(s)")
                 except Exception as e:
                     logging.debug(f"Search error for '{fragment}': {e}")
-                    
+
         except Exception as e:
             logging.warning(f"Error finding TouchUp regions on page {page_num}: {e}")
-        
+
         return regions
 
     def analyze_fonts(self, filepath, doc):
@@ -1395,7 +1396,7 @@ class DataProcessingMixin:
                         font_subsets[normalized_base].add(basefont_name)
                     except ValueError:
                         continue
-        
+
         conflicting_fonts = {base: subsets for base, subsets in font_subsets.items() if len(subsets) > 1}
         if conflicting_fonts:
             logging.info(f"Multiple font subsets found in {filepath.name}: {conflicting_fonts}")
@@ -1416,7 +1417,7 @@ class DataProcessingMixin:
         txt_segments = []
 
         stream_matches = list(re.finditer(rb"(?s)stream\b(.*?)\bendstream", raw))
-        
+
         found_touchup_marker = False
 
         for m in stream_matches:
