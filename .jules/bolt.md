@@ -23,3 +23,6 @@
 ## 2025-03-15 - [Set literals vs List literals in performance-critical loops]
 **Learning:** In Python, the `in` operator combined with a set literal (`{"A", "B"}`) is compiled into a `frozenset` at bytecode level (constant folding). This makes membership tests O(1) compared to O(n) for list literals (`["A", "B"]`). In hot paths parsing thousands of PDF operators, replacing list literals with set literals yields a 45-65% performance boost in those checks, reducing CPU overhead during PDF forensics scanning.
 **Action:** Always favor set literals (`{...}`) over list literals (`[...]`) for static membership tests (using the `in` operator), particularly in loops and parsing logic.
+## 2025-03-09 - Avoid re.findall on massive raw byte strings without pre-checks
+**Learning:** Running `re.findall()` with repetition patterns like `b"\\x00{200,}"` directly over raw PDF byte arrays (often 5-50+ MB) is extremely slow when the pattern does not exist, because the regex engine must scan every byte. A C-level substring search (using Python's `in` operator, e.g. `b"\\x00" * 200 in pdf_bytes`) executes instantly for the negative case (which is the 99% case for anomaly detection).
+**Action:** When searching for large blocks of repeating characters or exact literals in massive files (like PDF raw bytes), always gate the regex call behind a fast `in` substring pre-check.
