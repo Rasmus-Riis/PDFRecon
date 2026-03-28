@@ -1416,12 +1416,15 @@ class DataProcessingMixin:
     def extract_text(raw: bytes):
         txt_segments = []
 
-        stream_matches = list(re.finditer(rb"(?s)stream\b(.*?)\bendstream", raw))
+        # ⚡ Bolt Optimization: Use re.findall instead of list(re.finditer)
+        # Leveraging C-level list comprehensions bypasses the overhead of
+        # generating and iterating over Match objects in Python.
+        stream_matches = re.findall(rb"(?s)stream\b(.*?)\bendstream", raw)
         
         found_touchup_marker = False
 
-        for m in stream_matches:
-            body = m.group(1).strip(b"\r\n ")
+        for body_raw in stream_matches:
+            body = body_raw.strip(b"\r\n ")
             if len(body) <= 500_000:
                 try:
                     decompressed = DataProcessingMixin.decompress_stream(body)
