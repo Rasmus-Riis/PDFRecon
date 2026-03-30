@@ -23,3 +23,7 @@
 ## 2025-03-15 - [Set literals vs List literals in performance-critical loops]
 **Learning:** In Python, the `in` operator combined with a set literal (`{"A", "B"}`) is compiled into a `frozenset` at bytecode level (constant folding). This makes membership tests O(1) compared to O(n) for list literals (`["A", "B"]`). In hot paths parsing thousands of PDF operators, replacing list literals with set literals yields a 45-65% performance boost in those checks, reducing CPU overhead during PDF forensics scanning.
 **Action:** Always favor set literals (`{...}`) over list literals (`[...]`) for static membership tests (using the `in` operator), particularly in loops and parsing logic.
+
+## 2025-05-18 - Fast-fail substring checks for multiple regex operations
+**Learning:** When using fast-fail substring guard checks (e.g., `if "guard" in txt_lower:`) to bypass multiple regular expression searches in the same code block, the guard substring must be chosen carefully to avoid unintentionally excluding valid targets. For example, using `if "document" in exif_lower and "id" in exif_lower:` to guard a block searching for `Document ID`, `Original Document ID`, and `Instance ID` will erroneously skip files containing only `Instance ID`.
+**Action:** Be cautious when creating a single substring guard for a block that executes multiple distinct regex searches. A broader guard like `if "id" in exif_lower:` or applying individual substring checks for each distinct regex operation prevents regressions.
