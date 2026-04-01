@@ -24,7 +24,9 @@ def detect_emails_and_urls(txt: str, indicators: dict):
     try:
         # Email pattern (more restrictive)
         email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b'
-        raw_emails = set(re.findall(email_pattern, txt))
+        raw_emails = set()
+        if "@" in txt:
+            raw_emails = set(re.findall(email_pattern, txt))
         
         # Validation: Filter out garbage (random binary strings often look like short emails)
         emails = []
@@ -82,7 +84,10 @@ def detect_emails_and_urls(txt: str, indicators: dict):
         
         # URL pattern (http, https, ftp)
         url_pattern = r'https?://[^\s<>"{}|\\^`\[\]]+'
-        raw_urls = set(re.findall(url_pattern, txt, re.IGNORECASE))
+        raw_urls = set()
+        txt_lower = txt.lower()
+        if "http" in txt_lower:
+            raw_urls = set(re.findall(url_pattern, txt, re.IGNORECASE))
 
         # Clean URLs and filter common metadata namespaces
         urls = set()
@@ -125,7 +130,9 @@ def detect_unc_paths(txt: str, indicators: dict):
         # UNC path pattern: \\servername\share\path
         # Require server name and share name (at least 2 slashes total including prefix)
         unc_pattern = r'\\\\[a-zA-Z0-9_\-\.]+\\[a-zA-Z0-9_\-\.\$\\]+'
-        raw_paths = set(re.findall(unc_pattern, txt))
+        raw_paths = set()
+        if "\\\\" in txt:
+            raw_paths = set(re.findall(unc_pattern, txt))
         
         unc_paths = []
         for path in raw_paths:
@@ -672,11 +679,17 @@ def detect_text_operator_anomalies(txt: str, indicators: dict):
     """Detect text positioning operations used to obscure or misalign text."""
     try:
         # Detect large negative values in TJ arrays (e.g., [ (T) -2000 (e) ])
-        tj_anomalies = len(re.findall(r"-\d{4,}\s+(?=\(|<)", txt))
+        tj_anomalies = 0
+        if "-" in txt:
+            tj_anomalies = len(re.findall(r"-\d{4,}\s+(?=\(|<)", txt))
         
         # Word spacing (Tw) or Character spacing (Tc) being excessively large
-        tw_anomalies = len(re.findall(r"(?:^|[^0-9\.])(1[0-9]{2,}|-[1-9][0-9]+)\s+Tw\b", txt))
-        tc_anomalies = len(re.findall(r"(?:^|[^0-9\.])(1[0-9]{2,}|-[1-9][0-9]+)\s+Tc\b", txt))
+        tw_anomalies = 0
+        if "Tw" in txt:
+            tw_anomalies = len(re.findall(r"(?:^|[^0-9\.])(1[0-9]{2,}|-[1-9][0-9]+)\s+Tw\b", txt))
+        tc_anomalies = 0
+        if "Tc" in txt:
+            tc_anomalies = len(re.findall(r"(?:^|[^0-9\.])(1[0-9]{2,}|-[1-9][0-9]+)\s+Tc\b", txt))
         
         total = tj_anomalies + tw_anomalies + tc_anomalies
         if total > 0:
@@ -888,12 +901,16 @@ def detect_structural_scrubbing(pdf_bytes: bytes, indicators: dict):
     try:
         findings = []
         # Look for 200+ consecutive null bytes
-        null_runs = len(re.findall(b"\x00{200,}", pdf_bytes))
+        null_runs = 0
+        if b"\x00" * 200 in pdf_bytes:
+            null_runs = len(re.findall(b"\x00{200,}", pdf_bytes))
         if null_runs > 0:
             findings.append(f"Found {null_runs} block(s) of 200+ null bytes (potential scrubbing)")
             
         # Look for 1000+ consecutive space characters
-        space_runs = len(re.findall(b" {1000,}", pdf_bytes))
+        space_runs = 0
+        if b" " * 1000 in pdf_bytes:
+            space_runs = len(re.findall(b" {1000,}", pdf_bytes))
         if space_runs > 0:
             findings.append(f"Found {space_runs} block(s) of 1000+ spaces (potential manual white-out)")
             
