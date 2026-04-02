@@ -201,10 +201,10 @@ class DataProcessingMixin:
                 return f"Error verifying ExifTool integrity: {e}"
         
         try:
+            import subprocess
             file_content = path.read_bytes()
             startupinfo = None
             if sys.platform == "win32":
-                import subprocess
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             
@@ -1439,7 +1439,12 @@ class DataProcessingMixin:
         # ⚡ Bolt Optimization: Use re.findall instead of list(re.finditer)
         # Leveraging C-level list comprehensions bypasses the overhead of
         # generating and iterating over Match objects in Python.
-        stream_matches = re.findall(rb"(?s)stream\b(.*?)\bendstream", raw)
+        # Adding a fast-path literal pre-check significantly reduces time
+        # when the string does not contain streams, bypassing regex completely.
+        if b"stream" in raw:
+            stream_matches = re.findall(rb"(?s)stream\b(.*?)\bendstream", raw)
+        else:
+            stream_matches = []
         
         found_touchup_marker = False
 
