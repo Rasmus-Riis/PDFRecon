@@ -212,12 +212,12 @@ def detect_encryption_status(doc, txt: str, indicators: dict):
                 indicators['EncryptedButOpen'] = {'status': 'Opened without password (empty or known)'}
         
         # Check for encryption dictionary in raw content
-        if re.search(r'/Encrypt\s+\d+\s+\d+\s+R', txt):
+        if "/Encrypt" in txt and re.search(r'/Encrypt\s+\d+\s+\d+\s+R', txt):
             if 'Encrypted' not in indicators:
                 indicators['EncryptionDictionary'] = {'status': 'Encryption dictionary present'}
                 
         # Check for security settings
-        if re.search(r'/P\s+-?\d+', txt):  # Permissions integer
+        if "/P" in txt and re.search(r'/P\s+-?\d+', txt):  # Permissions integer
             perm_match = re.search(r'/P\s+(-?\d+)', txt)
             if perm_match:
                 perm_value = int(perm_match.group(1))
@@ -251,11 +251,13 @@ def detect_hidden_text_patterns(txt: str, doc, indicators: dict):
         # Let's add more sophisticated patterns
         
         # Check for text rendering mode 3 (invisible text)
-        if re.search(r'\s3\s+Tr\b', txt):
+        if "Tr" in txt and re.search(r'\s3\s+Tr\b', txt):
             indicators['InvisibleTextMode'] = {'status': 'Text rendering mode 3 (invisible) detected'}
         
         # Check for white color (1 1 1 RG or #FFFFFF)
-        white_color_matches = len(re.findall(r'\b1\s+1\s+1\s+(rg|RG)\b', txt))
+        white_color_matches = 0
+        if "rg" in txt or "RG" in txt:
+            white_color_matches = len(re.findall(r'\b1\s+1\s+1\s+(rg|RG)\b', txt))
         if white_color_matches > 20:  # Threshold for suspicion
             indicators['ExcessiveWhiteColor'] = {
                 'count': white_color_matches,
@@ -320,8 +322,9 @@ def detect_hidden_text_patterns(txt: str, doc, indicators: dict):
 def detect_attachments(doc, txt: str, indicators: dict):
     """Detect embedded file attachments."""
     try:
+        txt_lower = txt.lower()
         # Check for embedded files
-        if re.search(r'/Type\s*/EmbeddedFile', txt, re.IGNORECASE):
+        if "embeddedfile" in txt_lower and re.search(r'/Type\s*/EmbeddedFile', txt, re.IGNORECASE):
             # Count embedded files
             embedded_count = len(re.findall(r'/Type\s*/EmbeddedFile', txt, re.IGNORECASE))
             
@@ -336,7 +339,7 @@ def detect_attachments(doc, txt: str, indicators: dict):
                 indicators['EmbeddedFiles']['filenames'] = filenames[:10]
         
         # Check for file attachment annotations
-        if re.search(r'/Subtype\s*/FileAttachment', txt):
+        if "fileattachment" in txt_lower and re.search(r'/Subtype\s*/FileAttachment', txt):
             indicators['FileAttachmentAnnotations'] = {
                 'status': 'PDF has file attachment annotations'
             }
@@ -409,18 +412,18 @@ def detect_3d_and_multimedia(txt: str, indicators: dict):
     """Detect 3D objects and multimedia content."""
     try:
         # Check for 3D annotations
-        if re.search(r'/Subtype\s*/3D', txt):
+        if "/3D" in txt and re.search(r'/Subtype\s*/3D', txt):
             indicators['3DObjects'] = {'status': 'PDF contains 3D objects'}
         
         # Check for multimedia (sound, video)
-        if re.search(r'/Subtype\s*/Sound', txt):
+        if "/Sound" in txt and re.search(r'/Subtype\s*/Sound', txt):
             indicators['SoundAnnotations'] = {'status': 'PDF contains sound annotations'}
         
-        if re.search(r'/Subtype\s*/Movie', txt) or re.search(r'/Subtype\s*/Screen', txt):
+        if ("/Movie" in txt or "/Screen" in txt) and (re.search(r'/Subtype\s*/Movie', txt) or re.search(r'/Subtype\s*/Screen', txt)):
             indicators['VideoContent'] = {'status': 'PDF contains video/multimedia content'}
         
         # Check for RichMedia (Flash, etc.)
-        if re.search(r'/Subtype\s*/RichMedia', txt):
+        if "/RichMedia" in txt and re.search(r'/Subtype\s*/RichMedia', txt):
             indicators['RichMedia'] = {
                 'status': 'PDF contains RichMedia (potentially Flash)',
                 'note': 'High security risk - may execute code'
@@ -437,8 +440,10 @@ def detect_temporal_anomalies(txt: str, indicators: dict):
         
         # Extract timestamps from PDF
         # Pattern: D:YYYYMMDDHHmmSS or D:YYYYMMDD
-        date_pattern = r'D:(\d{4})(\d{2})(\d{2})(\d{2})?(\d{2})?(\d{2})?'
-        dates = re.findall(date_pattern, txt)
+        dates = []
+        if "D:" in txt:
+            date_pattern = r'D:(\d{4})(\d{2})(\d{2})(\d{2})?(\d{2})?(\d{2})?'
+            dates = re.findall(date_pattern, txt)
         
         future_dates = []
         for date_tuple in dates:
@@ -474,8 +479,9 @@ def detect_temporal_anomalies(txt: str, indicators: dict):
 def detect_pdf_a_compliance(txt: str, indicators: dict):
     """Check if PDF claims PDF/A compliance (archival format - should never change)."""
     try:
+        txt_lower = txt.lower()
         # Check for PDF/A identifier in XMP metadata
-        if re.search(r'pdfaid:part', txt, re.IGNORECASE):
+        if "pdfaid:part" in txt_lower and re.search(r'pdfaid:part', txt, re.IGNORECASE):
             part_match = re.search(r'pdfaid:part>(\d+)</pdfaid:part', txt, re.IGNORECASE)
             conformance_match = re.search(r'pdfaid:conformance>([A-Z])</pdfaid:conformance', txt, re.IGNORECASE)
             
@@ -720,8 +726,8 @@ def detect_timestamp_mismatches(txt: str, doc, indicators: dict):
             info_create = parse_pdf_date(doc.metadata.get('creationDate', ''))
             info_mod = parse_pdf_date(doc.metadata.get('modDate', ''))
             
-        xmp_create_match = re.search(r"<xmp:CreateDate>([^<]+)", txt)
-        xmp_mod_match = re.search(r"<xmp:ModifyDate>([^<]+)", txt)
+        xmp_create_match = re.search(r"<xmp:CreateDate>([^<]+)", txt) if "CreateDate" in txt else None
+        xmp_mod_match = re.search(r"<xmp:ModifyDate>([^<]+)", txt) if "ModifyDate" in txt else None
         
         xmp_create = parse_pdf_date(xmp_create_match.group(1)) if xmp_create_match else None
         xmp_mod = parse_pdf_date(xmp_mod_match.group(1)) if xmp_mod_match else None
@@ -859,10 +865,12 @@ def detect_xmp_history_gaps(txt: str, indicators: dict):
     """Detect missing links or unusual time jumps in XMP metadata history."""
     try:
         # Extract XMP history items
-        items = re.findall(r"<rdf:li[^>]*stEvt:instanceID=\"([^\"]+)\"[^>]*stEvt:when=\"([^\"]+)\"", txt)
-        if not items:
-            # Try alternate XML format
-            items = re.findall(r"<stEvt:instanceID>([^<]+)</stEvt:instanceID>.*?<stEvt:when>([^<]+)</stEvt:when>", txt, re.S)
+        items = []
+        if "stEvt:when" in txt:
+            items = re.findall(r"<rdf:li[^>]*stEvt:instanceID=\"([^\"]+)\"[^>]*stEvt:when=\"([^\"]+)\"", txt)
+            if not items:
+                # Try alternate XML format
+                items = re.findall(r"<stEvt:instanceID>([^<]+)</stEvt:instanceID>.*?<stEvt:when>([^<]+)</stEvt:when>", txt, re.S)
         
         if len(items) > 1:
             gaps = []
