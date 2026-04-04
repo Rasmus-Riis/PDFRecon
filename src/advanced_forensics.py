@@ -846,7 +846,7 @@ def detect_non_embedded_fonts(doc, indicators: dict):
             if doc.xref_is_font(xref):
                 # Font dictionaries for embedded fonts should contain FontFile, FontFile2, or FontFile3
                 font_dict = doc.xref_object(xref)
-                if not any(f in font_dict for f in ["/FontFile", "/FontFile2", "/FontFile3"]):
+                if not any(f in font_dict for f in {"/FontFile", "/FontFile2", "/FontFile3"}):
                     # Get font name
                     res = doc.xref_get_key(xref, "BaseFont")
                     name = res[1][1:] if res[0] == "name" else f"xref {xref}"
