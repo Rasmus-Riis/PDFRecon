@@ -309,8 +309,8 @@ def detect_indicators(filepath: Path, txt: str, doc, exif_output: str = "", app_
             s = str(x).strip().upper()
             return re.sub(r"^(URN:UUID:|UUID:|XMP\.IID:|XMP\.DID:)", "", s).strip("<>")
 
-        xmp_orig_match = re.search(r"xmpMM:OriginalDocumentID(?:>|=\")([^<\"]+)", txt, re.I)
-        xmp_doc_match = re.search(r"xmpMM:DocumentID(?:>|=\")([^<\"]+)", txt, re.I)
+        xmp_orig_match = re.search(r"xmpMM:OriginalDocumentID(?:>|=\")([^<\"]+)", txt, re.I) if "xmpmm:originaldocumentid" in txt_lower else None
+        xmp_doc_match = re.search(r"xmpMM:DocumentID(?:>|=\")([^<\"]+)", txt, re.I) if "xmpmm:documentid" in txt_lower else None
         
         xmp_orig = _norm_uuid(xmp_orig_match.group(1) if xmp_orig_match else None)
         xmp_doc = _norm_uuid(xmp_doc_match.group(1) if xmp_doc_match else None)
