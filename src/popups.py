@@ -16,8 +16,73 @@ PIL = _import_with_fallback('PIL', 'Image', 'Pillow')
 from PIL import Image, ImageTk, ImageDraw, ImageChops, ImageOps, ImageFont
 
 fitz = _import_with_fallback('fitz', 'fitz', 'PyMuPDF')
+import typing
+from typing import Any, Callable, Dict, Set
 
 class PopupsMixin:
+    if typing.TYPE_CHECKING:
+        root: Any
+        tree: Any
+        file_annotations: Dict[str, str]
+        dirty_notes: Set[str]
+        case_is_dirty: bool
+        is_reader_mode: bool
+        file_menu: Any
+        inspector_doc: Any
+        all_scan_data: Dict[str, Any]
+        current_pdf_page: int
+        pdf_zoom: float
+        inspector_title: Any
+        advanced_text: Any
+        hex_text: Any
+        xmp_text: Any
+        pdf_canvas: Any
+        pdf_frame: Any
+        info_frame: Any
+        text_frame: Any
+        hex_frame: Any
+        xmp_frame: Any
+        structure_frame: Any
+        layer_frame: Any
+        images_frame: Any
+        timeline_frame: Any
+        fonts_frame: Any
+        inspector_popup: Any
+        inspector_window: Any
+        inspector_notebook: Any
+        inspector_visual_diff_btn_frame: Any
+        inspector_visual_diff_btn: Any
+        inspector_touchup_btn_frame: Any
+        inspector_touchup_btn: Any
+        inspector_indicators_text: Any
+        inspector_exif_text: Any
+        inspector_timeline_text: Any
+        inspector_pdf_update_job: Any
+        columns: Any
+        exif_outputs: Any
+        _zoom_job: Any
+        inspector_history_text: Any
+        language: str
+        timeline_data: Any
+        _inspector_item_id: str
+        
+        _make_text_copyable: Callable[..., None]
+        _jump_tree_down_5: Callable[..., None]
+        _jump_tree_up_5: Callable[..., None]
+        _format_indicator_details: Callable[..., str]
+        _navigate_to_file: Callable[..., None]
+        _resolve_case_path: Callable[..., str]
+        _get_touchup_regions_for_page: Callable[..., Any]
+        _format_timedelta: Callable[..., str]
+        _extract_key_dates_from_timeline: Callable[..., Any]
+        _apply_filter: Callable[[], None]
+        on_select_item: Callable[[Any], None]
+        _center_window: Callable[..., tuple]
+        _: Callable[..., str]
+        _safe_update_ui: Callable[[Callable], None]
+        _schedule_worker: Callable[..., None]
+        _schedule_main: Callable[..., None]
+        
     def _show_note_popup(self):
         selected_items = self.tree.selection()
         if not selected_items:
@@ -524,7 +589,7 @@ class PopupsMixin:
             current_page_ref = {'page': 0}
             total_pages = len(self.inspector_doc)
             layer_vars = {}
-            doc_ocgs = self.inspector_doc.get_ocgs()
+            doc_ocgs = self.inspector_doc.get_ocgs() if self.inspector_doc.is_pdf else {}
             _orig_pdf_bytes = self.inspector_doc.tobytes()
 
             if doc_ocgs:
@@ -1767,7 +1832,10 @@ class PopupsMixin:
             last_date = None
             last_dt_obj = None
             for dt_obj, description in aware_events:
-                local_dt = dt_obj.astimezone()
+                try:
+                    local_dt = dt_obj.astimezone()
+                except OSError:
+                    local_dt = dt_obj
                 if local_dt.date() != last_date:
                     if last_date is not None: text_widget.insert("end", "\n")
                     text_widget.insert("end", f"--- {local_dt.strftime('%d-%m-%Y')} ---\n", "date_header")

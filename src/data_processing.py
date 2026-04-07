@@ -18,9 +18,28 @@ from .pdf_processor import count_layers
 from .xmp_relationship import XMPRelationshipManager
 
 fitz = _import_with_fallback('fitz', 'fitz', 'PyMuPDF')
+import typing
+from typing import Any, Callable, Dict, Set, List
 
 class DataProcessingMixin:
-    def _(self, key):
+    if typing.TYPE_CHECKING:
+        all_scan_data: Dict[str, Any]
+        tree: Any
+        file_annotations: Dict[str, str]
+        case_is_dirty: bool
+        progress_var: Any
+        stop_event: Any
+        scan_total: int
+        scan_completed: int
+        _schedule_main: Callable[..., None]
+        _safe_update_ui: Callable[[Callable], None]
+        status_label: Any
+        worker_pool: Any
+        _cancel_scan_event: Any
+        language: str
+        _resolve_case_path: Callable[..., str]
+        
+    def _(self, key, default=None):
         """Placeholder for translation method. Overridden by App."""
         return str(key)
 
@@ -791,9 +810,11 @@ class DataProcessingMixin:
             if suspicious == 0:
                 return None
             note = details.get('note', '')
-            result = "JPEG Analysis: " + f"{suspicious} of {total} " + self._("details_jpeg_fingerprints") + f" {note}"
+            result = f"• {self._('details_jpeg_analysis')}: {suspicious} {self._('details_out_of')} {total} {self._('details_jpeg_fingerprints')}"
             if 'suspicious_details' in details:
-                det = "\n    " + "\n    ".join(details['suspicious_details'])
+                det = "\n    " + "\n    ".join([f"Page {d.split('Page ')[1]}" if 'Page ' in d else d for d in details['suspicious_details']])
+                # Simple cleanup of english hardcodes in details
+                det = det.replace("Page ", self._('details_side') + " ").replace("SUSPICIOUS: Ultra-low compression", self._('details_ultra_low_comp'))
                 result += det
             return result + "\n    " + self._("details_jpeg_note")
             
@@ -859,6 +880,34 @@ class DataProcessingMixin:
         if key == 'ImagesWithEXIF':
             count = details.get('count', 0)
             return self._("details_exif_metadata_found").format(count=count)
+
+        # NEW: Forensic Enhancements
+        if key == 'FontCharacterRemapping':
+            remaps = details.get('details', [])
+            remap_str = "\n    • " + "\n    • ".join(f"Font '{r['font']}' maps hex <{r['from_hex']}> to Unicode '{r['to_unicode']}'" for r in remaps)
+            return self._("details_font_remapping").format(count=details['count']) + remap_str
+
+        if key == 'VersionFeatureContradiction':
+            contradictions = details.get('contradictions', [])
+            c_str = "\n    • " + "\n    • ".join(contradictions)
+            return self._("details_version_contradiction").format(version=details['version']) + c_str
+
+        if key == 'UnbalancedObjects':
+            return self._("details_unbalanced_objects").format(obj=details['obj_count'], endobj=details['endobj_count'])
+
+        if key == 'DuplicateObjectIDs':
+            ids_str = ", ".join(details.get('ids', []))
+            return self._("details_duplicate_object_ids").format(count=details['count'], ids=ids_str)
+
+        if key == 'FormFieldOverlay':
+            fields = details.get('details', [])
+            field_str = "\n    • " + "\n    • ".join(f"Page {f['page']}: '{f['field']}' = '{f['value']}' (BBox: {f['rect']})" for f in fields)
+            return self._("details_form_field_overlay").format(count=details['count']) + field_str
+
+        if key == 'StackedFilters':
+            streams = details.get('details', [])
+            stream_str = "\n    • " + "\n    • ".join(f"XRef {s['xref']}: {', '.join(s['filters'])}" for s in streams)
+            return self._("details_stacked_filters").format(count=details['count']) + stream_str
             
         return key.replace("_", " ")
 
@@ -878,7 +927,14 @@ class DataProcessingMixin:
             "PageInconsistency",
             "ColorSpaceAnomaly",
             "TextOperatorAnomaly",
+            "FontCharacterRemapping",
+            "VersionFeatureContradiction",
+            "UnbalancedObjects",
+            "DuplicateObjectIDs",
+            "FormFieldOverlay",
+            "StackedFilters",
             "TimestampMismatch",
+            "MissingObjects",
         }
 
         if any(ind in high_risk_indicators for ind in keys_set):

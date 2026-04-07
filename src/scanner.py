@@ -217,6 +217,9 @@ def detect_indicators(filepath: Path, txt: str, doc, exif_output: str = "", app_
             conflicting_fonts = analyze_fonts(filepath, doc)
             if conflicting_fonts:
                 indicators['MultipleFontSubsets'] = {'fonts': conflicting_fonts}
+            
+            # Detect Malicious Font Character Remapping
+            _detect_font_remapping(doc, indicators)
         except Exception as e:
             logging.error(f"Error analyzing fonts for {filepath.name}: {e}")
 
@@ -433,6 +436,60 @@ def analyze_fonts(filepath: Path, doc):
     return conflicting_fonts
 
 
+def _detect_font_remapping(doc, indicators: dict):
+    """
+    Inspects /ToUnicode CMap streams for suspicious character remapping.
+    
+    A common attack is to map a glyph to a completely different Unicode value
+    (e.g., mapping the visual 'A' to Unicode 'B') so that text extraction
+    yields different results than what is visually rendered.
+    """
+    try:
+        font_remapping = []
+        for xref in range(1, doc.xref_length()):
+            if doc.xref_is_font(xref):
+                tounicode_xref = doc.xref_get_key(xref, "ToUnicode")
+                if tounicode_xref[0] == "xref":
+                    unicode_xref = int(tounicode_xref[1].split()[0])
+                    try:
+                        cmap_bytes = doc.xref_stream(unicode_xref)
+                        cmap_str = cmap_bytes.decode('latin-1', errors='ignore')
+                        
+                        # Look for suspicious mappings: e.g., <0041> <0042> (A to B)
+                        # This is a simplified check for obvious remapping patterns
+                        # bfchar mappings look like: <01> <0041>
+                        bfchar_matches = re.findall(r'<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>', cmap_str)
+                        for src, dst in bfchar_matches:
+                            src_val = int(src, 16)
+                            dst_val = int(dst, 16)
+                            
+                            font_name = doc.xref_get_key(xref, "BaseFont")[1]
+                            # Exclude subset fonts (prefix XXXXXX+) because they use custom
+                            # glyph indices, meaning 0x20 is just an index (32nd character used)
+                            # and not the ASCII space character.
+                            if re.match(r'^/[A-Z]{6}\+', font_name):
+                                continue
+                                
+                            # If src is a standard ASCII but dst is different and not a common variation
+                            if 32 <= src_val <= 126 and src_val != dst_val:
+                                font_remapping.append({
+                                    'font': font_name,
+                                    'from_hex': src,
+                                    'to_unicode': chr(dst_val) if 32 <= dst_val <= 126 else f"U+{dst:04}"
+                                })
+                                break # Found one, that's enough for this font
+                    except Exception:
+                        continue
+        
+        if font_remapping:
+            indicators['FontCharacterRemapping'] = {
+                'count': len(font_remapping),
+                'details': font_remapping[:5]
+            }
+    except Exception as e:
+        logging.debug(f"Error detecting font remapping: {e}")
+
+
 def _detect_metadata_inconsistencies(txt: str, txt_lower: str, doc, indicators: dict):
     """
     Detects inconsistencies between metadata claims and actual PDF features.
@@ -458,13 +515,35 @@ def _detect_metadata_inconsistencies(txt: str, txt_lower: str, doc, indicators: 
             
             # Check for mismatches with actual PDF version
             if doc and hasattr(doc, 'pdf_version'):
-                version = doc.pdf_version()
+                version_str = doc.pdf_version()  # e.g., "1.4"
+                try:
+                    version = float(version_str)
+                except (ValueError, TypeError):
+                    version = 1.4 # Default
+                
                 # If metadata claims old software but uses modern PDF features
-                if (("Acrobat 4" in creator or "PDF 1.3" in txt) and version >= 17):  # PDF 1.7+
+                if (("Acrobat 4" in creator or "PDF 1.3" in txt) and version >= 1.7):
                     indicators['MetadataVersionMismatch'] = {
                         'claimed_version': 'Old (1.3-1.4)',
-                        'actual_version': f'1.{version-10}'
+                        'actual_version': version_str
                     }
+
+                # NEW: Specification Contradictions (Version vs Feature)
+                contradictions = []
+                if version < 1.5:
+                    if "/ObjStm" in txt: contradictions.append("Object Streams (/ObjStm) require PDF 1.5+")
+                    if "/XRef" in txt and "stream" in txt_lower: contradictions.append("XRef Streams require PDF 1.5+")
+                    if "/OCG" in txt: contradictions.append("Optional Content Groups (/OCG) require PDF 1.5+")
+                if version < 1.4:
+                    if "/JBIG2Decode" in txt: contradictions.append("JBIG2Decode requires PDF 1.4+")
+                    if "/Metadata" in txt: contradictions.append("Metadata streams require PDF 1.4+")
+                
+                if contradictions:
+                    indicators['VersionFeatureContradiction'] = {
+                        'version': version_str,
+                        'contradictions': contradictions
+                    }
+
     except Exception as e:
         logging.debug(f"Error detecting metadata inconsistencies: {e}")
 
@@ -588,6 +667,35 @@ def _detect_object_anomalies(txt: str, doc, indicators: dict):
                     'gap_count': gap_count,
                     'note': "High gap suggests objects were deleted or hidden"
                 }
+
+        # NEW: Unbalanced obj/endobj Structures
+        obj_count = len(re.findall(r"\b\d+\s+\d+\s+obj\b", txt))
+        endobj_count = len(re.findall(r"\bendobj\b", txt))
+        if obj_count != endobj_count:
+            indicators['UnbalancedObjects'] = {
+                'obj_count': obj_count,
+                'endobj_count': endobj_count
+            }
+
+        # NEW: Duplicate Object IDs in Xref (Shadow Attacks)
+        # Using a raw scan for multiple xref tables that redefine the same objects
+        xref_sections = re.findall(r"xref\s*\n0\s+\d+\s*\n(.*?)(?=\btrailer\b|xref|$)", txt, re.DOTALL)
+        if len(xref_sections) > 1:
+            all_objects = []
+            duplicates = set()
+            for section in xref_sections:
+                ids = re.findall(r"^(\d+)\s+\d+\s+[nf]\b", section, re.MULTILINE)
+                for i in ids:
+                    if i in all_objects:
+                        duplicates.add(i)
+                    all_objects.append(i)
+            if duplicates:
+                indicators['DuplicateObjectIDs'] = {
+                    'count': len(duplicates),
+                    'ids': sorted(list(duplicates))[:50],
+                    'note': 'Detected duplicate object IDs across multiple XREF tables (Potential Shadow Attack)'
+                }
+
     except Exception as e:
         logging.debug(f"Error detecting object anomalies: {e}")
 
@@ -751,6 +859,26 @@ def _detect_structural_anomalies(doc, indicators: dict):
                 
                 if field_count > 50:  # Unusually high number of form fields
                     indicators['ExcessiveFormFields'] = {'count': field_count}
+                
+                # NEW: Form Field Discrepancies (/V vs /BBox used in Overlay Attacks)
+                overlay_fields = []
+                for page in doc:
+                    for widget in page.widgets():
+                        val = widget.field_value
+                        rect = widget.rect
+                        # If field has a value but rect is invisible or extremely small
+                        if val and (rect.width < 1 or rect.height < 1):
+                            overlay_fields.append({
+                                'page': page.number + 1,
+                                'field': widget.field_name,
+                                'value': str(val)[:30] + "..." if len(str(val)) > 30 else str(val),
+                                'rect': [round(x, 1) for x in rect]
+                            })
+                if overlay_fields:
+                    indicators['FormFieldOverlay'] = {
+                        'count': len(overlay_fields),
+                        'details': overlay_fields[:10]
+                    }
                     
         except Exception as e:
             logging.debug(f"Error analyzing form fields: {e}")

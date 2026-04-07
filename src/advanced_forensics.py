@@ -442,7 +442,7 @@ def detect_temporal_anomalies(txt: str, indicators: dict):
                 
                 # Basic validation
                 if year > 1990 and year < 2100 and month >= 1 and month <= 12 and day >= 1 and day <= 31:
-                    date_obj = datetime.datetime(year, month, day)
+                    date_obj = datetime(year, month, day)
                     
                     if date_obj > now:
                         days_ahead = (date_obj - now).days
@@ -603,6 +603,9 @@ def run_advanced_forensics(txt: str, doc, filepath: Path, indicators: dict):
         detect_xmp_history_gaps(txt, indicators)
         detect_structural_scrubbing(pdf_bytes, indicators)
         detect_pdfa_violations(doc, txt, indicators)
+        
+        # NEW: Detect Stacked Filters (obfuscation)
+        detect_stacked_filters(doc, txt, indicators)
 
         # Suspicious JPEG Analysis
         analyze_pdf_images_qt(doc, filepath, indicators)
@@ -696,7 +699,7 @@ def detect_timestamp_mismatches(txt: str, doc, indicators: dict):
             clean = re.sub(r"[^0-9]", "", date_str)
             if len(clean) >= 14:
                 try:
-                    return datetime.strptime(clean[:14], "%Y%m%d%H%M%S")
+                    return datetime.strptime(str(clean)[:14], "%Y%m%d%H%M%S")
                 except Exception:
                     pass
             return None
@@ -818,12 +821,50 @@ def detect_color_space_anomalies(doc, indicators: dict):
         logging.debug(f"Color space check error: {e}")
 
 
+def detect_stacked_filters(doc, txt: str, indicators: dict):
+    """
+    Detects streams that use multiple stacked filters (e.g., [/FlateDecode /ASCIIHexDecode]).
+    This is often used to obfuscate malicious content or evade scanners.
+    """
+    try:
+        stacked_filters = []
+        # Fast pre-check: Look for filter arrays in raw text
+        if re.search(r'/Filter\s*\[', txt):
+            # Iterate through xrefs to find stream objects with filter arrays
+            xref_count = doc.xref_length() if callable(doc.xref_length) else doc.xref_length
+            for xref in range(1, xref_count):
+                try:
+                    obj_str = doc.xref_object(xref)
+                    if not obj_str: continue
+                    
+                    # Check for /Filter array e.g. /Filter [/FlateDecode /ASCIIHexDecode]
+                    filter_match = re.search(r'/Filter\s*\[(.*?)\]', obj_str, re.DOTALL)
+                    if filter_match:
+                        filters = re.findall(r'/(\w+)', filter_match.group(1))
+                        if len(filters) > 1:
+                            stacked_filters.append({
+                                'xref': xref,
+                                'filters': filters
+                            })
+                except Exception:
+                    continue
+        
+        if stacked_filters:
+            indicators['StackedFilters'] = {
+                'count': len(stacked_filters),
+                'details': stacked_filters[:10]
+            }
+    except Exception as e:
+        logging.debug(f"Error detecting stacked filters: {e}")
+
+
 def detect_non_embedded_fonts(doc, indicators: dict):
     """Scrutinize fonts to ensure they are embedded in the PDF."""
     if not doc: return
     try:
         non_embedded = []
-        for xref in range(1, doc.xref_length()):
+        xref_count = doc.xref_length() if callable(doc.xref_length) else doc.xref_length
+        for xref in range(1, xref_count):
             if doc.xref_is_font(xref):
                 # Font dictionaries for embedded fonts should contain FontFile, FontFile2, or FontFile3
                 font_dict = doc.xref_object(xref)

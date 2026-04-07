@@ -199,19 +199,43 @@ Nedenfor er en detaljeret forklaring af hver indikator, som PDFRecon leder efter
 
 ### Avancerede Detektionsmetoder (Nye)
 
-<b>Metadata Version Mismatch</b>
+<b>Stablede filtre (Sløring)</b>
+*<i>Ændret:</i>* <red>JA</red>
+• Hvad det betyder: Et stream-objekt bruger flere krypterings- eller komprimeringsfiltre (fx `[/FlateDecode /ASCIIHexDecode]`). Selvom det er teknisk lovligt, er det en almindelig teknik, der bruges til at sløre ondsindet indhold (såsom JavaScript eller shellcode) og undgå detektion fra antivirus-scannere.
+
+<b>Ondsindet skrifttype-remapping</b>
+*<i>Ændret:</i>* <red>JA</red>
+• Hvad det betyder: PDF-fonten indeholder et `/ToUnicode` CMap, der mapper visuelle tegn til helt andre Unicode-tegn (fx visuelt 'A' -> Unicode 'B'). Dette resulterer i "copy-paste forfalskning", hvor den tekst, du udtrækker, er anderledes end den tekst, du ser.
+
+<b>Duplikate objekt-ID'er (Skygge-angreb)</b>
+*<i>Ændret:</i>* <red>JA</red>
+• Hvad det betyder: Flere krydsreferencetabeller (XREF) i en inkrementelt gemt PDF redefinerer det samme objekt-ID. Dette er grundlaget for et "Skygge-angreb" (Shadow Attack), hvor forskellige PDF-læsere kan vise forskelligt indhold for den samme side.
+
+<b>Formularfelt-overlay / Misforhold</b>
+*<i>Ændret:</i>* <red>JA</red>
+• Hvad det betyder: Et formularfelt har en værdi (`/V`), men dets afgrænsningsboks (`/BBox` eller `/Rect`) er ekstremt lille, usynlig eller placeret uden for det synlige sideområde. Dette bruges i "Overlay-angreb" til at indsmugle data, som brugeren ikke kan se, men som software vil udtrække.
+
+<b>Ubalancerede obj/endobj strukturer</b>
+*<i>Ændret:</i>* <red>JA</red>
+• Hvad det betyder: Antallet af `obj`-erklæringer matcher ikke antallet af `endobj`-markører. Dette indikerer en fejlbehæftet PDF-struktur, der ofte bruges til at forvirre automatiske parsere og skjule objekter.
+
+<b>PDF-version/funktionsmodstrid</b>
+*<i>Ændret:</i>* <red>JA</red>
+• Hvad det betyder: PDF-headeren påstår en gammel version (fx 1.3), men filen bruger funktioner introduceret i langt senere versioner (fx Object Streams eller XRef Streams fra 1.5+). Dette sker typisk, når en moderne PDF manuelt nedgraderes i headeren uden at ændre strukturen.
+
+<b>Uoverensstemmelse i Metadata-version</b>
 *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
 • Hvad det betyder: Metadata påstår, at PDF'en blev oprettet med gammelt software (f.eks. Acrobat 4 eller PDF 1.3), men filen bruger moderne PDF-funktioner (PDF 1.7+). Denne uoverensstemmelse antyder, at metadata kan være manipuleret, eller at filen er blevet redigeret med andet software end påstået.
 
-<b>Suspicious Text Positioning</b>
+<b>Mistænkelig tekstpositionering</b>
 *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
 • Hvad det betyder: PDF'en indeholder et usædvanligt højt antal tekstpositioneringskommandoer (Tm/Td operatører) i sekvens. Dette mønster opstår ofte, når tekst overlægges på eksisterende indhold for at skjule eller erstatte original tekst.
 
-<b>White Rectangle Overlay</b>
+<b>Hvidt rektangel-overlay</b>
 *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
 • Hvad det betyder: Flere hvide rektangler er blevet tegnet i dokumentet. Dette er en almindelig teknik til at skjule indhold ved at tegne hvide former over tekst eller billeder for at gøre dem usynlige, selvom de stadig er til stede i filen.
 
-<b>Excessive Drawing Operations</b>
+<b>Overdreven tegningsoperationer</b>
 *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
 • Hvad det betyder: En side indeholder et unormalt højt antal tegnekommandoer (>50). Dette kan indikere komplekse redigeringsoperationer eller forsøg på at skjule indhold gennem lagdeling.
 
@@ -223,7 +247,7 @@ Nedenfor er en detaljeret forklaring af hver indikator, som PDFRecon leder efter
 *<i>Ændret:</i>* <red>JA</red>
 • Hvad det betyder: PDF'en refererer til objekter (f.eks. via krydsreferencetabellen), der ikke findes i filen. Dette indikerer delvis sletning af indhold, korruption eller ukorrekt redigering.
 
-<b>Large Object Number Gaps</b>
+<b>Store huller i objektnumre</b>
 *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
 • Hvad det betyder: Der er betydelige huller i objektnummersekvensen (>30% mangler). Dette antyder omfattende redigering, hvor objekter blev slettet eller erstattet.
 
@@ -390,6 +414,12 @@ Listen svarer til de indikatorer der beskrives i manualen og i appen. **JA** = h
 | JPEG-analyse (kvantiseringstabeller) | Indikationer | Mistænkeligt QT-fingeraftryk (fx ugyldigt/forfalsket eller softwarematch). |
 | Error Level Analysis (ELA) | Indikationer | Indlejrede billeder viser afvigende komprimeringsmønstre. |
 | Hidden Annotations | Indikationer | Annoteringer med Hidden/Invisible-flag. |
+| Stablede filtre | JA | Brug af flere filtre til at sløre indhold. |
+| Skrifttype-remapping | JA | Visuelle tegn mappet til forkerte Unicode-tegn. |
+| Duplikate objekt-ID'er | JA | Samme objekt-ID defineret flere gange (Skygge-angreb). |
+| Formfelt-overlay | JA | Felt-værdi eksisterer men er usynlig/skjult. |
+| Ubalancerede objekter | JA | Modstrid mellem antal obj og endobj. |
+| Version/funktion-modstrid | JA | Gamle versioner der bruger moderne PDF-funktioner. |
 | Invisible Text (Rendering Mode 3) | Indikationer | Tekst ikke renderet. |
 | Digital Signature (analyse) | Indikationer | Signatur til stede; verificer gyldighed og ByteRange. |
 

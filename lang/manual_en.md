@@ -162,6 +162,97 @@ Search for `/F` or `/Win` dictionaries to see what file or application is being 
 
 ---
 
+## Stacked Filters (Obfuscation)
+**Classification:** <red>YES</red>
+
+**What it means:** A stream object uses multiple encryption or compression filters (e.g., `[/FlateDecode /ASCIIHexDecode]`). While technically legal, this is a common technique used to obfuscate malicious content (like JavaScript or shellcode) and evade signature-based antivirus scanners.
+
+### Manual Parsing Instructions:
+
+**Step 1: Search for Filter Arrays**
+1. Open the PDF in a hex editor.
+2. Search for the string `/Filter\s*\[` (regex) or `/Filter [` (text).
+3. If you see an array instead of a single name (e.g., `/Filter [/FlateDecode /Crypt]`), it is a stacked filter.
+
+**Step 2: Decode the Stream**
+Use a tool like `qpdf` or `mutool` to decompress the stacked filters:
+```bash
+qpdf --qdf --object-streams=disable input.pdf decoded.pdf
+```
+Check the resulting stream content for hidden commands.
+
+---
+
+## Malicious Font Character Remapping
+**Classification:** <red>YES</red>
+
+**What it means:** The PDF font contains a `/ToUnicode` CMap that maps visual glyphs to completely different Unicode characters (e.g., visual 'A' -> Unicode 'B'). This results in "copy-paste forgery" where the text you extract is different from the text you see.
+
+### Manual Parsing Instructions:
+
+**Step 1: Identify the Font**
+Check the indicator details for the Font name and XREF.
+
+**Step 2: Inspect the CMap**
+1. Find the font object in a hex editor.
+2. Find its `/ToUnicode` reference (e.g., `12 0 R`).
+3. Locate object 12 and its stream.
+4. Look for `bfchar` or `bfrange` entries:
+   ```
+   <0041> <0042>  % Visual 0x41 ('A') maps to Unicode 0x42 ('B')
+   ```
+
+---
+
+## Duplicate Object IDs (Shadow Attacks)
+**Classification:** <red>YES</red>
+
+**What it means:** Multiple cross-reference (XREF) tables in an incrementally saved PDF redefine the same object ID. This is the foundation of a "Shadow Attack" where different viewers (e.g., Adobe vs. Chrome) may see different content for the same page because they prioritize different revision layers.
+
+### Manual Parsing Instructions:
+
+**Step 1: Find all XREF tables**
+Search for the `xref` keyword.
+
+**Step 2: Compare Object IDs**
+Note the object IDs defined in each `xref` section. If object `10 0` is defined in an early section and then redefined in a later section with a significantly different offset or content, it is a shadow attack candidate.
+
+---
+
+## Form Field Overlay / Discrepancy
+**Classification:** <red>YES</red>
+
+**What it means:** A form field has a value (`/V`) but its bounding box (`/BBox` or `/Rect`) is extremely small, invisible, or placed outside the visible page area. This is used in "Overlay Attacks" to smuggle data or signatures into a document that the user cannot see but the processing software will extract.
+
+### Manual Parsing Instructions:
+
+1. Search for `/AcroForm` and follow its `/Fields` array.
+2. For each field, check the `/Rect` array: `[x1 y1 x2 y2]`.
+3. If the coordinates result in a 0-width or 0-height box, the field is hidden but active.
+
+---
+
+## Starts With Null Byte
+**Classification:** <yellow>Indications Found</yellow>
+
+**What it means:** The file begins with a Null byte (`0x00`) just before the PDF header (`%PDF-`). This often indicates that the file was generated or manipulated by non-standard scripts or certain software libraries.
+
+---
+
+## Possible Emails
+**Classification:** <yellow>Indications Found</yellow>
+
+**What it means:** Detects email addresses hidden in the raw data of the file. This can unintentionally identify the author, organization, or software license used to create the document.
+
+---
+
+## Possible URLs
+**Classification:** <yellow>Indications Found</yellow>
+
+**What it means:** Detects URLs found in the raw file, which might point to malicious payloads, internal systems, or the web-based software that generated the PDF.
+
+---
+
 ## TouchUp_TextEdit
 **Classification:** <red>YES</red>
 
@@ -376,6 +467,20 @@ Search for the following prohibited elements:
 - `/Encrypt` dictionary.
 - `/JS` or `/JavaScript` entries.
 - Non-embedded fonts (see Non-Embedded Font Alarm section).
+
+---
+
+## Unbalanced obj/endobj Structures
+**Classification:** <red>YES</red>
+
+**What it means:** The number of `obj` declarations does not match the number of `endobj` markers. This indicates a malformed PDF structure often used to confuse automated parsers and hide objects in the "slack space" between declarations.
+
+---
+
+## PDF Version/Feature Contradiction
+**Classification:** <red>YES</red>
+
+**What it means:** The PDF header claims an old version (e.g., 1.3), but the body uses features introduced in much later versions (e.g., Object Streams, XRef Streams, or OCGs from 1.5+). This usually happens when a modern PDF is "downgraded" by manually editing the header byte without properly refactoring the structure, or when malicious content is injected into an old template.
 
 ---
 

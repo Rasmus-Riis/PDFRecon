@@ -1,0 +1,51 @@
+Count: EN=3, DA=50
+01 | EN: YES (High Risk):                         | DA: JA (Høj Risiko):
+02 | EN: Indications Found (Medium Risk):         | DA: Indikationer Fundet (Mellem Risiko):
+03 | EN: NOT DETECTED (Low Risk):                 | DA: IKKE PÅVIST (Lav Risiko):
+04 | EN: MISSING                                  | DA: Has Revisions
+05 | EN: MISSING                                  | DA: TouchUpTextEdit
+06 | EN: MISSING                                  | DA: Multiple Font Subsets
+07 | EN: MISSING                                  | DA: Multiple Creators / Producers
+08 | EN: MISSING                                  | DA: xmpMM:History / DerivedFrom / DocumentAn
+09 | EN: MISSING                                  | DA: Historik og Relationer (xmpMM & Revision
+10 | EN: MISSING                                  | DA: Forensiske anomalier i dokumenthistorik
+11 | EN: MISSING                                  | DA: Multiple DocumentID / Different Instance
+12 | EN: MISSING                                  | DA: Ikke-indlejret skrifttype (Non-Embedded 
+13 | EN: MISSING                                  | DA: Hul i XMP-historik (XMP History Gap)
+14 | EN: MISSING                                  | DA: Multiple startxref
+15 | EN: MISSING                                  | DA: Objekter med generation > 0
+16 | EN: MISSING                                  | DA: Flere Lag End Sider
+17 | EN: MISSING                                  | DA: Linearized / Linearized + updated
+18 | EN: MISSING                                  | DA: Has PieceInfo
+19 | EN: MISSING                                  | DA: Has Redactions
+20 | EN: MISSING                                  | DA: Has Annotations
+21 | EN: MISSING                                  | DA: AcroForm NeedAppearances=true
+22 | EN: MISSING                                  | DA: Has Digital Signature
+23 | EN: MISSING                                  | DA: Dato-inkonsistens (Info vs. XMP)
+24 | EN: MISSING                                  | DA: Stablede filtre (Sløring)
+25 | EN: MISSING                                  | DA: Ondsindet skrifttype-remapping
+26 | EN: MISSING                                  | DA: Duplikate objekt-ID'er (Skygge-angreb)
+27 | EN: MISSING                                  | DA: Formularfelt-overlay / Misforhold
+28 | EN: MISSING                                  | DA: Ubalancerede obj/endobj strukturer
+29 | EN: MISSING                                  | DA: PDF-version/funktionsmodstrid
+30 | EN: MISSING                                  | DA: Metadata Version Mismatch
+31 | EN: MISSING                                  | DA: Suspicious Text Positioning
+32 | EN: MISSING                                  | DA: White Rectangle Overlay
+33 | EN: MISSING                                  | DA: Excessive Drawing Operations
+34 | EN: MISSING                                  | DA: Ikke-refererede objekter
+35 | EN: MISSING                                  | DA: Hængende Referencer
+36 | EN: MISSING                                  | DA: Large Object Number Gaps
+37 | EN: MISSING                                  | DA: Strukturel rensning detekteret (Structur
+38 | EN: MISSING                                  | DA: PDF/A-overtrædelse (PDF/A Violation)
+39 | EN: MISSING                                  | DA: Contains JavaScript
+40 | EN: MISSING                                  | DA: JavaScript Auto-Execute / Additional Act
+41 | EN: MISSING                                  | DA: Duplicate Images With Different Xrefs
+42 | EN: MISSING                                  | DA: Images With EXIF
+43 | EN: MISSING                                  | DA: CropBox/MediaBox Mismatch
+44 | EN: MISSING                                  | DA: Excessive Form Fields
+45 | EN: MISSING                                  | DA: Duplicate Bookmarks
+46 | EN: MISSING                                  | DA: Invalid Bookmark Destinations
+47 | EN: MISSING                                  | DA: Starter med Nul-byte
+48 | EN: MISSING                                  | DA: Mulige E-mailadresser
+49 | EN: MISSING                                  | DA: Mulige Webadresser
+50 | EN: MISSING                                  | DA: JPEG-analyse (Fingeraftryk)
