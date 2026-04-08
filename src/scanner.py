@@ -276,9 +276,11 @@ def detect_indicators(filepath: Path, txt: str, doc, exif_output: str = "", app_
                 indicators['AcroFormNeedAppearances'] = {}
 
         # PERFORMANCE OPTIMIZATION (Bolt ⚡): List comprehension with findall is faster
-        gen_gt_zero_matches = [m for m in re.findall(r"\b(\d+)\s+(\d+)\s+obj\b", txt) if int(m[1]) > 0]
-        if gen_gt_zero_matches:
-            indicators['ObjGenGtZero'] = {'count': len(gen_gt_zero_matches)}
+        # Adding a fast-path literal pre-check bypasses the expensive regex search
+        if "obj" in txt:
+            gen_gt_zero_matches = [m for m in re.findall(r"\b(\d+)\s+(\d+)\s+obj\b", txt) if int(m[1]) > 0]
+            if gen_gt_zero_matches:
+                indicators['ObjGenGtZero'] = {'count': len(gen_gt_zero_matches)}
 
         # --- NEW: Advanced Detection Methods ---
         
@@ -607,10 +609,15 @@ def _detect_object_anomalies(txt: str, doc, indicators: dict):
         # in C and faster than python-level iteration with finditer
 
         # Find all object definitions
-        obj_defs = {int(m) for m in re.findall(r"\b(\d+)\s+\d+\s+obj\b", txt)}
+        # PERFORMANCE OPTIMIZATION (Bolt ⚡): Fast substring pre-check
+        obj_defs = set()
+        if "obj" in txt:
+            obj_defs = {int(m) for m in re.findall(r"\b(\d+)\s+\d+\s+obj\b", txt)}
         
         # Find all object references
-        obj_refs = {int(m) for m in re.findall(r"\b(\d+)\s+\d+\s+R\b", txt)}
+        obj_refs = set()
+        if "R" in txt:
+            obj_refs = {int(m) for m in re.findall(r"\b(\d+)\s+\d+\s+R\b", txt)}
         
         # Find orphaned objects (defined in body but unreferenced/deleted in XREF table)
         orphaned = set()
