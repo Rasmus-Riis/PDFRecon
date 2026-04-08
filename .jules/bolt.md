@@ -31,3 +31,7 @@
 ## 2024-03-24 - Fast-Fail Substring Pre-Checks for Regex
 **Learning:** For performance optimization on large byte arrays and text blocks (e.g., raw PDF data in `src/advanced_forensics.py`), using literal substring pre-checks (like `b'\x00' * 200 in pdf_bytes` or `"@" in txt`) as a fast-path filter before invoking `re.findall` significantly reduces execution time (50x-200x speedups) by bypassing the regex engine overhead when the pattern is absent.
 **Action:** Always implement literal substring guards for expensive regular expressions applied to large strings or byte sequences when the literal is a required component of the pattern.
+
+## 2024-05-20 - Fast-fail guard checks regression
+**Learning:** When applying 'fast fail' substring checks before expensive regular expressions (e.g., `if "obj" in txt:`), ensure the substring is not overwhelmingly common in the typical happy path. If the guard substring is almost always present, the application will be forced to scan large text strings twice, causing a net performance regression rather than an optimization.
+**Action:** Evaluate the frequency of the substring in the happy path before adding a fast-fail guard check.
