@@ -682,8 +682,8 @@ def _extract_all_document_ids(txt: str, exif_output: str) -> dict:
                 own_ids.add(v)
 
     if "/id" in txt_lower:
-        for m in re.finditer(r"/ID\s*\[\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*\]", txt):
-            for grp in (m.group(1), m.group(2)):
+        for v1, v2 in re.findall(r"/ID\s*\[\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*\]", txt):
+            for grp in (v1, v2):
                 v = _norm(grp)
                 if v:
                     own_ids.add(v)
@@ -704,24 +704,24 @@ def _extract_all_document_ids(txt: str, exif_output: str) -> dict:
             if block_match:
                 blk = block_match.group(1)
                 for sub_re in block_re:
-                    for m in re.finditer(sub_re, blk, re.I):
-                        v = _norm(m.group(1))
+                    for match in re.findall(sub_re, blk, re.I):
+                        v = _norm(match)
                         if v:
                             ref_ids.add(v)
 
     if exif_output:
         exif_lower = exif_output.lower()
         if "id" in exif_lower:
-            for m in re.finditer(r"Document\s*ID\s*:\s*(\S+)", exif_output, re.I):
-                v = _norm(m.group(1))
+            for match in re.findall(r"Document\s*ID\s*:\s*(\S+)", exif_output, re.I):
+                v = _norm(match)
                 if v:
                     own_ids.add(v)
-            for m in re.finditer(r"Instance\s*ID\s*:\s*(\S+)", exif_output, re.I):
-                v = _norm(m.group(1))
+            for match in re.findall(r"Instance\s*ID\s*:\s*(\S+)", exif_output, re.I):
+                v = _norm(match)
                 if v:
                     own_ids.add(v)
-            for m in re.finditer(r"Original\s*Document\s*ID\s*:\s*(\S+)", exif_output, re.I):
-                v = _norm(m.group(1))
+            for match in re.findall(r"Original\s*Document\s*ID\s*:\s*(\S+)", exif_output, re.I):
+                v = _norm(match)
                 if v:
                     ref_ids.add(v)
 

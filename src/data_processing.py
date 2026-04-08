@@ -973,65 +973,65 @@ class DataProcessingMixin:
         txt_lower = txt.lower()
 
         if "stref:documentid" in txt_lower:
-            for m in re.finditer(r'stRef:documentID="([^"]+)"', txt, re.I):
-                v = _norm(m.group(1));  out["stref_doc_ids"].add(v) if v else None
-            for m in re.finditer(r"<stRef:documentID>([^<]+)</stRef:documentID>", txt, re.I):
-                v = _norm(m.group(1));  out["history_doc_ids"].add(v) if v else None
+            for match in re.findall(r'stRef:documentID="([^"]+)"', txt, re.I):
+                v = _norm(match);  out["stref_doc_ids"].add(v) if v else None
+            for match in re.findall(r"<stRef:documentID>([^<]+)</stRef:documentID>", txt, re.I):
+                v = _norm(match);  out["history_doc_ids"].add(v) if v else None
 
         if "stref:instanceid" in txt_lower:
-            for m in re.finditer(r'stRef:instanceID="([^"]+)"', txt, re.I):
-                v = _norm(m.group(1));  out["stref_inst_ids"].add(v) if v else None
-            for m in re.finditer(r"<stRef:instanceID>([^<]+)</stRef:instanceID>", txt, re.I):
-                v = _norm(m.group(1));  out["history_inst_ids"].add(v) if v else None
+            for match in re.findall(r'stRef:instanceID="([^"]+)"', txt, re.I):
+                v = _norm(match);  out["stref_inst_ids"].add(v) if v else None
+            for match in re.findall(r"<stRef:instanceID>([^<]+)</stRef:instanceID>", txt, re.I):
+                v = _norm(match);  out["history_inst_ids"].add(v) if v else None
 
         if "xmpmm:derivedfrom" in txt_lower:
             df = re.search(r"<xmpMM:DerivedFrom\b[^>]*>(.*?)</xmpMM:DerivedFrom>", txt, re.I | re.S)
             if df:
                 blk = df.group(1)
-                for m in re.finditer(r'stRef:documentID="([^"]+)"', blk, re.I):
-                    v = _norm(m.group(1)); out["derived_doc_ids"].add(v) if v else None
-                for m in re.finditer(r'stRef:instanceID="([^"]+)"', blk, re.I):
-                    v = _norm(m.group(1)); out["derived_inst_ids"].add(v) if v else None
-                for m in re.finditer(r"<stRef:documentID>([^<]+)</stRef:documentID>", blk, re.I):
-                    v = _norm(m.group(1)); out["derived_doc_ids"].add(v) if v else None
-                for m in re.finditer(r"<stRef:instanceID>([^<]+)</stRef:instanceID>", blk, re.I):
-                    v = _norm(m.group(1)); out["derived_inst_ids"].add(v) if v else None
-                for m in re.finditer(r"(?:xmpMM:|)OriginalDocumentID(?:>|=\")([^<\">]+)", blk, re.I):
-                    v = _norm(m.group(1)); out["derived_orig_ids"].add(v) if v else None
+                for match in re.findall(r'stRef:documentID="([^"]+)"', blk, re.I):
+                    v = _norm(match); out["derived_doc_ids"].add(v) if v else None
+                for match in re.findall(r'stRef:instanceID="([^"]+)"', blk, re.I):
+                    v = _norm(match); out["derived_inst_ids"].add(v) if v else None
+                for match in re.findall(r"<stRef:documentID>([^<]+)</stRef:documentID>", blk, re.I):
+                    v = _norm(match); out["derived_doc_ids"].add(v) if v else None
+                for match in re.findall(r"<stRef:instanceID>([^<]+)</stRef:instanceID>", blk, re.I):
+                    v = _norm(match); out["derived_inst_ids"].add(v) if v else None
+                for match in re.findall(r"(?:xmpMM:|)OriginalDocumentID(?:>|=\")([^<\">]+)", blk, re.I):
+                    v = _norm(match); out["derived_orig_ids"].add(v) if v else None
 
         if "xmpmm:ingredients" in txt_lower:
             ing = re.search(r"<xmpMM:Ingredients\b[^>]*>(.*?)</xmpMM:Ingredients>", txt, re.I | re.S)
             if ing:
                 blk = ing.group(1)
-                for m in re.finditer(r'stRef:documentID="([^"]+)"', blk, re.I):
-                    v = _norm(m.group(1)); out["ingredient_doc_ids"].add(v) if v else None
-                for m in re.finditer(r'stRef:instanceID="([^"]+)"', blk, re.I):
-                    v = _norm(m.group(1)); out["ingredient_inst_ids"].add(v) if v else None
-                for m in re.finditer(r"<stRef:documentID>([^<]+)</stRef:documentID>", blk, re.I):
-                    v = _norm(m.group(1)); out["ingredient_doc_ids"].add(v) if v else None
-                for m in re.finditer(r"<stRef:instanceID>([^<]+)</stRef:instanceID>", blk, re.I):
-                    v = _norm(m.group(1)); out["ingredient_inst_ids"].add(v) if v else None
+                for match in re.findall(r'stRef:documentID="([^"]+)"', blk, re.I):
+                    v = _norm(match); out["ingredient_doc_ids"].add(v) if v else None
+                for match in re.findall(r'stRef:instanceID="([^"]+)"', blk, re.I):
+                    v = _norm(match); out["ingredient_inst_ids"].add(v) if v else None
+                for match in re.findall(r"<stRef:documentID>([^<]+)</stRef:documentID>", blk, re.I):
+                    v = _norm(match); out["ingredient_doc_ids"].add(v) if v else None
+                for match in re.findall(r"<stRef:instanceID>([^<]+)</stRef:instanceID>", blk, re.I):
+                    v = _norm(match); out["ingredient_inst_ids"].add(v) if v else None
 
         if "xmpmm:history" in txt_lower:
             hist = re.search(r"<xmpMM:History\b[^>]*>(.*?)</xmpMM:History>", txt, re.I | re.S)
             if hist:
                 blk = hist.group(1)
-                for m in re.finditer(r'(?:InstanceID|stRef:instanceID)="([^"]+)"', blk, re.I):
-                    v = _norm(m.group(1)); out["history_inst_ids"].add(v) if v else None
-                for m in re.finditer(r'(?:DocumentID|stRef:documentID)="([^"]+)"', blk, re.I):
-                    v = _norm(m.group(1)); out["history_doc_ids"].add(v) if v else None
-                for m in re.finditer(r"<stRef:instanceID>([^<]+)</stRef:instanceID>", blk, re.I):
-                    v = _norm(m.group(1)); out["history_inst_ids"].add(v) if v else None
-                for m in re.finditer(r"<stRef:documentID>([^<]+)</stRef:documentID>", blk, re.I):
-                    v = _norm(m.group(1)); out["history_doc_ids"].add(v) if v else None
-                for m in re.finditer(r"(uuid:[0-9a-f\-]+|xmp\.iid:[^,<>} \]]+|xmp\.did:[^,<>} \]]+)", blk, re.I):
-                    v = _norm(m.group(1)); out["history_inst_ids"].add(v) if v else None
+                for match in re.findall(r'(?:InstanceID|stRef:instanceID)="([^"]+)"', blk, re.I):
+                    v = _norm(match); out["history_inst_ids"].add(v) if v else None
+                for match in re.findall(r'(?:DocumentID|stRef:documentID)="([^"]+)"', blk, re.I):
+                    v = _norm(match); out["history_doc_ids"].add(v) if v else None
+                for match in re.findall(r"<stRef:instanceID>([^<]+)</stRef:instanceID>", blk, re.I):
+                    v = _norm(match); out["history_inst_ids"].add(v) if v else None
+                for match in re.findall(r"<stRef:documentID>([^<]+)</stRef:documentID>", blk, re.I):
+                    v = _norm(match); out["history_doc_ids"].add(v) if v else None
+                for match in re.findall(r"(uuid:[0-9a-f\-]+|xmp\.iid:[^,<>} \]]+|xmp\.did:[^,<>} \]]+)", blk, re.I):
+                    v = _norm(match); out["history_inst_ids"].add(v) if v else None
 
         if "photoshop:documentancestors" in txt_lower:
             ps = re.search(r"<photoshop:DocumentAncestors\b[^>]*>(.*?)</photoshop:DocumentAncestors>", txt, re.I | re.S)
             if ps:
-                for m in re.finditer(r"<rdf:li[^>]*>([^<]+)</rdf:li>", ps.group(1), re.I):
-                    v = _norm(m.group(1)); out["ps_doc_ancestors"].add(v) if v else None
+                for match in re.findall(r"<rdf:li[^>]*>([^<]+)</rdf:li>", ps.group(1), re.I):
+                    v = _norm(match); out["ps_doc_ancestors"].add(v) if v else None
 
         for k in out:
             out[k] = {v for v in out[k] if v}
@@ -1068,8 +1068,8 @@ class DataProcessingMixin:
                 if v: own_ids.add(v)
 
         if "/id" in txt_lower:
-            for m in re.finditer(r"/ID\s*\[\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*\]", txt):
-                v1, v2 = _norm(m.group(1)), _norm(m.group(2))
+            for v1, v2 in re.findall(r"/ID\s*\[\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*\]", txt):
+                v1, v2 = _norm(v1), _norm(v2)
                 if v1: own_ids.add(v1)
                 if v2: own_ids.add(v2)
 
@@ -1083,47 +1083,47 @@ class DataProcessingMixin:
             df = re.search(r"<xmpMM:DerivedFrom\b[^>]*>(.*?)</xmpMM:DerivedFrom>", txt, re.I | re.S)
             if df:
                 blk = df.group(1)
-                for m in re.finditer(r'stRef:documentID(?:>|=")([^<"]+)', blk, re.I):
-                    v = _norm(m.group(1))
+                for match in re.findall(r'stRef:documentID(?:>|=")([^<"]+)', blk, re.I):
+                    v = _norm(match)
                     if v: ref_ids.add(v)
-                for m in re.finditer(r'stRef:instanceID(?:>|=")([^<"]+)', blk, re.I):
-                    v = _norm(m.group(1))
+                for match in re.findall(r'stRef:instanceID(?:>|=")([^<"]+)', blk, re.I):
+                    v = _norm(match)
                     if v: ref_ids.add(v)
 
         if "xmpmm:ingredients" in txt_lower:
             ing = re.search(r"<xmpMM:Ingredients\b[^>]*>(.*?)</xmpMM:Ingredients>", txt, re.I | re.S)
             if ing:
                 blk = ing.group(1)
-                for m in re.finditer(r'stRef:documentID(?:>|=")([^<"]+)', blk, re.I):
-                    v = _norm(m.group(1))
+                for match in re.findall(r'stRef:documentID(?:>|=")([^<"]+)', blk, re.I):
+                    v = _norm(match)
                     if v: ref_ids.add(v)
 
         if "photoshop:documentancestors" in txt_lower:
             ps = re.search(r"<photoshop:DocumentAncestors\b[^>]*>(.*?)</photoshop:DocumentAncestors>", txt, re.I | re.S)
             if ps:
-                for m in re.finditer(r"<rdf:li[^>]*>([^<]+)</rdf:li>", ps.group(1), re.I):
-                    v = _norm(m.group(1))
+                for match in re.findall(r"<rdf:li[^>]*>([^<]+)</rdf:li>", ps.group(1), re.I):
+                    v = _norm(match)
                     if v: ref_ids.add(v)
 
         if "xmpmm:history" in txt_lower:
             hist = re.search(r"<xmpMM:History\b[^>]*>(.*?)</xmpMM:History>", txt, re.I | re.S)
             if hist:
                 blk = hist.group(1)
-                for m in re.finditer(r'stRef:documentID(?:>|=")([^<"]+)', blk, re.I):
-                    v = _norm(m.group(1))
+                for match in re.findall(r'stRef:documentID(?:>|=")([^<"]+)', blk, re.I):
+                    v = _norm(match)
                     if v: ref_ids.add(v)
 
         if exif_output:
             exif_lower = exif_output.lower()
             if "id" in exif_lower:
-                for m in re.finditer(r"Document\s*ID\s*:\s*(\S+)", exif_output, re.I):
-                    v = _norm(m.group(1))
+                for match in re.findall(r"Document\s*ID\s*:\s*(\S+)", exif_output, re.I):
+                    v = _norm(match)
                     if v: own_ids.add(v)
-                for m in re.finditer(r"Instance\s*ID\s*:\s*(\S+)", exif_output, re.I):
-                    v = _norm(m.group(1))
+                for match in re.findall(r"Instance\s*ID\s*:\s*(\S+)", exif_output, re.I):
+                    v = _norm(match)
                     if v: own_ids.add(v)
-                for m in re.finditer(r"Original\s*Document\s*ID\s*:\s*(\S+)", exif_output, re.I):
-                    v = _norm(m.group(1))
+                for match in re.findall(r"Original\s*Document\s*ID\s*:\s*(\S+)", exif_output, re.I):
+                    v = _norm(match)
                     if v: ref_ids.add(v)
 
         ref_ids = ref_ids - own_ids
