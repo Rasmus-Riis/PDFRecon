@@ -34,3 +34,7 @@
 ## 2025-05-19 - Optimize `re.finditer` with single capture group to `re.findall`
 **Learning:** Using `re.finditer` and explicitly iterating through match objects (`m.group(1)`) is significantly slower than using `re.findall` when extracting single capture groups from regular expressions, especially within large string buffers like PDF metadata. `re.findall` leverages C-level implementations, directly returning a list of strings instead of generating intermediate `Match` objects, offering up to ~40% speedups.
 **Action:** Replace `for m in re.finditer(pattern, string): v = m.group(1)` with `for match in re.findall(pattern, string): v = match`. Do the same when multiple capture groups are present and both are extracted.
+
+## 2025-05-19 - Pre-mapping UI tree items to prevent O(N^2) exports
+**Learning:** The `_export_to_html` method contained an O(N^2) bottleneck where it iterated through `tree.get_children()` inside a report data loop to find matching tags.
+**Action:** When performing data exports that need to correlate with UI elements, pre-map the UI tree items to a dictionary (e.g. by file path) before entering the export loop to achieve O(1) lookups and significantly reduce export time.

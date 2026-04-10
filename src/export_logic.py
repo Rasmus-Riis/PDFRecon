@@ -378,18 +378,27 @@ class ExportMixin:
         rows = ""
         tag_map = {"red_row": "red-row", "yellow_row": "yellow-row", "blue_row": "blue-row", "purple_row": "purple-row", "gray_row": "gray-row"}
         
+        # Pre-compute path-to-tag mapping to avoid O(N^2) lookups
+        path_to_tag_class = {}
+        for item_id in self.tree.get_children():
+            try:
+                item_values = self.tree.item(item_id, "values")
+                if len(item_values) > 4:
+                    path_val = item_values[4]
+                    tags = self.tree.item(item_id, "tags")
+                    if tags:
+                        path_to_tag_class[path_val] = tag_map.get(tags[0], "")
+            except IndexError:
+                pass
+
         for i, values in enumerate(self.report_data):
             tag_class = ""
             try:
-                matching_id = next((item_id for item_id in self.tree.get_children() if self.tree.item(item_id, "values")[4] == values[4]), None)
-                if matching_id:
-                    tags = self.tree.item(matching_id, "tags")
-                    if tags:
-                        tag_class = tag_map.get(tags[0], "")
-            except (IndexError, StopIteration):
-                 pass
+                path_str = values[4]
+                tag_class = path_to_tag_class.get(path_str, "")
+            except IndexError:
+                path_str = ""
             
-            path_str = values[4]
             note_text = html.escape(self.file_annotations.get(path_str, "")).replace('\n', '<br>')
             
             row_values = [html.escape(str(v)) for v in values]
