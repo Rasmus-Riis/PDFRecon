@@ -21,8 +21,9 @@ def _decompress_stream(raw: bytes) -> Optional[str]:
     for fn in (
         lambda d: zlib.decompress(d),
         lambda d: zlib.decompress(d, -zlib.MAX_WBITS),
-        lambda d: base64.a85decode(re.sub(rb"\s", b"", d), adobe=True),
-        lambda d: binascii.unhexlify(re.sub(rb"\s|>", b"", d)),
+        # ⚡ Bolt Optimization: Replace re.sub with faster split/join for whitespace removal
+        lambda d: base64.a85decode(b"".join(d.split()), adobe=True),
+        lambda d: binascii.unhexlify(b"".join(d.replace(b">", b"").split())),
     ):
         try:
             return fn(raw).decode("utf-8", errors="replace")

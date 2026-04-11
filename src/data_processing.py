@@ -1481,7 +1481,8 @@ class DataProcessingMixin:
 
     @staticmethod
     def decompress_stream(b):
-        for fn in (zlib.decompress, lambda d: base64.a85decode(re.sub(rb"\s", b"", d), adobe=True), lambda d: binascii.unhexlify(re.sub(rb"\s|>", b"", d))):
+        # ⚡ Bolt Optimization: Replace re.sub with faster split/join for whitespace removal
+        for fn in (zlib.decompress, lambda d: base64.a85decode(b"".join(d.split()), adobe=True), lambda d: binascii.unhexlify(b"".join(d.replace(b">", b"").split()))):
             try:
                 return fn(b).decode("latin1", "ignore")
             except Exception:
