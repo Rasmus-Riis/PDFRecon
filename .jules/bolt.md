@@ -38,3 +38,6 @@
 ## 2025-05-19 - Pre-mapping UI tree items to prevent O(N^2) exports
 **Learning:** The `_export_to_html` method contained an O(N^2) bottleneck where it iterated through `tree.get_children()` inside a report data loop to find matching tags.
 **Action:** When performing data exports that need to correlate with UI elements, pre-map the UI tree items to a dictionary (e.g. by file path) before entering the export loop to achieve O(1) lookups and significantly reduce export time.
+## 2024-05-18 - Optimize stream whitespace removal
+**Learning:** In the PDF stream decompression hot path, using `re.sub(rb"\s", b"", d)` for removing whitespace from large byte arrays is notably slow due to Python regex engine overhead. Native byte methods like `b"".join(d.split())` perform the same operation significantly faster (up to ~8x faster in micro-benchmarks).
+**Action:** When cleaning whitespace from large raw byte streams before decoding, prefer native split/join over regular expressions.
