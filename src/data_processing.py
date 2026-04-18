@@ -223,7 +223,6 @@ class DataProcessingMixin:
             file_content = path.read_bytes()
             startupinfo = None
             if sys.platform == "win32":
-                import subprocess
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             
@@ -952,8 +951,11 @@ class DataProcessingMixin:
             if isinstance(val, (bytes, bytearray)):
                 val = val.decode("utf-8", "ignore")
             s = str(val).strip()
-            s = re.sub(r"^urn:uuid:", "", s, flags=re.I)
-            s = re.sub(r"^(uuid:|xmp\.iid:|xmp\.did:)", "", s, flags=re.I)
+            su = s.upper()
+            if su.startswith("URN:UUID:"): s = s[9:]
+            elif su.startswith("UUID:"): s = s[5:]
+            elif su.startswith("XMP.IID:"): s = s[8:]
+            elif su.startswith("XMP.DID:"): s = s[8:]
             s = s.strip("<>").strip()
             return s.upper() if s else None
 
@@ -1045,8 +1047,11 @@ class DataProcessingMixin:
             if isinstance(val, (bytes, bytearray)):
                 val = val.decode("utf-8", "ignore")
             s = str(val).strip()
-            s = re.sub(r"^urn:uuid:", "", s, flags=re.I)
-            s = re.sub(r"^(uuid:|xmp\.iid:|xmp\.did:)", "", s, flags=re.I)
+            su = s.upper()
+            if su.startswith("URN:UUID:"): s = s[9:]
+            elif su.startswith("UUID:"): s = s[5:]
+            elif su.startswith("XMP.IID:"): s = s[8:]
+            elif su.startswith("XMP.DID:"): s = s[8:]
             s = s.strip("<>").strip()
             return s.upper() if s else None
 
