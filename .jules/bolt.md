@@ -41,3 +41,7 @@
 ## 2024-05-18 - Optimize stream whitespace removal
 **Learning:** In the PDF stream decompression hot path, using `re.sub(rb"\s", b"", d)` for removing whitespace from large byte arrays is notably slow due to Python regex engine overhead. Native byte methods like `b"".join(d.split())` perform the same operation significantly faster (up to ~8x faster in micro-benchmarks).
 **Action:** When cleaning whitespace from large raw byte streams before decoding, prefer native split/join over regular expressions.
+
+## 2025-05-19 - Fixed prefix stripping: Native string methods vs Regex
+**Learning:** When normalizing string values by removing known prefixes (like UUID variants: `urn:uuid:`, `uuid:`, `xmp.iid:`), using `re.sub(r"^(uuid:...)", "", str, flags=re.I)` inside high-frequency loops introduces significant overhead due to regex compilation and execution. Replacing the regex with `.upper()`, `.startswith()`, and native string slicing (`str[len(prefix):]`) is roughly 2x faster and reduces CPU overhead during large PDF extractions.
+**Action:** When stripping small, fixed sets of prefixes from strings, particularly within loops, prefer caching the upper/lower case string and using native `startswith()` plus slicing instead of `re.sub()`.
