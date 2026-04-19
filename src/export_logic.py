@@ -207,15 +207,21 @@ class ExportMixin:
             else:
                 indicators_by_path[path_str] = ""
 
+        # ⚡ Bolt Optimization: Cache dict lookups and Alignment object before loop
+        exif_get = self.exif_outputs.get
+        ind_get = indicators_by_path.get
+        note_get = self.file_annotations.get
+        cached_alignment = Alignment(wrap_text=True, vertical="top")
+
         for row_idx, row_data in enumerate(getattr(self, "report_data", []), start=2):
             try:
                 path = row_data[4] 
             except IndexError:
                 path = ""
 
-            exif_text = self.exif_outputs.get(path, "")
-            indicators_full = indicators_by_path.get(path, "")
-            note_text = self.file_annotations.get(path, "")
+            exif_text = exif_get(path, "")
+            indicators_full = ind_get(path, "")
+            note_text = note_get(path, "")
 
             row_out = list(row_data)
             
@@ -229,7 +235,7 @@ class ExportMixin:
 
             for col_idx, value in enumerate(row_out, start=1):
                 cell = ws.cell(row=row_idx, column=col_idx, value=clean_cell_value(value))
-                cell.alignment = Alignment(wrap_text=True, vertical="top")
+                cell.alignment = cached_alignment
 
         for col in ws.columns:
             try:

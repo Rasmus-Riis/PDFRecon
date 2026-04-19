@@ -41,3 +41,7 @@
 ## 2024-05-18 - Optimize stream whitespace removal
 **Learning:** In the PDF stream decompression hot path, using `re.sub(rb"\s", b"", d)` for removing whitespace from large byte arrays is notably slow due to Python regex engine overhead. Native byte methods like `b"".join(d.split())` perform the same operation significantly faster (up to ~8x faster in micro-benchmarks).
 **Action:** When cleaning whitespace from large raw byte streams before decoding, prefer native split/join over regular expressions.
+
+## 2025-05-19 - Optimize openpyxl style instantiation
+**Learning:** In export loops using `openpyxl`, repeatedly instantiating style objects like `Alignment(wrap_text=True, vertical="top")` within nested iteration blocks causes significant performance overhead due to redundant object creation and validation.
+**Action:** Always instantiate immutable `openpyxl` style objects (like `Alignment`, `Font`, `PatternFill`) outside of row/column generation loops and assign the cached reference to cells. Furthermore, caching dictionary `.get` methods locally before high-frequency loops reduces attribute lookup overhead.
