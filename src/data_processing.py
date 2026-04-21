@@ -952,8 +952,15 @@ class DataProcessingMixin:
             if isinstance(val, (bytes, bytearray)):
                 val = val.decode("utf-8", "ignore")
             s = str(val).strip()
-            s = re.sub(r"^urn:uuid:", "", s, flags=re.I)
-            s = re.sub(r"^(uuid:|xmp\.iid:|xmp\.did:)", "", s, flags=re.I)
+            s_upper = s.upper()
+            if s_upper.startswith("URN:UUID:"):
+                s = s[9:]
+            elif s_upper.startswith("UUID:"):
+                s = s[5:]
+            elif s_upper.startswith("XMP.IID:"):
+                s = s[8:]
+            elif s_upper.startswith("XMP.DID:"):
+                s = s[8:]
             s = s.strip("<>").strip()
             return s.upper() if s else None
 
@@ -1045,8 +1052,15 @@ class DataProcessingMixin:
             if isinstance(val, (bytes, bytearray)):
                 val = val.decode("utf-8", "ignore")
             s = str(val).strip()
-            s = re.sub(r"^urn:uuid:", "", s, flags=re.I)
-            s = re.sub(r"^(uuid:|xmp\.iid:|xmp\.did:)", "", s, flags=re.I)
+            s_upper = s.upper()
+            if s_upper.startswith("URN:UUID:"):
+                s = s[9:]
+            elif s_upper.startswith("UUID:"):
+                s = s[5:]
+            elif s_upper.startswith("XMP.IID:"):
+                s = s[8:]
+            elif s_upper.startswith("XMP.DID:"):
+                s = s[8:]
             s = s.strip("<>").strip()
             return s.upper() if s else None
 
