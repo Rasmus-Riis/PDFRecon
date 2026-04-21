@@ -307,7 +307,15 @@ def detect_indicators(filepath: Path, txt: str, doc, exif_output: str = "", app_
             if x is None: 
                 return None
             s = str(x).strip().upper()
-            return re.sub(r"^(URN:UUID:|UUID:|XMP\.IID:|XMP\.DID:)", "", s).strip("<>")
+            if s.startswith("URN:UUID:"):
+                s = s[9:]
+            elif s.startswith("UUID:"):
+                s = s[5:]
+            elif s.startswith("XMP.IID:"):
+                s = s[8:]
+            elif s.startswith("XMP.DID:"):
+                s = s[8:]
+            return s.strip("<>")
 
         xmp_orig_match = re.search(r"xmpMM:OriginalDocumentID(?:>|=\")([^<\"]+)", txt, re.I) if "xmpmm:originaldocumentid" in txt_lower else None
         xmp_doc_match = re.search(r"xmpMM:DocumentID(?:>|=\")([^<\"]+)", txt, re.I) if "xmpmm:documentid" in txt_lower else None
@@ -360,7 +368,7 @@ def detect_indicators(filepath: Path, txt: str, doc, exif_output: str = "", app_
         xmp_dates = {k: v for k, v in re.findall(r"<xmp:(ModifyDate|CreateDate)>([^<]+)</xmp:\1>", txt)}
 
         def _short(d: str) -> str: 
-            return re.sub(r"[-:TZ]", "", d)[:14]
+            return d.replace("-", "").replace(":", "").replace("T", "").replace("Z", "")[:14]
 
         if "CreationDate" in info_dates and "CreateDate" in xmp_dates and _short(info_dates["CreationDate"]) != _short(xmp_dates["CreateDate"]):
             indicators['CreateDateMismatch'] = {'info': info_dates["CreationDate"], 'xmp': xmp_dates["CreateDate"]}
@@ -407,7 +415,18 @@ def analyze_fonts(filepath: Path, doc):
                             basefont_name = basefont_name[1:]
 
                         # Decode PDF name (e.g. #20 -> space)
-                        basefont_name = re.sub(r"#([0-9A-Fa-f]{2})", lambda m: chr(int(m.group(1), 16)), basefont_name)
+                        if "#" in basefont_name:
+                            parts = basefont_name.split("#")
+                            decoded_name = parts[0]
+                            for part in parts[1:]:
+                                if len(part) >= 2:
+                                    try:
+                                        decoded_name += chr(int(part[:2], 16)) + part[2:]
+                                    except ValueError:
+                                        decoded_name += "#" + part
+                                else:
+                                    decoded_name += "#" + part
+                            basefont_name = decoded_name
 
                         if "+" in basefont_name:
                             try:
