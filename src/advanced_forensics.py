@@ -715,7 +715,8 @@ def detect_timestamp_mismatches(txt: str, doc, indicators: dict):
     try:
         def parse_pdf_date(date_str):
             if not date_str: return None
-            clean = re.sub(r"[^0-9]", "", date_str)
+            # ⚡ Bolt Optimization: Replace re.sub with faster filter logic for digits
+            clean = "".join(filter(str.isdigit, date_str))
             if len(clean) >= 14:
                 try:
                     return datetime.strptime(str(clean)[:14], "%Y%m%d%H%M%S")

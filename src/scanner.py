@@ -307,7 +307,12 @@ def detect_indicators(filepath: Path, txt: str, doc, exif_output: str = "", app_
             if x is None: 
                 return None
             s = str(x).strip().upper()
-            return re.sub(r"^(URN:UUID:|UUID:|XMP\.IID:|XMP\.DID:)", "", s).strip("<>")
+            # ⚡ Bolt Optimization: Replace re.sub with faster native string operations
+            if s.startswith("URN:UUID:"): s = s[9:]
+            if s.startswith("UUID:"): s = s[5:]
+            if s.startswith("XMP.IID:"): s = s[8:]
+            if s.startswith("XMP.DID:"): s = s[8:]
+            return s.strip("<>")
 
         xmp_orig_match = re.search(r"xmpMM:OriginalDocumentID(?:>|=\")([^<\"]+)", txt, re.I) if "xmpmm:originaldocumentid" in txt_lower else None
         xmp_doc_match = re.search(r"xmpMM:DocumentID(?:>|=\")([^<\"]+)", txt, re.I) if "xmpmm:documentid" in txt_lower else None
@@ -360,7 +365,8 @@ def detect_indicators(filepath: Path, txt: str, doc, exif_output: str = "", app_
         xmp_dates = {k: v for k, v in re.findall(r"<xmp:(ModifyDate|CreateDate)>([^<]+)</xmp:\1>", txt)}
 
         def _short(d: str) -> str: 
-            return re.sub(r"[-:TZ]", "", d)[:14]
+            # ⚡ Bolt Optimization: Replace re.sub with faster chained replace
+            return d.replace("-", "").replace(":", "").replace("T", "").replace("Z", "")[:14]
 
         if "CreationDate" in info_dates and "CreateDate" in xmp_dates and _short(info_dates["CreationDate"]) != _short(xmp_dates["CreateDate"]):
             indicators['CreateDateMismatch'] = {'info': info_dates["CreationDate"], 'xmp': xmp_dates["CreateDate"]}

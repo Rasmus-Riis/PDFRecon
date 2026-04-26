@@ -657,11 +657,14 @@ def _extract_all_document_ids(txt: str, exif_output: str) -> dict:
             return None
         if isinstance(val, (bytes, bytearray)):
             val = val.decode("utf-8", "ignore")
-        s = str(val).strip()
-        s = re.sub(r"^urn:uuid:", "", s, flags=re.I)
-        s = re.sub(r"^(uuid:|xmp\.iid:|xmp\.did:)", "", s, flags=re.I)
+        s = str(val).strip().upper()
+        # ⚡ Bolt Optimization: Replace re.sub with faster native string operations
+        if s.startswith("URN:UUID:"): s = s[9:]
+        if s.startswith("UUID:"): s = s[5:]
+        if s.startswith("XMP.IID:"): s = s[8:]
+        if s.startswith("XMP.DID:"): s = s[8:]
         s = s.strip("<>").strip()
-        return s.upper() if s else None
+        return s if s else None
 
     own_ids: set = set()
     ref_ids: set = set()
