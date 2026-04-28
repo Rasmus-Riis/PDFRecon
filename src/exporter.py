@@ -130,15 +130,21 @@ def export_to_excel(file_path, report_data: list, all_scan_data: dict, file_anno
             else:
                 indicators_by_path[path_str] = ""
 
+        # ⚡ Bolt Optimization: Cache dict .get methods and Alignment instance before loop
+        get_exif = exif_outputs.get
+        get_indicator = indicators_by_path.get
+        get_note = file_annotations.get
+        cell_alignment = Alignment(wrap_text=True, vertical="top")
+
         for row_idx, row_data in enumerate(report_data, start=2):
             try:
                 path = row_data[4]  # Path is at index 4
             except IndexError:
                 path = ""
 
-            exif_text = exif_outputs.get(path, "")
-            indicators_full = indicators_by_path.get(path, "")
-            note_text = file_annotations.get(path, "")
+            exif_text = get_exif(path, "")
+            indicators_full = get_indicator(path, "")
+            note_text = get_note(path, "")
 
             row_out = list(row_data)
             
@@ -152,7 +158,7 @@ def export_to_excel(file_path, report_data: list, all_scan_data: dict, file_anno
 
             for col_idx, value in enumerate(row_out, start=1):
                 cell = ws.cell(row=row_idx, column=col_idx, value=clean_cell_value(value))
-                cell.alignment = Alignment(wrap_text=True, vertical="top")
+                cell.alignment = cell_alignment
 
         for col in ws.columns:
             try:
