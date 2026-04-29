@@ -45,3 +45,7 @@
 ## 2024-04-26 - Native String Ops Over re.sub
 **Learning:** Using `re.sub` for simple string prefix stripping and character filtering introduces significant overhead in hot parsing paths (like UUID cleaning and date normalization). Native string operations (`startswith`/slicing, `.replace()`, and `filter`) are up to 3x-4x faster than their regex equivalents. Furthermore, chained `if` checks are safer than regex for handling stacked prefixes.
 **Action:** Always prefer native string slicing, `.startswith`, or chained `.replace()` over `re.sub` when stripping fixed prefixes or a small set of known characters.
+
+## 2025-05-20 - Cache openpyxl objects and dictionary lookups in export loops
+**Learning:** In openpyxl, creating new style objects (like `Alignment`) inside a loop for thousands of cells is a major performance bottleneck due to excessive allocations. Reusing a single pre-instantiated style object prevents O(M*N) object creation overhead. Additionally, calling dictionary `.get` methods inside hot Python loops incurs attribute lookup overhead; hoisting these method references to local variables before the loop provides a micro-optimization.
+**Action:** When generating large Excel or CSV exports involving repetitive cell formatting or dictionary lookups, cache openpyxl style objects and bind dictionary `.get` methods to local variables before entering the loop.

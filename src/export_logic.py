@@ -207,15 +207,21 @@ class ExportMixin:
             else:
                 indicators_by_path[path_str] = ""
 
+        # ⚡ Bolt Optimization: Pre-cache dictionary get methods and openpyxl objects before hot loop
+        _get_exif = self.exif_outputs.get
+        _get_indicators = indicators_by_path.get
+        _get_notes = self.file_annotations.get
+        _alignment_top = Alignment(wrap_text=True, vertical="top")
+
         for row_idx, row_data in enumerate(getattr(self, "report_data", []), start=2):
             try:
                 path = row_data[4] 
             except IndexError:
                 path = ""
 
-            exif_text = self.exif_outputs.get(path, "")
-            indicators_full = indicators_by_path.get(path, "")
-            note_text = self.file_annotations.get(path, "")
+            exif_text = _get_exif(path, "")
+            indicators_full = _get_indicators(path, "")
+            note_text = _get_notes(path, "")
 
             row_out = list(row_data)
             
@@ -229,7 +235,7 @@ class ExportMixin:
 
             for col_idx, value in enumerate(row_out, start=1):
                 cell = ws.cell(row=row_idx, column=col_idx, value=clean_cell_value(value))
-                cell.alignment = Alignment(wrap_text=True, vertical="top")
+                cell.alignment = _alignment_top
 
         for col in ws.columns:
             try:
