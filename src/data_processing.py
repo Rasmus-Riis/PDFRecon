@@ -1528,7 +1528,11 @@ class DataProcessingMixin:
         if len(raw) > 1_000_000:
             txt_segments.append(raw[-1_000_000:].decode("latin1", "ignore"))
 
-        m = re.search(rb"<\?xpacket begin=.*?\?>(.*?)\<\?xpacket end=[^>]*\?\>", raw, re.S)
+        # ⚡ Bolt Optimization: Added fast-fail substring guard
+        m = None
+        if b"<?xpacket" in raw:
+            m = re.search(rb"<\?xpacket begin=.*?\?>(.*?)\<\?xpacket end=[^>]*\?\>", raw, re.S)
+
         if m:
             try:
                 txt_segments.append(m.group(1).decode("utf-8", "ignore"))

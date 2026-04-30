@@ -111,7 +111,11 @@ def _extract_text_for_scanning(raw: bytes) -> str:
     if len(raw) > 1_000_000:
         txt_segments.append(raw[-1_000_000:].decode("latin1", "ignore"))
 
-    xmp_match = re.search(rb"<\?xpacket begin=.*?\?>(.*?)<\?xpacket end=[^>]*\?>", raw, re.S)
+    # ⚡ Bolt Optimization: Added fast-fail substring guard
+    xmp_match = None
+    if b"<?xpacket" in raw:
+        xmp_match = re.search(rb"<\?xpacket begin=.*?\?>(.*?)<\?xpacket end=[^>]*\?>", raw, re.S)
+
     if xmp_match:
         try:
             txt_segments.append(xmp_match.group(1).decode("utf-8", "ignore"))
