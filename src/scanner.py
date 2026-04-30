@@ -325,7 +325,11 @@ def detect_indicators(filepath: Path, txt: str, doc, exif_output: str = "", app_
 
         # --- Asset Relationship Forensics (v1.4+) ---
         # Look for XMP packet in the txt string (extract_text adds it)
-        xmp_packet_match = re.search(r'<\?xpacket begin=.*?\?>(.*?)\<\?xpacket end=[^>]*\?\>', txt, re.S)
+        # ⚡ Bolt Optimization: Added fast-fail substring guard
+        xmp_packet_match = None
+        if "<?xpacket" in txt:
+            xmp_packet_match = re.search(r'<\?xpacket begin=.*?\?>(.*?)\<\?xpacket end=[^>]*\?\>', txt, re.S)
+
         if xmp_packet_match:
             xmp_str = xmp_packet_match.group(0)
             if app_instance and hasattr(app_instance, '_extract_xmp_relationships'):
