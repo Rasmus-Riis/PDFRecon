@@ -613,11 +613,12 @@ def _detect_object_anomalies(txt: str, doc, indicators: dict):
         indicators (dict): Dictionary to add indicators to
     """
     try:
-        # PERFORMANCE OPTIMIZATION (Bolt ⚡): List comprehension with findall is implemented
-        # in C and faster than python-level iteration with finditer
+        # PERFORMANCE OPTIMIZATION (Bolt ⚡): Run regex once to get all definitions.
+        # This replaces redundant scans for 'obj_count'.
+        obj_def_matches = re.findall(r"\b(\d+)\s+\d+\s+obj\b", txt)
 
         # Find all object definitions
-        obj_defs = {int(m) for m in re.findall(r"\b(\d+)\s+\d+\s+obj\b", txt)}
+        obj_defs = {int(m) for m in obj_def_matches}
         
         # Find all object references
         obj_refs = {int(m) for m in re.findall(r"\b(\d+)\s+\d+\s+R\b", txt)}
@@ -679,8 +680,10 @@ def _detect_object_anomalies(txt: str, doc, indicators: dict):
                 }
 
         # NEW: Unbalanced obj/endobj Structures
-        obj_count = len(re.findall(r"\b\d+\s+\d+\s+obj\b", txt))
-        endobj_count = len(re.findall(r"\bendobj\b", txt))
+        # PERFORMANCE OPTIMIZATION (Bolt ⚡): Reuse `obj_def_matches` instead of a redundant regex.
+        # Use fast `.count()` for unique keywords like 'endobj' instead of `re.findall`.
+        obj_count = len(obj_def_matches)
+        endobj_count = txt.count("endobj")
         if obj_count != endobj_count:
             indicators['UnbalancedObjects'] = {
                 'obj_count': obj_count,
