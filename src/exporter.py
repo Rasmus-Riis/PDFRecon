@@ -130,15 +130,20 @@ def export_to_excel(file_path, report_data: list, all_scan_data: dict, file_anno
             else:
                 indicators_by_path[path_str] = ""
 
+        default_alignment = Alignment(wrap_text=True, vertical="top")
+        exif_outputs_get = exif_outputs.get
+        file_annotations_get = file_annotations.get
+        indicators_by_path_get = indicators_by_path.get
+
         for row_idx, row_data in enumerate(report_data, start=2):
             try:
                 path = row_data[4]  # Path is at index 4
             except IndexError:
                 path = ""
 
-            exif_text = exif_outputs.get(path, "")
-            indicators_full = indicators_by_path.get(path, "")
-            note_text = file_annotations.get(path, "")
+            exif_text = exif_outputs_get(path, "")
+            indicators_full = indicators_by_path_get(path, "")
+            note_text = file_annotations_get(path, "")
 
             row_out = list(row_data)
             
@@ -152,7 +157,7 @@ def export_to_excel(file_path, report_data: list, all_scan_data: dict, file_anno
 
             for col_idx, value in enumerate(row_out, start=1):
                 cell = ws.cell(row=row_idx, column=col_idx, value=clean_cell_value(value))
-                cell.alignment = Alignment(wrap_text=True, vertical="top")
+                cell.alignment = default_alignment
 
         for col in ws.columns:
             try:
