@@ -680,7 +680,8 @@ def _detect_object_anomalies(txt: str, doc, indicators: dict):
 
         # NEW: Unbalanced obj/endobj Structures
         obj_count = len(re.findall(r"\b\d+\s+\d+\s+obj\b", txt))
-        endobj_count = len(re.findall(r"\bendobj\b", txt))
+        # ⚡ Bolt Optimization: Use string.count over len(re.findall) for simple literals
+        endobj_count = txt.count("endobj")
         if obj_count != endobj_count:
             indicators['UnbalancedObjects'] = {
                 'obj_count': obj_count,
