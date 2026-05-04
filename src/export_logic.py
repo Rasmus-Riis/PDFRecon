@@ -207,15 +207,21 @@ class ExportMixin:
             else:
                 indicators_by_path[path_str] = ""
 
+        # Cache object instantiations and method lookups outside the loop for performance
+        default_alignment = Alignment(wrap_text=True, vertical="top")
+        exif_get = self.exif_outputs.get
+        indicators_get = indicators_by_path.get
+        notes_get = self.file_annotations.get
+
         for row_idx, row_data in enumerate(getattr(self, "report_data", []), start=2):
             try:
                 path = row_data[4] 
             except IndexError:
                 path = ""
 
-            exif_text = self.exif_outputs.get(path, "")
-            indicators_full = indicators_by_path.get(path, "")
-            note_text = self.file_annotations.get(path, "")
+            exif_text = exif_get(path, "")
+            indicators_full = indicators_get(path, "")
+            note_text = notes_get(path, "")
 
             row_out = list(row_data)
             
@@ -229,7 +235,7 @@ class ExportMixin:
 
             for col_idx, value in enumerate(row_out, start=1):
                 cell = ws.cell(row=row_idx, column=col_idx, value=clean_cell_value(value))
-                cell.alignment = Alignment(wrap_text=True, vertical="top")
+                cell.alignment = default_alignment
 
         for col in ws.columns:
             try:
