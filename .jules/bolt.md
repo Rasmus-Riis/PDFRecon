@@ -52,3 +52,7 @@
 ## 2025-05-19 - Optimize literal keyword counting
 **Learning:** Using `len(re.findall(r"\bkeyword\b", text))` to count occurrences of a literal string is very slow compared to the native Python method `text.count("keyword")`. For a large PDF text extraction loop, checking "endobj" occurrences can be extremely fast (approx. 37x speedup for this operation) by relying on `string.count`, which avoids regex compilation and engine overhead entirely, assuming the keyword does not need complex word boundary matching. Note that in PDFs `endobj` almost universally appears as an isolated token so `\b` is unnecessary.
 **Action:** Always prefer `string.count("word")` over `len(re.findall(r"\bword\b", string))` when checking for the number of occurrences of a unique, known literal keyword, especially inside loops over large text buffers.
+
+## 2025-05-20 - Cache dict references and object creation outside export loops
+**Learning:** In export modules (e.g. `src/export_logic.py` and `src/exporter.py`), repeatedly resolving dictionary `.get` methods and re-instantiating formatting objects like `openpyxl.styles.Alignment` inside nested data and column loops severely limits performance as the report size grows.
+**Action:** When performing row/column-level iteration for exports, explicitly cache frequently accessed method references (e.g., `get_exif = exif_outputs.get`) and layout configurations (e.g., `cell_alignment = Alignment(...)`) in local variables prior to entering the loop to ensure O(1) processing efficiency per iteration.
