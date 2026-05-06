@@ -52,3 +52,6 @@
 ## 2025-05-19 - Optimize literal keyword counting
 **Learning:** Using `len(re.findall(r"\bkeyword\b", text))` to count occurrences of a literal string is very slow compared to the native Python method `text.count("keyword")`. For a large PDF text extraction loop, checking "endobj" occurrences can be extremely fast (approx. 37x speedup for this operation) by relying on `string.count`, which avoids regex compilation and engine overhead entirely, assuming the keyword does not need complex word boundary matching. Note that in PDFs `endobj` almost universally appears as an isolated token so `\b` is unnecessary.
 **Action:** Always prefer `string.count("word")` over `len(re.findall(r"\bword\b", string))` when checking for the number of occurrences of a unique, known literal keyword, especially inside loops over large text buffers.
+## 2025-05-19 - Manual string parsing over re.sub for XML wrappers
+**Learning:** Using `re.sub(r'<\?xpacket.*?\?>', '', xmp_str, flags=re.S)` to strip XML packet wrappers is computationally expensive for large XML bodies.
+**Action:** Replace it with manual string slicing using `.find()` inside a while loop. This improves string-manipulation performance for large strings considerably and minimizes regex-engine overhead.
