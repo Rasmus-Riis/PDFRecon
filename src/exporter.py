@@ -130,6 +130,9 @@ def export_to_excel(file_path, report_data: list, all_scan_data: dict, file_anno
             else:
                 indicators_by_path[path_str] = ""
 
+        # Pre-instantiate Alignment object to avoid repeated creation in the loop
+        cell_alignment = Alignment(wrap_text=True, vertical="top")
+
         for row_idx, row_data in enumerate(report_data, start=2):
             try:
                 path = row_data[4]  # Path is at index 4
@@ -152,7 +155,7 @@ def export_to_excel(file_path, report_data: list, all_scan_data: dict, file_anno
 
             for col_idx, value in enumerate(row_out, start=1):
                 cell = ws.cell(row=row_idx, column=col_idx, value=clean_cell_value(value))
-                cell.alignment = Alignment(wrap_text=True, vertical="top")
+                cell.alignment = cell_alignment
 
         for col in ws.columns:
             try:
@@ -312,22 +315,29 @@ def export_to_html(file_path, report_data: list, file_annotations: dict, all_sca
         
         rows = ""
         
+        # Pre-compute path-to-tag mapping to avoid O(N^2) lookups
+        path_to_tag_class = {}
+        if tree_get_children and tree_item:
+            try:
+                for item_id in tree_get_children():
+                    item_values = tree_item(item_id, "values")
+                    if len(item_values) > 4:
+                        path_val = item_values[4]
+                        tags = tree_item(item_id, "tags")
+                        if tags:
+                            path_to_tag_class[path_val] = tag_map.get(tags[0], "")
+            except (IndexError, TypeError):
+                pass
+
         # Generate Table Rows
         for i, values in enumerate(report_data):
             tag_class = ""
             try:
-                # Try to get tag from tree if functions provided
-                if tree_get_children and tree_item:
-                    matching_id = next((item_id for item_id in tree_get_children() 
-                                      if tree_item(item_id, "values")[4] == values[4]), None)
-                    if matching_id:
-                        tags = tree_item(matching_id, "tags")
-                        if tags:
-                            tag_class = tag_map.get(tags[0], "")
-            except (IndexError, StopIteration, TypeError):
-                pass
+                path_str = values[4]
+                tag_class = path_to_tag_class.get(path_str, "")
+            except IndexError:
+                path_str = ""
             
-            path_str = values[4]
             note_text = html_escape_module.escape(file_annotations.get(path_str, "")).replace('\n', '<br>')
             
             row_values = [html_escape_module.escape(str(v)) for v in values]
