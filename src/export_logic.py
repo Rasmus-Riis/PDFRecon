@@ -207,6 +207,9 @@ class ExportMixin:
             else:
                 indicators_by_path[path_str] = ""
 
+        # Pre-instantiate Alignment object to avoid repeated creation in the loop
+        cell_alignment = Alignment(wrap_text=True, vertical="top")
+
         for row_idx, row_data in enumerate(getattr(self, "report_data", []), start=2):
             try:
                 path = row_data[4] 
@@ -229,7 +232,7 @@ class ExportMixin:
 
             for col_idx, value in enumerate(row_out, start=1):
                 cell = ws.cell(row=row_idx, column=col_idx, value=clean_cell_value(value))
-                cell.alignment = Alignment(wrap_text=True, vertical="top")
+                cell.alignment = cell_alignment
 
         for col in ws.columns:
             try:
