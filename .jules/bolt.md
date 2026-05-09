@@ -52,3 +52,7 @@
 ## 2025-05-19 - Optimize literal keyword counting
 **Learning:** Using `len(re.findall(r"\bkeyword\b", text))` to count occurrences of a literal string is very slow compared to the native Python method `text.count("keyword")`. For a large PDF text extraction loop, checking "endobj" occurrences can be extremely fast (approx. 37x speedup for this operation) by relying on `string.count`, which avoids regex compilation and engine overhead entirely, assuming the keyword does not need complex word boundary matching. Note that in PDFs `endobj` almost universally appears as an isolated token so `\b` is unnecessary.
 **Action:** Always prefer `string.count("word")` over `len(re.findall(r"\bword\b", string))` when checking for the number of occurrences of a unique, known literal keyword, especially inside loops over large text buffers.
+
+## 2025-05-19 - Cache Openpyxl Alignment instance in nested loops
+**Learning:** Instantiating `openpyxl.styles.Alignment` objects inside a high-frequency loop introduces a massive performance bottleneck. The caching optimization applies to repetitive dictionary lookups (like `.get` calls) as well. Moving the instantiation and `.get` method reference lookups outside inner loops provides measurable speed boosts.
+**Action:** When performing operations on thousands of cells (e.g. iterating over `report_data` in Excel generation), always instantiate `Alignment` outside the inner row/cell loop, assign it by reference, and cache local function references instead of hitting `self.property.get()`.
