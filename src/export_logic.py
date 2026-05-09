@@ -207,15 +207,21 @@ class ExportMixin:
             else:
                 indicators_by_path[path_str] = ""
 
+        # ⚡ Bolt Optimization: Cache alignment instance and dictionary lookups to avoid instantiation/lookup overhead in inner loop
+        default_alignment = Alignment(wrap_text=True, vertical="top")
+        exif_get = self.exif_outputs.get
+        ind_get = indicators_by_path.get
+        note_get = self.file_annotations.get
+
         for row_idx, row_data in enumerate(getattr(self, "report_data", []), start=2):
             try:
                 path = row_data[4] 
             except IndexError:
                 path = ""
 
-            exif_text = self.exif_outputs.get(path, "")
-            indicators_full = indicators_by_path.get(path, "")
-            note_text = self.file_annotations.get(path, "")
+            exif_text = exif_get(path, "")
+            indicators_full = ind_get(path, "")
+            note_text = note_get(path, "")
 
             row_out = list(row_data)
             
@@ -229,7 +235,7 @@ class ExportMixin:
 
             for col_idx, value in enumerate(row_out, start=1):
                 cell = ws.cell(row=row_idx, column=col_idx, value=clean_cell_value(value))
-                cell.alignment = Alignment(wrap_text=True, vertical="top")
+                cell.alignment = default_alignment
 
         for col in ws.columns:
             try:
@@ -289,12 +295,17 @@ class ExportMixin:
             return "; ".join(lines)
 
         data_for_export = []
+
+        # ⚡ Bolt Optimization: Cache dictionary lookups outside the loop
+        exif_get = self.exif_outputs.get
+        note_get = self.file_annotations.get
+
         for row_data in self.report_data:
             new_row = list(row_data)
             path = new_row[4] 
-            exif_output = self.exif_outputs.get(path, "")
+            exif_output = exif_get(path, "")
             indicators_full = _indicators_for_path(path)
-            note_text = self.file_annotations.get(path, "")
+            note_text = note_get(path, "")
             
             while len(new_row) < len(headers):
                 new_row.append("")
