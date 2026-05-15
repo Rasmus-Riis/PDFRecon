@@ -56,3 +56,7 @@
 ## 2025-05-19 - Cache Openpyxl Alignment instance in nested loops
 **Learning:** Instantiating `openpyxl.styles.Alignment` objects inside a high-frequency loop introduces a massive performance bottleneck. The caching optimization applies to repetitive dictionary lookups (like `.get` calls) as well. Moving the instantiation and `.get` method reference lookups outside inner loops provides measurable speed boosts.
 **Action:** When performing operations on thousands of cells (e.g. iterating over `report_data` in Excel generation), always instantiate `Alignment` outside the inner row/cell loop, assign it by reference, and cache local function references instead of hitting `self.property.get()`.
+
+## 2025-05-15 - Optimize O(N^2) Tree Lookup in Export Loop
+**Learning:** In the HTML exporter (`src/exporter.py` -> `export_to_html`), looking up a row's tag class involved a generator expression iterating through all UI tree children inside the export loop. For a large number of rows, this O(N) lookup inside an O(N) loop caused an O(N^2) performance bottleneck, making large exports very slow.
+**Action:** Always pre-compute mappings from UI elements to data outside of nested loops when generating exports or reports to ensure O(1) dictionary lookups inside the loop.
