@@ -834,66 +834,67 @@ def _detect_structural_anomalies(doc, indicators: dict):
         indicators (dict): Dictionary to add indicators to
     """
     try:
-        # Check for MediaBox/CropBox mismatches
-        for page_num in range(len(doc)):
+        is_form = hasattr(doc, 'is_form_pdf') and doc.is_form_pdf
+
+        check_boxes = True
+        field_count = 0
+        overlay_fields = []
+
+        # ⚡ Bolt Optimization: Consolidate three document passes into a single pass
+        for page in doc:
             try:
-                page = doc[page_num]
-                mediabox = page.mediabox
-                cropbox = page.cropbox
-                
-                # If cropbox differs significantly from mediabox, content may be hidden
-                if cropbox and mediabox:
-                    mb_area = (mediabox[2] - mediabox[0]) * (mediabox[3] - mediabox[1])
-                    cb_area = (cropbox[2] - cropbox[0]) * (cropbox[3] - cropbox[1])
+                # Check for MediaBox/CropBox mismatches
+                if check_boxes:
+                    mediabox = page.mediabox
+                    cropbox = page.cropbox
                     
-                    if mb_area > 0 and cb_area > 0:
-                        ratio = cb_area / mb_area
-                        if ratio < 0.8:  # CropBox is significantly smaller
-                            indicators['CropBoxMediaBoxMismatch'] = {
-                                'page': page_num + 1,
-                                'visible_ratio': f"{ratio*100:.1f}%"
-                            }
-                            break
-                            
-            except Exception as e:
-                logging.debug(f"Error checking page {page_num} boxes: {e}")
-                continue
-        
-        # Check for form field anomalies
-        try:
-            if hasattr(doc, 'is_form_pdf') and doc.is_form_pdf:
-                # Count form fields
-                field_count = 0
-                for page in doc:
-                    widgets = page.widgets()
-                    field_count += len(list(widgets)) if widgets else 0
+                    if cropbox and mediabox:
+                        mb_area = (mediabox[2] - mediabox[0]) * (mediabox[3] - mediabox[1])
+                        cb_area = (cropbox[2] - cropbox[0]) * (cropbox[3] - cropbox[1])
+
+                        if mb_area > 0 and cb_area > 0:
+                            ratio = cb_area / mb_area
+                            if ratio < 0.8:
+                                indicators['CropBoxMediaBoxMismatch'] = {
+                                    'page': page.number + 1,
+                                    'visible_ratio': f"{ratio*100:.1f}%"
+                                }
+                                check_boxes = False
                 
-                if field_count > 50:  # Unusually high number of form fields
-                    indicators['ExcessiveFormFields'] = {'count': field_count}
-                
-                # NEW: Form Field Discrepancies (/V vs /BBox used in Overlay Attacks)
-                overlay_fields = []
-                for page in doc:
+                # Check for form field anomalies
+                if is_form:
+                    # Collect generator elements without intermediate listing overhead
                     for widget in page.widgets():
+                        field_count += 1
                         val = widget.field_value
                         rect = widget.rect
                         # If field has a value but rect is invisible or extremely small
                         if val and (rect.width < 1 or rect.height < 1):
+                            val_str = str(val)
                             overlay_fields.append({
                                 'page': page.number + 1,
                                 'field': widget.field_name,
-                                'value': str(val)[:30] + "..." if len(str(val)) > 30 else str(val),
+                                'value': val_str[:30] + "..." if len(val_str) > 30 else val_str,
                                 'rect': [round(x, 1) for x in rect]
                             })
+
+            except Exception as e:
+                logging.debug(f"Error checking page {page.number} structure: {e}")
+                continue
+
+        if is_form:
+            try:
+                if field_count > 50:
+                    indicators['ExcessiveFormFields'] = {'count': field_count}
+
                 if overlay_fields:
                     indicators['FormFieldOverlay'] = {
                         'count': len(overlay_fields),
                         'details': overlay_fields[:10]
                     }
-                    
-        except Exception as e:
-            logging.debug(f"Error analyzing form fields: {e}")
-            
+            except Exception as e:
+                logging.debug(f"Error recording form fields: {e}")
+
     except Exception as e:
         logging.debug(f"Error detecting structural anomalies: {e}")
 
