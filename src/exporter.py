@@ -321,24 +321,34 @@ def export_to_html(file_path, report_data: list, file_annotations: dict, all_sca
         if not tag_map:
             tag_map = {"red_row": "red-row", "yellow_row": "yellow-row", "blue_row": "blue-row", "gray_row": "gray-row"}
         
+        # ⚡ Bolt Optimization: Pre-compute path-to-tag mapping to avoid O(N^2) lookups
+        path_to_tag_class = {}
+        if tree_get_children and tree_item:
+            try:
+                for item_id in tree_get_children():
+                    try:
+                        item_values = tree_item(item_id, "values")
+                        if len(item_values) > 4:
+                            path_val = item_values[4]
+                            tags = tree_item(item_id, "tags")
+                            if tags and path_val not in path_to_tag_class:
+                                path_to_tag_class[path_val] = tag_map.get(tags[0], "")
+                    except (IndexError, TypeError):
+                        pass
+            except Exception:
+                pass
+
         rows = ""
         
         # Generate Table Rows
         for i, values in enumerate(report_data):
             tag_class = ""
             try:
-                # Try to get tag from tree if functions provided
-                if tree_get_children and tree_item:
-                    matching_id = next((item_id for item_id in tree_get_children() 
-                                      if tree_item(item_id, "values")[4] == values[4]), None)
-                    if matching_id:
-                        tags = tree_item(matching_id, "tags")
-                        if tags:
-                            tag_class = tag_map.get(tags[0], "")
-            except (IndexError, StopIteration, TypeError):
-                pass
+                path_str = values[4]
+                tag_class = path_to_tag_class.get(path_str, "")
+            except IndexError:
+                path_str = ""
             
-            path_str = values[4]
             note_text = html_escape_module.escape(file_annotations.get(path_str, "")).replace('\n', '<br>')
             
             row_values = [html_escape_module.escape(str(v)) for v in values]
