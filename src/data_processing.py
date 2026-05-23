@@ -554,11 +554,17 @@ class DataProcessingMixin:
         return {"aware": aware_events, "naive": naive_events}
 
     def _hash_file(self, filepath):
+        # ⚡ Bolt Optimization: Use zero-copy hashing with memoryview for large files
         sha256_hash = hashlib.sha256()
         try:
-            with open(filepath, "rb") as f:
-                for byte_block in iter(lambda: f.read(4096), b""):
-                    sha256_hash.update(byte_block)
+            with open(filepath, "rb", buffering=0) as f:
+                buf = bytearray(1024 * 1024)  # 1MB buffer
+                mv = memoryview(buf)
+                while True:
+                    n = f.readinto(mv)
+                    if not n:
+                        break
+                    sha256_hash.update(mv[:n])
             return sha256_hash.hexdigest()
         except FileNotFoundError:
             logging.error(f"Could not hash file, not found: {filepath}")
@@ -1301,7 +1307,7 @@ class DataProcessingMixin:
                         for operands, operator in ops:
                             op_name = str(operator)
                             
-                            if op_name in ["BDC", "BMC"]:
+                            if op_name in {"BDC", "BMC"}:
                                 is_touchup = False
                                 tag = ""
                                 if operands and (isinstance(operands[0], pikepdf.Name) or isinstance(operands[0], str)):
@@ -1322,7 +1328,7 @@ class DataProcessingMixin:
                                 in_flagged_bt = False
                                 mp_flag = False
                             
-                            elif op_name in ["MP", "DP"]:
+                            elif op_name in {"MP", "DP"}:
                                 tag = ""
                                 if operands and (isinstance(operands[0], pikepdf.Name) or isinstance(operands[0], str)):
                                     tag = str(operands[0])
@@ -1345,7 +1351,7 @@ class DataProcessingMixin:
                             
                             is_inside_touchup = touchup_stack[-1] or in_flagged_bt
                             
-                            if not is_inside_touchup and op_name in ["Tj", "TJ", "'", '"']:
+                            if not is_inside_touchup and op_name in {"Tj", "TJ", "'", '"'}:
                                 if op_name == "TJ":
                                     new_list = []
                                     for item in operands[0]:
