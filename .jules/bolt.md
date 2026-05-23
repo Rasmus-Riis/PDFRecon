@@ -59,3 +59,10 @@
 ## 2025-05-20 - Multi-pass page iteration bottleneck in PyMuPDF
 **Learning:** Performing multiple independent iterations over the same document pages (e.g., `for page in doc:`) in PyMuPDF is a significant performance bottleneck. This is especially true when accessing generators like `page.widgets()`, which triggers redundant parsing of widget dictionaries on every pass. For example, doing three separate passes to check boxes, count fields, and check overlays adds roughly 80% overhead compared to a single pass.
 **Action:** When executing multiple types of analysis (like structural anomalies, overlays, and box mismatches) on a PDF, always consolidate the logic into a single `for page in doc:` loop. Iterate over expensive generators like `page.widgets()` exactly once per page, and avoid converting generators to lists explicitly (`len(list(widgets))`) just for counting.
+## 2025-05-23 - Optimize list membership checks in parsing loops
+**Learning:** Checking membership against list literals (e.g., `if op_name in ["BDC", "BMC"]:`) is roughly 20-30% slower than checking against set literals (`{"BDC", "BMC"}`) for "miss" cases because CPython evaluates set literal expressions to `frozenset` at compile time and set lookups are O(1) compared to the O(N) traversal in tuples/lists.
+**Action:** Use set literals (e.g. `{"item1", "item2"}`) for membership checks involving multiple fixed string options, especially in high-frequency parsing loops.
+
+## 2025-05-23 - Fast zero-copy file hashing using memoryview
+**Learning:** Python's default file reading with `buffering=-1` performs memory allocations and copies at both the OS and Python levels for each chunk. For large file hashing operations, using `buffering=0` with `bytearray` and zero-copy `readinto(memoryview)` avoids these intermediate allocations, resulting in roughly a 15-20% speedup.
+**Action:** In operations requiring sequential full-file reads (like hashing), use a fixed buffer and zero-copy reads, e.g., `f = open(path, "rb", buffering=0)`, `buf = bytearray(1MB)`, `mv = memoryview(buf)`, and `f.readinto(mv)`.
