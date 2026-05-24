@@ -114,7 +114,8 @@ def extract_jpeg_qt_from_bytes(jpeg_bytes: bytes) -> dict:
             warnings.append('WARNING: Extreme compression (Image quality heavily degraded)')
         
         # Check for common editing software patterns
-        if any(sig in signature for sig in ['181818', '1c1c1c', '282828']):
+        # ⚡ Bolt Optimization: Use set literal for O(1) membership checking
+        if any(sig in signature for sig in {"181818", "1c1c1c", "282828"}):
             if not match:
                 warnings.append('Pattern matches Photoshop-style compression')
         
