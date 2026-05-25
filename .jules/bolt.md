@@ -59,3 +59,7 @@
 ## 2025-05-20 - Multi-pass page iteration bottleneck in PyMuPDF
 **Learning:** Performing multiple independent iterations over the same document pages (e.g., `for page in doc:`) in PyMuPDF is a significant performance bottleneck. This is especially true when accessing generators like `page.widgets()`, which triggers redundant parsing of widget dictionaries on every pass. For example, doing three separate passes to check boxes, count fields, and check overlays adds roughly 80% overhead compared to a single pass.
 **Action:** When executing multiple types of analysis (like structural anomalies, overlays, and box mismatches) on a PDF, always consolidate the logic into a single `for page in doc:` loop. Iterate over expensive generators like `page.widgets()` exactly once per page, and avoid converting generators to lists explicitly (`len(list(widgets))`) just for counting.
+
+## 2025-05-25 - Pre-mapping UI tree items to prevent O(N^2) exports in `exporter.py`
+**Learning:** Similar to the optimization in `src/export_logic.py`, the `export_to_html` method in `src/exporter.py` contained an $O(N^2)$ bottleneck where it iterated through `tree_get_children()` inside a loop over `report_data` (`N` items) to find matching tags.
+**Action:** When performing data exports that need to correlate with UI elements (like HTML table generation), pre-map the UI tree items to a dictionary (by file path) before entering the export loop to achieve $O(1)$ lookups and significantly reduce export time.
