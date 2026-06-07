@@ -59,3 +59,6 @@
 ## 2025-05-20 - Multi-pass page iteration bottleneck in PyMuPDF
 **Learning:** Performing multiple independent iterations over the same document pages (e.g., `for page in doc:`) in PyMuPDF is a significant performance bottleneck. This is especially true when accessing generators like `page.widgets()`, which triggers redundant parsing of widget dictionaries on every pass. For example, doing three separate passes to check boxes, count fields, and check overlays adds roughly 80% overhead compared to a single pass.
 **Action:** When executing multiple types of analysis (like structural anomalies, overlays, and box mismatches) on a PDF, always consolidate the logic into a single `for page in doc:` loop. Iterate over expensive generators like `page.widgets()` exactly once per page, and avoid converting generators to lists explicitly (`len(list(widgets))`) just for counting.
+## 2025-06-07 - Use Set for O(1) membership checks inside loops
+**Learning:** When accumulating items and checking for duplicates inside a loop in Python, using an `in` check against a `list` (e.g., `if i in my_list:`) creates an O(N^2) time complexity bottleneck on large datasets.
+**Action:** Always use a `set` (e.g., `my_set = set()`, `my_set.add(i)`) for O(1) membership testing rather than a `list` when checking for duplicates inside loops.
