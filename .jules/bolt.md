@@ -59,3 +59,7 @@
 ## 2025-05-20 - Multi-pass page iteration bottleneck in PyMuPDF
 **Learning:** Performing multiple independent iterations over the same document pages (e.g., `for page in doc:`) in PyMuPDF is a significant performance bottleneck. This is especially true when accessing generators like `page.widgets()`, which triggers redundant parsing of widget dictionaries on every pass. For example, doing three separate passes to check boxes, count fields, and check overlays adds roughly 80% overhead compared to a single pass.
 **Action:** When executing multiple types of analysis (like structural anomalies, overlays, and box mismatches) on a PDF, always consolidate the logic into a single `for page in doc:` loop. Iterate over expensive generators like `page.widgets()` exactly once per page, and avoid converting generators to lists explicitly (`len(list(widgets))`) just for counting.
+
+## 2024-06-09 - Caching regex match results to prevent redundant scans
+**Learning:** Using multiple `re.findall` calls that search the same multi-megabyte string with slightly differing permutations of the same base pattern incurs heavy regex engine overhead (O(N) * number of permutations).
+**Action:** Consolidate these queries into a single `re.findall` extraction (capturing the necessary subgroups). Cache the output list and derive subsets or counts programmatically from the cache instead of rescanning the text.
