@@ -692,14 +692,16 @@ def _detect_object_anomalies(txt: str, doc, indicators: dict):
         # Using a raw scan for multiple xref tables that redefine the same objects
         xref_sections = re.findall(r"xref\s*\n0\s+\d+\s*\n(.*?)(?=\btrailer\b|xref|$)", txt, re.DOTALL)
         if len(xref_sections) > 1:
-            all_objects = []
+            # PERFORMANCE OPTIMIZATION (Bolt ⚡): Use a set for O(1) lookups
+            # Replaces O(N^2) list iteration, drastically improving performance on PDFs with large/many XREFs
+            all_objects = set()
             duplicates = set()
             for section in xref_sections:
                 ids = re.findall(r"^(\d+)\s+\d+\s+[nf]\b", section, re.MULTILINE)
                 for i in ids:
                     if i in all_objects:
                         duplicates.add(i)
-                    all_objects.append(i)
+                    all_objects.add(i)
             if duplicates:
                 indicators['DuplicateObjectIDs'] = {
                     'count': len(duplicates),
