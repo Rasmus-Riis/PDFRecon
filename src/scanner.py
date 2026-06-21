@@ -275,8 +275,11 @@ def detect_indicators(filepath: Path, txt: str, doc, exif_output: str = "", app_
             if "needappearances" in txt_lower and re.search(r"/NeedAppearances\s+true\b", txt, re.I):
                 indicators['AcroFormNeedAppearances'] = {}
 
-        # PERFORMANCE OPTIMIZATION (Bolt ⚡): List comprehension with findall is faster
-        gen_gt_zero_matches = [m for m in re.findall(r"\b(\d+)\s+(\d+)\s+obj\b", txt) if int(m[1]) > 0]
+        # PERFORMANCE OPTIMIZATION (Bolt ⚡): Cache findall results for reuse across multiple indicator checks
+        # This replaces three separate O(N) regex passes with a single one.
+        all_objs = re.findall(r"\b(\d+)\s+(\d+)\s+obj\b", txt)
+
+        gen_gt_zero_matches = [m for m in all_objs if int(m[1]) > 0]
         if gen_gt_zero_matches:
             indicators['ObjGenGtZero'] = {'count': len(gen_gt_zero_matches)}
 
@@ -286,7 +289,7 @@ def detect_indicators(filepath: Path, txt: str, doc, exif_output: str = "", app_
         _detect_content_stream_anomalies(txt, doc, indicators)
         
         # Object reference integrity
-        _detect_object_anomalies(txt, doc, indicators)
+        _detect_object_anomalies(txt, doc, indicators, all_objs=all_objs)
         
         # JavaScript detection
         _detect_javascript(txt, indicators, txt_lower)
@@ -603,7 +606,7 @@ def _detect_content_stream_anomalies(txt: str, doc, indicators: dict):
         logging.debug(f"Error detecting content stream anomalies: {e}")
 
 
-def _detect_object_anomalies(txt: str, doc, indicators: dict):
+def _detect_object_anomalies(txt: str, doc, indicators: dict, all_objs: list = None):
     """
     Detects object reference integrity issues by comparing raw byte definitions against the XREF table.
     
@@ -611,13 +614,16 @@ def _detect_object_anomalies(txt: str, doc, indicators: dict):
         txt (str): Raw PDF content as text
         doc: PyMuPDF document object
         indicators (dict): Dictionary to add indicators to
+        all_objs (list): Optional cached list of object definitions (id, gen)
     """
     try:
-        # PERFORMANCE OPTIMIZATION (Bolt ⚡): List comprehension with findall is implemented
-        # in C and faster than python-level iteration with finditer
+        # PERFORMANCE OPTIMIZATION (Bolt ⚡): Use cached findall results if available
+        # to avoid redundant O(N) regex scans over the entire document
+        if all_objs is None:
+            all_objs = re.findall(r"\b(\d+)\s+(\d+)\s+obj\b", txt)
 
         # Find all object definitions
-        obj_defs = {int(m) for m in re.findall(r"\b(\d+)\s+\d+\s+obj\b", txt)}
+        obj_defs = {int(m[0]) for m in all_objs}
         
         # Find all object references
         obj_refs = {int(m) for m in re.findall(r"\b(\d+)\s+\d+\s+R\b", txt)}
@@ -679,7 +685,7 @@ def _detect_object_anomalies(txt: str, doc, indicators: dict):
                 }
 
         # NEW: Unbalanced obj/endobj Structures
-        obj_count = len(re.findall(r"\b\d+\s+\d+\s+obj\b", txt))
+        obj_count = len(all_objs)
         # ⚡ Bolt Optimization: Use string.count over len(re.findall) for simple literals
         endobj_count = txt.count("endobj")
         if obj_count != endobj_count:
