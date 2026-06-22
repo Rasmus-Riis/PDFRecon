@@ -59,3 +59,7 @@
 ## 2025-05-20 - Multi-pass page iteration bottleneck in PyMuPDF
 **Learning:** Performing multiple independent iterations over the same document pages (e.g., `for page in doc:`) in PyMuPDF is a significant performance bottleneck. This is especially true when accessing generators like `page.widgets()`, which triggers redundant parsing of widget dictionaries on every pass. For example, doing three separate passes to check boxes, count fields, and check overlays adds roughly 80% overhead compared to a single pass.
 **Action:** When executing multiple types of analysis (like structural anomalies, overlays, and box mismatches) on a PDF, always consolidate the logic into a single `for page in doc:` loop. Iterate over expensive generators like `page.widgets()` exactly once per page, and avoid converting generators to lists explicitly (`len(list(widgets))`) just for counting.
+
+## 2024-05-18 - Replacing `datetime.strptime` with fast-path parsing for dates
+**Learning:** `datetime.strptime` involves format string parsing, regex matching, and locale lock overhead, which can be unexpectedly slow in high-frequency string processing loops.
+**Action:** When extracting datetime objects from fixed-length standard formats (like 14-digit PDF dates or ISO formatted strings), use native fast paths like `datetime.fromisoformat()` for ISO strings or explicit instantiation `datetime(...)` with integer slicing for constant-width PDF formats.
