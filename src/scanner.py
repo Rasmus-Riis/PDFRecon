@@ -617,7 +617,9 @@ def _detect_object_anomalies(txt: str, doc, indicators: dict):
         # in C and faster than python-level iteration with finditer
 
         # Find all object definitions
-        obj_defs = {int(m) for m in re.findall(r"\b(\d+)\s+\d+\s+obj\b", txt)}
+        # ⚡ Bolt Optimization: Cache the findall result to avoid redundant regex execution later
+        obj_defs_matches = re.findall(r"\b(\d+)\s+\d+\s+obj\b", txt)
+        obj_defs = {int(m) for m in obj_defs_matches}
         
         # Find all object references
         obj_refs = {int(m) for m in re.findall(r"\b(\d+)\s+\d+\s+R\b", txt)}
@@ -679,7 +681,8 @@ def _detect_object_anomalies(txt: str, doc, indicators: dict):
                 }
 
         # NEW: Unbalanced obj/endobj Structures
-        obj_count = len(re.findall(r"\b\d+\s+\d+\s+obj\b", txt))
+        # ⚡ Bolt Optimization: Use cached obj_defs_matches instead of running identical regex again
+        obj_count = len(obj_defs_matches)
         # ⚡ Bolt Optimization: Use string.count over len(re.findall) for simple literals
         endobj_count = txt.count("endobj")
         if obj_count != endobj_count:
