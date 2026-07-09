@@ -452,8 +452,9 @@ class DataProcessingMixin:
             r"\/([A-Z][a-zA-Z0-9_]+)\s*\(\s*D:(\d{14})([+\-]\d{2}'\d{2}'|[+\-]\d{2}:\d{2}|[+\-]\d{4}|Z)?"
         )
         
-        for match in pdf_date_extended.finditer(file_content_string):
-            label, date_str, tz_str = match.groups()
+        # ⚡ Bolt Optimization: Use re.findall instead of re.finditer to avoid match object allocation
+        for label, date_str, tz_str in pdf_date_extended.findall(file_content_string):
+
             try:
                 dt_obj = datetime.strptime(date_str, "%Y%m%d%H%M%S")
                 
@@ -476,8 +477,8 @@ class DataProcessingMixin:
                 continue
 
         xmp_date_pattern = re.compile(r"<([a-zA-Z0-9:]+)[^>]*?>\s*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[^\s<]*)\s*<\/([a-zA-Z0-9:]+)>")
-        for match in xmp_date_pattern.finditer(file_content_string):
-            label, date_str, closing_label = match.groups()
+        # ⚡ Bolt Optimization: Use re.findall instead of re.finditer to avoid match object allocation
+        for label, date_str, closing_label in xmp_date_pattern.findall(file_content_string):
             if label != closing_label: 
                 continue
             try:

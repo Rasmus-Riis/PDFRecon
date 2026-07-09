@@ -474,9 +474,8 @@ def _parse_raw_content_timeline(txt: str) -> list:
     """Extract timestamps directly from raw PDF text content."""
     from .config import PDF_DATE_PATTERN
     events = []
-    for m in PDF_DATE_PATTERN.finditer(txt):
-        key = m.group(1)
-        raw_date = m.group(2)
+    # ⚡ Bolt Optimization: Use re.findall instead of re.finditer to avoid match object allocation
+    for key, raw_date in PDF_DATE_PATTERN.findall(txt):
         try:
             dt = datetime(
                 int(raw_date[0:4]), int(raw_date[4:6]), int(raw_date[6:8]),
