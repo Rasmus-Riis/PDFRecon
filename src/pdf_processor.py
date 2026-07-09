@@ -174,8 +174,9 @@ def count_layers(pdf_bytes: bytes) -> int:
     refs = set()
     
     # 1. Parse all /OCGs arrays for object references
-    for m in LAYER_OCGS_BLOCK_RE.finditer(pdf_bytes):
-        for n, g in OBJ_REF_RE.findall(m.group(1)):
+    # ⚡ Bolt Optimization: Use re.findall instead of re.finditer for single capture group extraction
+    for m_str in LAYER_OCGS_BLOCK_RE.findall(pdf_bytes):
+        for n, g in OBJ_REF_RE.findall(m_str):
             refs.add((int(n), int(g)))
             
     # 2. Parse inline references /OC n m R
