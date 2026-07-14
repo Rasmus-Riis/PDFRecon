@@ -59,3 +59,6 @@
 ## 2025-05-20 - Multi-pass page iteration bottleneck in PyMuPDF
 **Learning:** Performing multiple independent iterations over the same document pages (e.g., `for page in doc:`) in PyMuPDF is a significant performance bottleneck. This is especially true when accessing generators like `page.widgets()`, which triggers redundant parsing of widget dictionaries on every pass. For example, doing three separate passes to check boxes, count fields, and check overlays adds roughly 80% overhead compared to a single pass.
 **Action:** When executing multiple types of analysis (like structural anomalies, overlays, and box mismatches) on a PDF, always consolidate the logic into a single `for page in doc:` loop. Iterate over expensive generators like `page.widgets()` exactly once per page, and avoid converting generators to lists explicitly (`len(list(widgets))`) just for counting.
+## 2024-05-19 - [Tkinter Treeview Lookup Bottleneck]
+**Learning:** Iterating over `tree_item(item_id, "values")` in `export_to_html` to find tags for each report row incurs an O(N^2) complexity with severe Python-to-Tkinter C-level bridge overhead.
+**Action:** Always pre-compute a UI tree element to data mapping into a native Python dictionary outside of export loops to achieve O(1) lookups and prevent GUI freeze during large data processing.
