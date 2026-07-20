@@ -272,7 +272,8 @@ class UILayoutMixin:
             self.tree.heading(self.columns[i], text=self._(key), 
                             command=lambda c=self.columns[i]: self._sort_column(c, False))
             width = col_widths.get(self.columns[i], 120)
-            anchor = "center" if self.columns[i] in ["ID", "Revisions"] else "w"
+            # ⚡ Bolt Optimization: Use set literals for O(1) membership tests
+            anchor = "center" if self.columns[i] in {"ID", "Revisions"} else "w"
             self.tree.column(self.columns[i], anchor=anchor, width=width)
         
         tree_scrollbar = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
