@@ -403,7 +403,8 @@ def _parse_exif_data(exiftool_out: str) -> dict:
         if tag == "producer":
             if group == "pdf" and not data["producer_pdf"]:
                 data["producer_pdf"] = val
-            elif group in ("xmp-pdf", "xmp_pdf") and not data["producer_xmppdf"]:
+            # ⚡ Bolt Optimization: Use set literals for O(1) membership tests
+            elif group in {"xmp-pdf", "xmp_pdf"} and not data["producer_xmppdf"]:
                 data["producer_xmppdf"] = val
         elif tag == "softwareagent" and not data["softwareagent"]:
             data["softwareagent"] = val
