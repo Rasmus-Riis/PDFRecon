@@ -348,6 +348,31 @@ class PDFReconApp(UILayoutMixin, ActionsMixin, PopupsMixin, ExportMixin, DataPro
                 if PDFReconConfig.EXIFTOOL_HASH == "": PDFReconConfig.EXIFTOOL_HASH = None
                 PDFReconConfig.SIGNING_KEY_PATH = settings.get('SigningKeyPath', None)
                 if PDFReconConfig.SIGNING_KEY_PATH == "": PDFReconConfig.SIGNING_KEY_PATH = None
+
+                # --- CID / ToUnicode decoding ---
+                PDFReconConfig.CID_DECODE_ENABLED = settings.getboolean(
+                    'CIDDecodeEnabled', True)
+                PDFReconConfig.CID_TIER0_TOUNICODE = settings.getboolean(
+                    'CIDTier0ToUnicode', True)
+                PDFReconConfig.CID_TIER1_GLYPHNAMES = settings.getboolean(
+                    'CIDTier1GlyphNames', True)
+                PDFReconConfig.CID_TIER2_SHAPEMATCH = settings.getboolean(
+                    'CIDTier2ShapeMatch', True)
+                PDFReconConfig.CID_CHARACTER_INVENTORY = settings.get(
+                    'CIDCharacterInventory', PDFReconConfig.CID_CHARACTER_INVENTORY)
+                PDFReconConfig.CID_REFERENCE_FONT_PATH = settings.get(
+                    'CIDReferenceFontPath', None) or None
+                PDFReconConfig.CID_SHAPE_CERTAIN_MARGIN = settings.getfloat(
+                    'CIDShapeCertainMargin', PDFReconConfig.CID_SHAPE_CERTAIN_MARGIN)
+                PDFReconConfig.CID_SHAPE_MIN_SCORE = settings.getfloat(
+                    'CIDShapeMinScore', PDFReconConfig.CID_SHAPE_MIN_SCORE)
+                PDFReconConfig.CID_SHAPE_BITMAP_SIZE = settings.getint(
+                    'CIDShapeBitmapSize', PDFReconConfig.CID_SHAPE_BITMAP_SIZE)
+                PDFReconConfig.CID_MAX_ALTERNATIVES = settings.getint(
+                    'CIDMaxAlternatives', PDFReconConfig.CID_MAX_ALTERNATIVES)
+                PDFReconConfig.CID_CONFUSABLE_GROUPS = settings.get(
+                    'CIDConfusableGroups', None) or None
+
                 self.default_language = settings.get('Language', 'en')
                 self._config_writable = True
                 return
@@ -361,7 +386,18 @@ class PDFReconApp(UILayoutMixin, ActionsMixin, PopupsMixin, ExportMixin, DataPro
                 'MaxWorkerThreads': str(PDFReconConfig.MAX_WORKER_THREADS),
                 'Language': self.default_language,
                 'VisualDiffPageLimit': str(PDFReconConfig.VISUAL_DIFF_PAGE_LIMIT),
-                'ExportInvalidXREF': 'False'
+                'ExportInvalidXREF': 'False',
+                'CIDDecodeEnabled': 'True',
+                'CIDTier0ToUnicode': 'True',
+                'CIDTier1GlyphNames': 'True',
+                'CIDTier2ShapeMatch': 'True',
+                'CIDCharacterInventory': PDFReconConfig.CID_CHARACTER_INVENTORY,
+                'CIDReferenceFontPath': '',
+                'CIDShapeCertainMargin': str(PDFReconConfig.CID_SHAPE_CERTAIN_MARGIN),
+                'CIDShapeMinScore': str(PDFReconConfig.CID_SHAPE_MIN_SCORE),
+                'CIDShapeBitmapSize': str(PDFReconConfig.CID_SHAPE_BITMAP_SIZE),
+                'CIDMaxAlternatives': str(PDFReconConfig.CID_MAX_ALTERNATIVES),
+                'CIDConfusableGroups': '',
             }
             with open(self.config_path, 'w') as configfile:
                 configfile.write("# PDFRecon Configuration File\n")
