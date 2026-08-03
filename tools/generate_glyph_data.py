@@ -37,6 +37,26 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OUTPUT_PATH = REPO_ROOT / "src" / "assets" / "agl.txt"
 TABLES_PATH = REPO_ROOT / "src" / "cid_glyph_tables.py"
+REFERENCE_FONT_PATH = REPO_ROOT / "src" / "assets" / "reference_font.ttf"
+REFERENCE_LICENSE_PATH = REPO_ROOT / "src" / "assets" / "reference_font_LICENSE.txt"
+
+#: Unicode blocks kept in the bundled reference font.  These are the blocks a
+#: shape comparison can be asked to cover out of the box; anything beyond
+#: them needs a reference font of the user's own, which is a setting.
+REFERENCE_BLOCKS = [
+    (0x0020, 0x007E, "Basic Latin (printable)"),
+    (0x00A0, 0x00FF, "Latin-1 Supplement"),
+    (0x0100, 0x017F, "Latin Extended-A"),
+    (0x0180, 0x024F, "Latin Extended-B"),
+    (0x0370, 0x03FF, "Greek and Coptic"),
+    (0x0400, 0x04FF, "Cyrillic"),
+    (0x2000, 0x206F, "General Punctuation"),
+    (0x20A0, 0x20BF, "Currency Symbols"),
+]
+
+#: The Bitstream Vera licence permits modification only if the result is
+#: renamed away from the protected names.  A subset is a modification.
+REFERENCE_FONT_NAME = "PDFReconReference"
 
 
 def build_table() -> dict[str, list[int]]:
@@ -137,6 +157,120 @@ locale assumptions.
     return "\n\n".join(parts) + "\n"
 
 
+def _find_dejavu() -> tuple[Path, Path]:
+    """
+    Locate DejaVu Sans and its licence on this machine.
+
+    matplotlib ships both, and is a common development-environment package.
+    Nothing is downloaded: if the font is not already present locally the
+    script says so and stops.
+    """
+    candidates: list[Path] = []
+    try:
+        import matplotlib
+        ttf_dir = Path(matplotlib.get_data_path()) / "fonts" / "ttf"
+        candidates.append(ttf_dir)
+    except Exception:
+        pass
+    candidates.extend([
+        Path(sys.prefix) / "share" / "fonts" / "truetype" / "dejavu",
+        Path("/usr/share/fonts/truetype/dejavu"),
+    ])
+
+    for directory in candidates:
+        font = directory / "DejaVuSans.ttf"
+        licence = directory / "LICENSE_DEJAVU"
+        if font.is_file():
+            return font, licence if licence.is_file() else Path()
+
+    sys.exit(
+        "DejaVuSans.ttf was not found locally.\n"
+        "It is needed only to regenerate the bundled reference font.\n"
+        "Install it via matplotlib (pip install matplotlib) or place\n"
+        "DejaVuSans.ttf and LICENSE_DEJAVU somewhere this script can find it.\n"
+        "This script never downloads anything."
+    )
+
+
+def build_reference_font() -> None:
+    """
+    Subset DejaVu Sans to the blocks a shape comparison may need.
+
+    The full font is around 750 kB; the subset is a fraction of that, which
+    keeps the packaged executable essentially unchanged while making the
+    documented default character inventory actually work.  PyMuPDF's built-in
+    Helvetica cannot be used for this: it covers only Latin-1 and silently
+    draws everything else, including all of Latin Extended-A, as the same
+    .notdef box.
+    """
+    try:
+        from fontTools import subset
+        from fontTools.ttLib import TTFont
+    except ImportError:
+        sys.exit("fontTools is required to regenerate the reference font.")
+
+    source, licence = _find_dejavu()
+    font = TTFont(str(source))
+
+    codepoints = [
+        cp
+        for low, high, _ in REFERENCE_BLOCKS
+        for cp in range(low, high + 1)
+    ]
+
+    options = subset.Options()
+    options.name_IDs = ["*"]
+    options.name_legacy = True
+    options.recommended_glyphs = True
+    options.drop_tables += ["DSIG"]
+    options.layout_features = []
+    options.hinting = False
+    options.desubroutinize = True
+    options.glyph_names = True  # keep post names so Tier 1 can be tested
+
+    subsetter = subset.Subsetter(options=options)
+    subsetter.populate(unicodes=codepoints)
+    subsetter.subset(font)
+
+    # Renaming is a licence condition for any modified copy.
+    name_table = font["name"]
+    for record in name_table.names:
+        if record.nameID in (1, 3, 4, 6, 16, 18):
+            name_table.setName(
+                REFERENCE_FONT_NAME, record.nameID,
+                record.platformID, record.platEncID, record.langID)
+
+    REFERENCE_FONT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    font.save(str(REFERENCE_FONT_PATH))
+    font.close()
+
+    data = REFERENCE_FONT_PATH.read_bytes()
+    covered = sum(1 for _ in codepoints)
+    print(f"Wrote {REFERENCE_FONT_PATH.relative_to(REPO_ROOT)}")
+    print(f"  source  : {source}")
+    print(f"  blocks  : {len(REFERENCE_BLOCKS)} ({covered} code points requested)")
+    print(f"  bytes   : {len(data)}")
+    print(f"  sha256  : {hashlib.sha256(data).hexdigest()}")
+
+    if licence and licence.is_file():
+        header = (
+            "The PDFRecon reference font (src/assets/reference_font.ttf) is a\n"
+            "subset of DejaVu Sans, renamed to \"PDFReconReference\" as the\n"
+            "licence below requires for modified copies.  It is used only to\n"
+            "render comparison glyphs for Tier 2 shape matching; it is never\n"
+            "embedded in output.  Regenerate it with tools/generate_glyph_data.py.\n"
+            "\n"
+            + "=" * 70 + "\n\n"
+        )
+        REFERENCE_LICENSE_PATH.write_text(
+            header + licence.read_text(encoding="utf-8"),
+            encoding="utf-8", newline="\n")
+        print(f"Wrote {REFERENCE_LICENSE_PATH.relative_to(REPO_ROOT)}")
+    else:
+        print("WARNING: LICENSE_DEJAVU not found; the licence text must be "
+              "shipped alongside the font.")
+
+
 def _write(path: Path, text: str, label: str, extra: str = "") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8", newline="\n")
@@ -152,6 +286,7 @@ def main() -> None:
     table = build_table()
     _write(OUTPUT_PATH, render(table), "AGL", extra=f"entries : {len(table)}")
     _write(TABLES_PATH, render_tables(), "tables")
+    build_reference_font()
 
 
 if __name__ == "__main__":
