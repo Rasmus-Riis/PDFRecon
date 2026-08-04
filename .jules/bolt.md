@@ -63,3 +63,6 @@
 ## 2025-05-21 - Optimize duplicate checks in loops
 **Learning:** When accumulating items and checking for duplicates inside a loop in Python, using an `in` check against a `list` (e.g., `if i in my_list: my_list.append(i)`) creates an $O(N^2)$ performance bottleneck on large datasets. Changing the accumulator to a `set` changes membership testing to $O(1)$, making the overall loop $O(N)$.
 **Action:** Always use a `set` for duplicate checking inside high-frequency loops instead of lists.
+## 2024-08-04 - Cache dictionary lookups inside loops
+**Learning:** In export modules (e.g., `src/export_logic.py`, `src/exporter.py`), caching dictionary lookup methods like `dictionary.get` or caching class constructors like `Alignment` outside a high-frequency loop can significantly improve performance by avoiding attribute access overhead on each iteration.
+**Action:** Identify inner loops with dictionary access and class constructors, then cache them locally before loop execution.
