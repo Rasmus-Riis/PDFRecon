@@ -455,7 +455,7 @@ def _tier2_shapematch(codes: Sequence[int], context: FontContext,
             if best.is_ambiguous:
                 note_parts.append(
                     "margin met but the reference font draws "
-                    f"{'/'.join(best.equivalents)} identically")
+                    f"{_describe_chars(best.equivalents)} identically")
             elif best.text in cache.confusable:
                 note_parts.append(
                     "margin met but the character is in the confusable set")
@@ -496,6 +496,22 @@ def _tier2_shapematch(codes: Sequence[int], context: FontContext,
         "render_failure": failure,
     }
     return resolved, evidence
+
+
+def _describe_chars(chars: Sequence[str]) -> str:
+    """
+    Render a set of characters legibly for a note an examiner will read.
+
+    Space, no-break space and other invisibles are shown as their code point,
+    because "the font draws  /  identically" tells a reader nothing.
+    """
+    described = []
+    for ch in chars:
+        if ch.isprintable() and not ch.isspace():
+            described.append(repr(ch))
+        else:
+            described.append(f"U+{ord(ch):04X}")
+    return " / ".join(described)
 
 
 def _png_data_uri(bitmap: cid_shapes.GlyphBitmap) -> str:
