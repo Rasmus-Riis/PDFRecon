@@ -157,13 +157,33 @@ def detect_indicators(filepath: Path, txt: str, doc, exif_output: str = "", app_
         # --- High-Confidence Indicators ---
         if "touchup_textedit" in txt_lower and re.search(r"touchup_textedit", txt, re.I):
             found_text = None
+            decoded_runs = None
+            decode_custody = None
             if app_instance and hasattr(app_instance, '_extract_touchup_text'):
                 try:
-                    found_text = app_instance._extract_touchup_text(doc)
+                    # Capture the raw string operands alongside the extracted
+                    # text so fonts with a missing or broken ToUnicode CMap can
+                    # be decoded by other means. Falls back to the original
+                    # single-return form if this build predates that support.
+                    if hasattr(app_instance, '_decode_touchup_runs'):
+                        found_text, captured, pdf_bytes = app_instance._extract_touchup_text(
+                            doc, capture_runs=True)
+                        try:
+                            decoded_runs, decode_custody = app_instance._decode_touchup_runs(
+                                captured, pdf_bytes)
+                        except Exception as e:
+                            logging.warning(f"Error decoding TouchUp runs: {e}")
+                    else:
+                        found_text = app_instance._extract_touchup_text(doc)
                 except Exception as e:
                     logging.warning(f"Error extracting TouchUp text: {e}")
-            
-            details = {'found_text': found_text, 'text_diff': None}
+
+            details = {
+                'found_text': found_text,
+                'text_diff': None,
+                'decoded_runs': decoded_runs or None,
+                'decode_custody': decode_custody,
+            }
             
             # Try to extract TouchUp text and compute diff if revisions exist
             if doc and hasattr(doc, 'write') and app_instance:
