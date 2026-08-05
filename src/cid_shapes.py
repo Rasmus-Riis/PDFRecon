@@ -43,6 +43,25 @@ executable, and floating-point reduction order can differ between numpy and
 CPython, which could reorder near-tied candidates.  Identical input
 therefore produces identical output on every machine.
 
+Choosing a reference font
+-------------------------
+Accuracy depends more on how closely the reference typeface resembles the
+document's than on any scoring parameter.  Decoding the same serif-set run
+three times, changing only the reference, gave 5 of 11 characters right
+against the bundled sans-serif, 8 of 11 against Times New Roman and 11 of 11
+against the serif face the document itself used.  Serifs change the
+proportions of narrow letters sharply - a Times ``l`` is nearly three times
+as wide relative to its height as a DejaVu Sans ``l`` - so a serif document
+read against a sans-serif reference will produce weak matches no amount of
+tuning recovers.
+
+The bundled reference is a reasonable default, not a universal one.  Where
+the document's typeface is known, pointing the reference-font setting at it,
+or at something close to it, is the single most effective adjustment
+available.  This is also why a shape match reports PROBABLE by default: the
+score reflects agreement with a chosen reference, not proof about the
+document.
+
 Locale independence
 -------------------
 The comparison alphabet is a configurable set of Unicode ranges with no

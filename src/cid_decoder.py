@@ -582,10 +582,16 @@ def decode(doc, font_ref, encoded_bytes: bytes, *,
             found, tier1_evidence = _tier1_glyphnames(codes, context, pending)
             resolved.update(found)
             evidence["glyph_names"] = tier1_evidence
+            sources = []
+            if context.differences:
+                sources.append("/Encoding /Differences")
+            if context.glyph_name_source:
+                sources.append(
+                    "TrueType post table" if context.glyph_name_source == "post"
+                    else "CFF charset")
             outcomes.append(TierOutcome(
                 1, METHOD_GLYPHNAMES, ran=True, resolved=len(found),
-                detail=(f"names from {context.glyph_name_source}"
-                        if context.glyph_name_source
+                detail=(f"names from {' and '.join(sources)}" if sources
                         else "no glyph names available"),
             ))
         elif pending:
