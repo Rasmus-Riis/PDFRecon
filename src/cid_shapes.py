@@ -83,16 +83,10 @@ from typing import Optional, Sequence
 
 import fitz
 
-
-def _asset_dir() -> Path:
-    """Locate the bundled asset directory, both frozen and from source."""
-    if getattr(sys, "frozen", False):
-        meipass = getattr(sys, "_MEIPASS", None)
-        if meipass:
-            for candidate in (Path(meipass) / "src" / "assets", Path(meipass) / "assets"):
-                if candidate.is_dir():
-                    return candidate
-    return Path(__file__).resolve().parent / "assets"
+try:  # pragma: no cover - import shape differs between package and script use
+    from .cid_fonts import _asset_dir
+except ImportError:  # pragma: no cover
+    from cid_fonts import _asset_dir
 
 
 #: The bundled comparison typeface: a subset of DejaVu Sans, renamed as its

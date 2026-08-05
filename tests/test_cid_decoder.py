@@ -19,12 +19,16 @@ diacritics, so an implicitly English-only assumption would fail here.
 
 import io
 import os
+import pathlib
+import shutil
+import sys
 import tempfile
 import unittest
 
 import fitz
 import pikepdf
 
+from src import cid_fonts, cid_shapes
 from src.cid_decoder import (
     CERTAIN, METHOD_GLYPHNAMES, METHOD_NONE, METHOD_SHAPEMATCH,
     METHOD_TOUNICODE, PROBABLE, SPECULATIVE, UNRESOLVED_PLACEHOLDER,
@@ -718,6 +722,103 @@ class TestCustodySummary(unittest.TestCase):
         self.assertIn("tier2_shapematch", summary["tiers"])
         self.assertTrue(summary["document_font_sha256"])
         self.assertTrue(summary["reference_fonts"])
+
+
+class TestBundledAssetResolution(unittest.TestCase):
+    """
+    The assets must be findable inside a PyInstaller bundle.
+
+    If they are not, Tier 1 loses the Adobe Glyph List and Tier 2 falls back
+    to a reference font that cannot render Latin Extended-A - both quietly.
+    These tests pin the layout that PDFRecon.spec has to produce.
+    """
+
+    def setUp(self):
+        self._agl_cache = cid_fonts._agl_cache
+        self._ref_cache = dict(cid_shapes._reference_cache)
+
+    def tearDown(self):
+        cid_fonts._agl_cache = self._agl_cache
+        cid_shapes._reference_cache.clear()
+        cid_shapes._reference_cache.update(self._ref_cache)
+        for attr in ("frozen", "_MEIPASS"):
+            if hasattr(sys, attr):
+                delattr(sys, attr)
+
+    def test_assets_exist_in_the_source_tree(self):
+        asset_dir = cid_fonts._asset_dir()
+        self.assertTrue((asset_dir / cid_fonts.AGL_FILENAME).is_file())
+        self.assertTrue(
+            (asset_dir / cid_shapes.REFERENCE_FONT_FILENAME).is_file())
+        self.assertTrue((asset_dir / "reference_font_LICENSE.txt").is_file(),
+                        "the reference font's licence must ship with it")
+
+    def test_frozen_layout_is_found(self):
+        """Simulate the bundle layout PDFRecon.spec creates."""
+        source = cid_fonts._asset_dir()
+        with tempfile.TemporaryDirectory() as meipass:
+            staged = os.path.join(meipass, "src", "assets")
+            shutil.copytree(source, staged)
+
+            sys.frozen = True
+            sys._MEIPASS = meipass
+            cid_fonts._agl_cache = None
+
+            self.assertEqual(cid_fonts._asset_dir(), pathlib.Path(staged))
+            mapping, digest = cid_fonts.load_agl()
+            self.assertGreater(len(mapping), 4000)
+            self.assertEqual(len(digest), 64)
+
+            font = cid_shapes.bundled_reference_font()
+            self.assertIsNotNone(font)
+            self.assertEqual(font.parent, pathlib.Path(staged))
+
+    def test_frozen_falls_back_to_the_module_directory(self):
+        """
+        A bundle without the assets still finds the ones beside the module.
+
+        This is why a source-tree run works with no bundling at all, and it
+        means the frozen lookup is a preference rather than a requirement.
+        """
+        with tempfile.TemporaryDirectory() as meipass:
+            sys.frozen = True
+            sys._MEIPASS = meipass  # contains no assets
+            cid_fonts._agl_cache = None
+
+            self.assertEqual(
+                cid_fonts._asset_dir(),
+                pathlib.Path(cid_fonts.__file__).resolve().parent / "assets")
+            mapping, _digest = cid_fonts.load_agl()
+            self.assertGreater(len(mapping), 4000)
+
+    def test_both_modules_share_one_asset_resolver(self):
+        """
+        One source of truth for where the assets live.
+
+        Two copies of this logic would be free to drift, and the symptom
+        would be a tier quietly losing its table rather than an error.
+        """
+        self.assertIs(cid_shapes._asset_dir, cid_fonts._asset_dir)
+
+    def test_unreachable_assets_degrade_visibly(self):
+        """A missing table must be evident in the record, not silent."""
+        original = cid_fonts._asset_dir
+        with tempfile.TemporaryDirectory() as empty:
+            patched = lambda: pathlib.Path(empty)
+            cid_fonts._asset_dir = patched
+            cid_shapes._asset_dir = patched
+            cid_fonts._agl_cache = None
+            try:
+                mapping, digest = cid_fonts.load_agl()
+                # An empty hash in the evidence is the signal that no table
+                # was used, so a Tier 1 result can never be mistaken for one
+                # backed by a verified glyph list.
+                self.assertEqual(mapping, {})
+                self.assertEqual(digest, "")
+                self.assertIsNone(cid_shapes.bundled_reference_font())
+            finally:
+                cid_fonts._asset_dir = original
+                cid_shapes._asset_dir = original
 
 
 class TestRobustness(unittest.TestCase):
