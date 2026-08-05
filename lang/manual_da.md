@@ -112,6 +112,32 @@ Nedenfor er en detaljeret forklaring af hver indikator, som PDFRecon leder efter
 *<i>Ændret:</i>* <red>JA</red>
 • Hvad det betyder: Dette er et specifikt metadata-flag, som Adobe Acrobat efterlader, når en bruger manuelt har redigeret tekst direkte i PDF-dokumentet. Det er et meget stærkt bevis på direkte ændring af indholdet.
 
+<b>CID-tekstafkodning (automatiseret)</b>
+*<i>Ændret:</i>* <blue>Værktøjsfunktion</blue>
+• Hvad det betyder: Når TouchUp-tekst er gemt i en skrifttype, hvis `/ToUnicode`-CMap mangler, er ufuldstændig eller ikke-standard, kommer den udtrukne tekst ud som volapyk (fx `ZK,KZK,ZP=GZ`). PDFRecon automatiserer den manuelle afkodningsprocedure og oplyser, hvordan hvert tegn blev genskabt, og hvor meget det vejer.
+
+• <b>Niveauerne.</b> De køres i rækkefølge, og afkodning sker pr. tegnkode. Når en kode først er løst, konsulteres intet senere niveau for den, så et formgæt kan aldrig overskrive en kortlægning læst fra filen.
+- **Niveau 0 (`tounicode`)**: Skrifttypens egen `/ToUnicode`-CMap. Konfidens CERTAIN.
+- **Niveau 1 (`glyphnames`)**: `/Encoding /Differences` eller den indlejrede skrifttypes TrueType `post`-tabel eller CFF-charset, slået op i Adobe Glyph List. Konfidens CERTAIN.
+- **Niveau 2 (`shapematch`)**: Den form, PDF'en faktisk tegner for koden, sammenlignet med et referencealfabet. Konfidens PROBABLE, kun CERTAIN ved bred margin.
+
+Kommer tegnene i én streng fra forskellige niveauer, rapporteres metoden som `mixed:`, og strengen får den **laveste** konfidens blandt sine tegn.
+
+• <b>Hvad konfidensniveauerne betyder.</b>
+- **CERTAIN**: Kortlægningen blev læst fra data i filen, der angiver den udtrykkeligt. En manuel udledning giver samme svar. Det siger, at læsningen er korrekt, *ikke* at teksten er ægte: en bevidst forfalsket `/ToUnicode`-CMap giver en CERTAIN afkodning af de forkerte tegn.
+- **PROBABLE**: Der findes ingen angivet kortlægning. Læsningen er udledt af udseende og er den bedste blandt flere rangordnede kandidater. Et efterforskningsspor, ikke et fund.
+- **SPECULATIVE**: Mindst én kode kunne ikke løses. Uløste positioner vises som `�`. Behandl teksten som uafklaret.
+
+Glyfnavne, der kun angiver en placering i skrifttypen (`/g43`, `/cid42`, `/glyph17`, `/index5`), indeholder ingen tegninformation. De afvises, og grunden registreres; de gættes aldrig.
+
+• <b>Sådan verificeres en afkodning.</b> Niveau 0 kontrolleres ved at følge `font.tounicode_xref` til CMap-objektet og anvende dets `bfchar`- og `bfrange`-poster på `encoded_hex` fra dokumentationen. Niveau 1 kontrolleres ved at slå det registrerede glyfnavn op i Adobes `glyphlist.txt`; den medfølgende kopi ligger som ren tekst i `src/assets/agl.txt`, og `agl_sha256` viser hvilken tabel der blev brugt. Niveau 2 kontrolleres ved at sammenligne det gengivne glyfbitmap i dokumentationen med det tegn, PDFRecon påstår det er, og med selve siden i dokumentet.
+
+• <b>Sådan anfægtes en niveau 2-læsning.</b> Referenceskrifttypens lighed med dokumentets er afgørende for nøjagtigheden: den samme serif-satte linje blev afkodet med 5 ud af 11 tegn korrekt mod den medfølgende grotesk-reference og 11 ud af 11 mod en serif-reference. Er marginen mellem bedste og næstbedste kandidat lille, er læsningen en præference frem for en læsning. Nogle tegn kan slet ikke skelnes på form; hvor referenceskrifttypen tegner to tegn identisk — latinsk A, græsk Alfa og kyrillisk A er én form — rapporteres de alle som lige gyldige.
+
+• <b>Indstillinger</b> (i `config.ini`): `CIDReferenceFontPath` (referenceskrifttype — den mest effektive justering), `CIDCharacterInventory` (tegnintervaller; standarden dækker vest- og centraleuropæisk tekst, og den medfølgende skrifttype rummer også græsk og kyrillisk), `CIDShapeCertainMargin` (standard 0,25), `CIDShapeMinScore` (standard 0,45) samt kontakter pr. niveau.
+
+• <b>Reproducerbarhed.</b> Niveau 0 til 2 indeholder ingen tilfældighed og ingen netværksadgang; samme fil og indstillinger giver byte-identisk output på enhver maskine. Den fulde trin-for-trin-procedure findes i den engelske manual og i PDFRecon HTML-manualen (**Hjælp → Manual**).
+
 <b>Multiple Font Subsets</b>
 *<i>Ændret:</i>* <yellow>Indikationer Fundet</yellow>
 • Hvad det betyder: Når tekst tilføjes til en PDF, indlejres ofte kun de tegn fra en skrifttype, der rent faktisk bruges (et 'subset'). Hvis en fil redigeres med et andet program, der ikke har adgang til præcis samme skrifttype, kan der opstå et nyt subset af den samme grundlæggende skrifttype. At finde flere subsets (f.eks. Multiple Font Subsets: 'Arial':F1+ArialMT', 'F2+Arial-BoldMT er en stærk indikation på, at tekst er blevet tilføjet eller ændret på forskellige tidspunkter eller med forskellige værktøjer.

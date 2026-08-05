@@ -297,6 +297,72 @@ When found, the surrounding structure typically looks like:
 
 ---
 
+## CID Text Decoding (Automated)
+**Classification:** <blue>Tool feature</blue>
+
+**What it means:** When TouchUp text is stored in a font whose `/ToUnicode` CMap is missing, incomplete or non-standard, the extracted text comes out garbled (for example `ZK,KZK,ZP=GZ`). PDFRecon automates the five-step manual decoding procedure described under TouchUp_TextEdit, and reports how each character was recovered and how much weight it carries.
+
+**The tiers.** These run in order. Decoding happens per character code, and once a code is resolved no later tier is consulted for it, so a shape guess can never overwrite a mapping read from the file.
+
+| Tier | Method | Evidence used | Confidence |
+|------|--------|---------------|------------|
+| 0 | `tounicode` | The font's own `/ToUnicode` CMap. | CERTAIN |
+| 1 | `glyphnames` | `/Encoding /Differences`, or the embedded font's TrueType `post` table or CFF charset, resolved through the Adobe Glyph List. | CERTAIN |
+| 2 | `shapematch` | The shape the PDF actually draws for the code, compared against a reference alphabet. | PROBABLE, or CERTAIN on a wide margin |
+
+Where characters in one string come from different tiers the method is reported as `mixed:`, and the string takes the **lowest** confidence of any character in it.
+
+**What the confidence levels mean:**
+- **CERTAIN** - the mapping was read from data in the file that states it explicitly. Re-deriving it by hand gives the same answer. This says the reading is correct, *not* that the text is genuine: a deliberately falsified `/ToUnicode` CMap yields a CERTAIN decoding of the wrong characters.
+- **PROBABLE** - no stated mapping exists; the reading is inferred from appearance and is the best of several ranked candidates. An investigative lead, not a finding.
+- **SPECULATIVE** - at least one code could not be resolved. Unresolved positions appear as `�`. Treat the text as undetermined.
+
+Glyph names that encode only a position in the font (`/g43`, `/cid42`, `/glyph17`, `/index5`) carry no character information. These are refused and the reason recorded; they are never guessed at.
+
+### Manual Parsing Instructions:
+
+**Step 1: Verify a Tier 0 result**
+1. Take `font.tounicode_xref` from the evidence - the CMap's object number.
+2. Decompress so objects are readable:
+   ```
+   qpdf --qdf --object-streams=disable input.pdf readable.pdf
+   ```
+3. Read that object's `bfchar` and `bfrange` entries and apply them to `encoded_hex`, also in the evidence, which is the raw operand exactly as it appears in the content stream.
+4. The result must match the reported text character for character.
+
+**Step 2: Verify a Tier 1 result**
+1. Each character's note names the glyph and its source, e.g. `glyph name /aacute from /Encoding /Differences`.
+2. Look the name up in Adobe's published `glyphlist.txt`. The bundled copy is plain text at `src/assets/agl.txt` and can be diffed against it.
+3. The evidence records `agl_sha256`, so you can prove which table produced the result.
+
+Note that Adobe's list has historical quirks PDFRecon reproduces rather than corrects: `/Omega` maps to U+2126 OHM SIGN, not U+03A9 GREEK CAPITAL OMEGA.
+
+**Step 3: Verify a Tier 2 result**
+1. The evidence holds the rendered glyph bitmap. It was drawn through the file's own font dictionary, so it is what a viewer displays - compare it against the character PDFRecon claims it is.
+2. Open the document at the run's page and position and look at the glyph on screen.
+3. Check `score` and `margin`. A small margin means the runner-up was nearly as good; it is listed in `alternatives`.
+4. The evidence names the reference font and its SHA-256. Repeating the comparison against a different reference is a legitimate and often decisive test.
+
+**Step 4: Grounds for challenging a Tier 2 reading**
+- *The reference typeface does not resemble the document's.* This dominates accuracy. One serif-set line decoded 5 of 11 characters correctly against the bundled sans-serif reference and 11 of 11 against a serif reference. If the document is set in a serif face and the default reference was used, redo it with `CIDReferenceFontPath`.
+- *The margin is small.* A reading that beat its runner-up by a hair is a preference, not a reading.
+- *The character is inherently ambiguous.* Some characters cannot be told apart by shape. PDFRecon detects these and refuses to call them CERTAIN at any margin. Where the reference font draws two characters identically - Latin A, Greek Alpha and Cyrillic A are one shape - all are reported as equally valid.
+- *The inventory excluded the true character.* Shape matching can only return something from its comparison alphabet.
+
+**Settings that change the result** (in `config.ini`):
+
+| Setting | Default | Effect |
+|---------|---------|--------|
+| `CIDReferenceFontPath` | bundled font | The typeface Tier 2 compares against. Setting this to the document's typeface is the single most effective adjustment available. |
+| `CIDCharacterInventory` | `0020-007E,00A0-00FF,0100-017F` | Which characters Tier 2 may propose, as hex Unicode ranges. The default covers Western and Central European text. The bundled reference font also carries Latin Extended-B, Greek, Cyrillic, punctuation and currency, so adding `0370-03FF` or `0400-04FF` needs nothing further. |
+| `CIDShapeCertainMargin` | `0.25` | How far a match must beat its runner-up to be reported CERTAIN. Measured over 131 glyphs from nine typefaces and three scripts, top-candidate precision was 82% at any margin, 94.6% above 0.10, 97.9% above 0.15 and 100% above 0.20. |
+| `CIDShapeMinScore` | `0.45` | Below this no candidate is offered and the code is reported unresolved. A weak guess is worse than none. |
+| `CIDTier0ToUnicode`, `CIDTier1GlyphNames`, `CIDTier2ShapeMatch` | all `True` | Per-tier switches. A disabled tier is recorded in the result. |
+
+**Reproducibility.** Tiers 0 to 2 contain no randomness, no sampling and no network access; the same file and settings give byte-identical output on any machine. The chain-of-custody log records which tiers ran, how many characters each resolved, and the SHA-256 of the Adobe Glyph List, the reference font and the document's own embedded font program.
+
+---
+
 ## Has Revisions (Incremental Updates)
 **Classification:** <red>YES</red>
 
