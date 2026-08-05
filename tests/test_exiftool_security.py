@@ -7,21 +7,23 @@ from pathlib import Path
 # Add project root to path (at beginning to ensure we use local package)
 sys.path.insert(0, ".")
 
-# Mock ALL dependencies that might be missing or cause GUI init
-sys.modules["customtkinter"] = MagicMock()
-sys.modules["tkinter"] = MagicMock()
-sys.modules["tkinter.filedialog"] = MagicMock()
-sys.modules["tkinter.messagebox"] = MagicMock()
-sys.modules["tkinter.ttk"] = MagicMock()
-sys.modules["tkinterdnd2"] = MagicMock()
-sys.modules["PIL"] = MagicMock()
-sys.modules["PIL.Image"] = MagicMock()
-sys.modules["PIL.ImageTk"] = MagicMock()
-sys.modules["fitz"] = MagicMock()
-sys.modules["openpyxl"] = MagicMock()
-sys.modules["openpyxl.styles"] = MagicMock()
-sys.modules["openpyxl.utils"] = MagicMock()
-sys.modules["requests"] = MagicMock()
+# Dependencies that might be missing, or that would start a GUI, are mocked
+# only for the duration of this module's own imports and then restored.
+#
+# Leaving the mocks in sys.modules replaces them for the whole pytest session,
+# not just this file: every test module collected afterwards, and every lazy
+# submodule import made later at runtime, resolves through the mock. That is
+# not hypothetical - openpyxl imports openpyxl.packaging.extended lazily on
+# the first Workbook.save(), so any later test that actually writes a
+# spreadsheet fails with an unrelated-looking ImportError.
+_MOCKED = [
+    "customtkinter", "tkinter", "tkinter.filedialog", "tkinter.messagebox",
+    "tkinter.ttk", "tkinterdnd2", "PIL", "PIL.Image", "PIL.ImageTk",
+    "fitz", "openpyxl", "openpyxl.styles", "openpyxl.utils", "requests",
+]
+_ORIGINAL_MODULES = {name: sys.modules.get(name) for name in _MOCKED}
+for _name in _MOCKED:
+    sys.modules[_name] = MagicMock()
 
 # Import modules
 try:
@@ -33,6 +35,12 @@ except ImportError as e:
 except SystemExit:
     print("SystemExit caught during import. A dependency might be triggering exit.")
     sys.exit(1)
+finally:
+    for _name, _original in _ORIGINAL_MODULES.items():
+        if _original is None:
+            sys.modules.pop(_name, None)
+        else:
+            sys.modules[_name] = _original
 
 class TestExifToolSecurity(unittest.TestCase):
     def setUp(self):

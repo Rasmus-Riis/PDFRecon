@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 
 from .config import APP_VERSION
 from .chain_of_custody import log_signed_report
+from . import cid_report
 
 
 def build_findings_report(
@@ -54,6 +55,27 @@ def build_findings_report(
                 entry["indicators"][k] = v
             else:
                 entry["indicators"][k] = "(present)"
+
+        # Decoded text is carried in full rather than collapsed to
+        # "(present)" like other nested indicators. A reading that reaches a
+        # signed report has to arrive with its method, its confidence and the
+        # evidence behind it, or it cannot be challenged.
+        touchup = (data.get("indicator_keys") or {}).get("TouchUp_TextEdit") or {}
+        runs = touchup.get("decoded_runs")
+        if runs:
+            entry["text_decoding"] = {
+                "summary": cid_report.summarise(runs),
+                "custody": cid_report.custody_details(
+                    touchup.get("decode_custody"), runs),
+                "runs": runs,
+                "note": (
+                    "Readings below CERTAIN are inferred from glyph shape, not "
+                    "read from a mapping stated in the file. See the PDFRecon "
+                    "manual, section \"CID Text Decoding\", for how to verify "
+                    "or challenge them."
+                ),
+            }
+
         report["findings"].append(entry)
     return report
 

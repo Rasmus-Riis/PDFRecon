@@ -202,6 +202,18 @@ class PopupsMixin:
                 text_color="white",
             )
             self.inspector_touchup_btn.pack(side="left", padx=(0, 8), pady=(0, 4))
+            # Opens the decoding evidence window when text had to be recovered
+            # from a font whose ToUnicode CMap was missing or unusable.
+            self.inspector_cid_btn_frame = ttk.Frame(indicators_frame)
+            self.inspector_cid_btn = ctk.CTkButton(
+                self.inspector_cid_btn_frame,
+                text=self._("cid_decoding_button"),
+                command=self.show_cid_decoding_popup,
+                height=26,
+                fg_color=UI_COLORS.get("accent_blue", "#1F6AA5"),
+                text_color="white",
+            )
+            self.inspector_cid_btn.pack(side="left", padx=(0, 8), pady=(0, 4))
             self.inspector_indicators_text = tk.Text(indicators_frame, wrap="word", font=("Segoe UI", 9))
             self.inspector_indicators_text.pack(fill="both", expand=True)
             self.inspector_indicators_text.tag_configure("bold", font=("Segoe UI", 9, "bold"))
@@ -210,6 +222,16 @@ class PopupsMixin:
             self.inspector_indicators_text.tag_configure("removed", foreground="#cc4444", font=("Segoe UI", 9))
             self.inspector_indicators_text.tag_configure("diffhunk", foreground="#5599cc", font=("Segoe UI", 9, "italic"))
             self.inspector_indicators_text.tag_configure("not_found", foreground="#888888", font=("Segoe UI", 9, "italic"))
+            # Confidence of a decoded reading. SPECULATIVE is given a filled
+            # background rather than just coloured text, so it cannot be
+            # skim-read as a confirmed value.
+            self.inspector_indicators_text.tag_configure(
+                "cid_certain", foreground="#8ee9a8", font=("Consolas", 9))
+            self.inspector_indicators_text.tag_configure(
+                "cid_probable", foreground="#f5d98a", font=("Consolas", 9, "bold"))
+            self.inspector_indicators_text.tag_configure(
+                "cid_speculative", foreground="#ff9d9d", background="#4a0e0e",
+                font=("Consolas", 9, "bold"))
             self._make_text_copyable(self.inspector_indicators_text)
 
             exif_frame = ttk.Frame(notebook, padding="10")
@@ -276,6 +298,7 @@ class PopupsMixin:
         self._inspector_item_id = None
         self.inspector_visual_diff_btn_frame.pack_forget()
         self.inspector_touchup_btn_frame.pack_forget()
+        self.inspector_cid_btn_frame.pack_forget()
 
         # ── File metadata fields (all columns except indicators & note) ──
         indicator_col_name = self._("col_indicators")
@@ -329,7 +352,10 @@ class PopupsMixin:
                 elif key == "TouchUp_TextEdit":
                     self._inspector_item_id = item_id
                     self.inspector_touchup_btn_frame.pack(fill="x", pady=(0, 4), before=self.inspector_indicators_text)
-                    self.inspector_indicators_text.insert(tk.END, "\n• " + formatted + "\n")
+                    if details and details.get("decoded_runs"):
+                        self.inspector_cid_btn_frame.pack(
+                            fill="x", pady=(0, 4), before=self.inspector_indicators_text)
+                    self._insert_touchup_details(formatted, details)
                 else:
                     # Each indicator on its own bullet line
                     for line in formatted.splitlines():
@@ -1100,6 +1126,295 @@ class PopupsMixin:
             self.show_visual_diff_popup(item_id)
         else:
             messagebox.showinfo(self._("info_title"), self._("data_not_found"), parent=self.root)
+
+    def _insert_touchup_details(self, formatted, details):
+        """
+        Write the TouchUp block, colour-coding any decoded reading.
+
+        Lines carrying a confidence marker are tagged so a SPECULATIVE
+        reading is visually distinct from a confirmed one; everything else
+        goes in unchanged.
+        """
+        widget = self.inspector_indicators_text
+        widget.insert(tk.END, "\n• ")
+
+        if not (details and details.get("decoded_runs")):
+            widget.insert(tk.END, formatted + "\n")
+            return
+
+        from .cid_report import CONFIDENCE_PREFIX, CERTAIN, PROBABLE, SPECULATIVE
+        tag_for = {
+            CONFIDENCE_PREFIX[PROBABLE]: "cid_probable",
+            CONFIDENCE_PREFIX[SPECULATIVE]: "cid_speculative",
+        }
+        for line in formatted.splitlines():
+            tag = next((t for prefix, t in tag_for.items() if prefix in line), None)
+            if tag is None and self._("cid_page") in line and line.startswith("  ["):
+                # A decoded line with no marker is CERTAIN by construction.
+                tag = "cid_certain"
+            widget.insert(tk.END, line + "\n", (tag,) if tag else ())
+        widget.insert(tk.END, "\n")
+
+    def show_cid_decoding_popup(self, item_id=None):
+        """
+        Show how each TouchUp text run was decoded, and on what evidence.
+
+        The point of this window is that an examiner can refute what it says.
+        For every run it shows the method, which tiers ran and what each
+        resolved, the font and its SHA-256, the raw operand, and - for shape
+        matching - the glyph the document actually draws next to the character
+        it was read as, with the score and margin behind that choice.
+        """
+        import base64
+        import io as _io
+
+        from .cid_report import (
+            CONFIDENCE_COLOURS, CERTAIN, PROBABLE, SPECULATIVE,
+            glyph_bitmaps, method_of, summary_line,
+        )
+
+        item_id = item_id or getattr(self, "_inspector_item_id", None)
+        file_data = None
+        if item_id:
+            try:
+                file_data = self.all_scan_data.get(self.tree.item(item_id, "values")[4])
+            except Exception as exc:
+                logging.debug("Could not resolve file data for %s: %s", item_id, exc)
+        touchup = (file_data or {}).get("indicator_keys", {}).get("TouchUp_TextEdit", {}) or {}
+        runs = touchup.get("decoded_runs") or []
+
+        popup = Toplevel(self.root)
+        popup.title(self._("cid_decoding_title"))
+        popup.geometry("1000x760")
+        popup.transient(self.root)
+        try:
+            popup.iconbitmap(self._resolve_path("icon.ico"))
+        except Exception:
+            pass
+
+        # Keep PhotoImage references alive for the window's lifetime, otherwise
+        # Tk garbage-collects them and the glyphs render blank.
+        popup._glyph_images = []
+
+        # Footer first, then header, then the scrolling area. Packing a
+        # side="bottom" widget after a side="left" one leaves it competing for
+        # a cavity the expanding widget has already claimed, which collapses
+        # the scroll area to its requested width.
+        footer = ttk.Frame(popup, padding=(12, 6))
+        footer.pack(fill="x", side="bottom")
+
+        header = ttk.Frame(popup, padding=(12, 10, 12, 4))
+        header.pack(fill="x", side="top")
+        ttk.Label(header, text=self._("cid_decoding_title"),
+                  font=("Segoe UI", 12, "bold")).pack(anchor="w")
+        if runs:
+            ttk.Label(header,
+                      text=self._("cid_decoding_summary").format(
+                          summary=summary_line(runs)),
+                      font=("Segoe UI", 9)).pack(anchor="w", pady=(2, 0))
+
+        if not runs:
+            ttk.Label(popup, text=self._("cid_no_runs"), padding=20,
+                      font=("Segoe UI", 10, "italic")).pack(anchor="w")
+            ctk.CTkButton(popup, text=self._("close_button_text"),
+                          command=popup.destroy, width=120).pack(pady=12)
+            return
+
+        # Scrollable body
+        canvas = tk.Canvas(popup, highlightthickness=0,
+                           bg=UI_COLORS.get("main_bg", "#1e1e1e"))
+        scrollbar = ttk.Scrollbar(popup, orient="vertical", command=canvas.yview)
+        body = ttk.Frame(canvas, padding=(12, 6))
+        body.bind("<Configure>",
+                  lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        window_id = canvas.create_window((0, 0), window=body, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+
+        def _fit_body(event=None):
+            # Without this the inner frame keeps its requested width and the
+            # long fields - tier detail, font hash, raw operand - are clipped
+            # against an empty right-hand margin.
+            width = event.width if event else canvas.winfo_width()
+            if width > 1:
+                canvas.itemconfig(window_id, width=width)
+
+        canvas.bind("<Configure>", _fit_body)
+        popup.after_idle(_fit_body)
+
+        def _on_wheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        canvas.bind_all("<MouseWheel>", _on_wheel)
+        popup.bind("<Destroy>",
+                   lambda e: canvas.unbind_all("<MouseWheel>") if e.widget is popup else None)
+
+        explain_key = {
+            CERTAIN: "cid_explain_certain",
+            PROBABLE: "cid_explain_probable",
+            SPECULATIVE: "cid_explain_speculative",
+        }
+        confidence_label_key = {
+            CERTAIN: "cid_confidence_certain",
+            PROBABLE: "cid_confidence_probable",
+            SPECULATIVE: "cid_confidence_speculative",
+        }
+
+        for index, record in enumerate(runs, 1):
+            confidence = record.get("confidence") or SPECULATIVE
+            colours = CONFIDENCE_COLOURS.get(
+                confidence, CONFIDENCE_COLOURS[SPECULATIVE])
+
+            block = ttk.LabelFrame(
+                body,
+                text=self._("cid_run_header").format(num=index, total=len(runs))
+                     + f"  —  {self._('cid_page')} {record.get('page')}",
+                padding=10)
+            block.pack(fill="x", expand=True, pady=(0, 12))
+
+            # ── Confidence badge ──
+            badge_row = tk.Frame(block, bg=colours["bg"])
+            badge_row.pack(fill="x", pady=(0, 6))
+            tk.Label(badge_row,
+                     text=f"  {self._(confidence_label_key[confidence])}  ",
+                     bg=colours["accent"], fg="white",
+                     font=("Segoe UI", 10, "bold")).pack(
+                side="left", padx=6, pady=6, anchor="n")
+            explanation = tk.Label(
+                badge_row, text=self._(explain_key[confidence]),
+                bg=colours["bg"], fg=colours["fg"], justify="left",
+                anchor="w", font=("Segoe UI", 9))
+            explanation.pack(side="left", fill="x", expand=True, padx=(4, 8), pady=6)
+            # Wrap against the width actually available, not a guess.
+            explanation.bind(
+                "<Configure>",
+                lambda e, w=explanation: w.configure(wraplength=max(200, e.width - 8)))
+
+            if record.get("error"):
+                ttk.Label(block, text=record["error"], foreground="#ff9d9d",
+                          wraplength=900).pack(anchor="w")
+                continue
+
+            # ── Decoded text ──
+            text_row = ttk.Frame(block)
+            text_row.pack(fill="x", pady=(0, 6))
+            ttk.Label(text_row, text=self._("cid_decoded_text_label"),
+                      font=("Segoe UI", 9, "bold")).pack(anchor="w")
+            text_box = tk.Text(text_row, height=2, wrap="word",
+                               font=("Consolas", 11), relief="flat",
+                               bg=colours["bg"], fg=colours["fg"])
+            text_box.insert("1.0", record.get("text") or "")
+            text_box.config(state="disabled")
+            text_box.pack(fill="x", pady=(2, 0))
+
+            evidence = record.get("evidence") or {}
+            font_info = evidence.get("font") or {}
+            shape = evidence.get("shape_match") or {}
+            reference = (shape.get("reference") or {}).get("reference_font", "")
+
+            facts = ttk.Frame(block)
+            facts.pack(fill="x", pady=(0, 6))
+
+            def _fact(label_key, value, parent=facts):
+                if value in (None, "", []):
+                    return
+                row = ttk.Frame(parent)
+                row.pack(fill="x")
+                ttk.Label(row, text=self._(label_key), width=18,
+                          font=("Segoe UI", 9, "bold")).pack(side="left", anchor="nw")
+                value_label = ttk.Label(row, text=str(value), font=("Consolas", 9),
+                                        justify="left")
+                value_label.pack(side="left", fill="x", expand=True, anchor="nw")
+                value_label.bind(
+                    "<Configure>",
+                    lambda e, w=value_label: w.configure(
+                        wraplength=max(200, e.width - 8)))
+
+            _fact("cid_method",
+                  f"{method_of(record)}   "
+                  f"({record.get('resolved')}/{record.get('length')})")
+            _fact("cid_tiers_run", "; ".join(
+                f"{t['tier']} {t['method']}: "
+                f"{'skipped — ' + t['detail'] if not t['ran'] else str(t['resolved']) + ' — ' + t['detail']}"
+                for t in record.get("tiers_run") or []))
+            _fact("cid_font",
+                  f"{font_info.get('base_font', '')} "
+                  f"[{font_info.get('subtype', '')}/{font_info.get('encoding', '')}] "
+                  f"obj {record.get('font_xref')}")
+            _fact("cid_font_hash", font_info.get("font_program_sha256"))
+            _fact("cid_raw_operand", evidence.get("encoded_hex"))
+            _fact("cid_reference_font", reference)
+            _fact("cid_unresolved", ", ".join(evidence.get("unresolved_codes") or []))
+
+            # ── Alternatives ──
+            alternatives = record.get("alternatives") or []
+            if alternatives:
+                alt_frame = ttk.LabelFrame(
+                    block, text=self._("cid_alternatives"), padding=6)
+                alt_frame.pack(fill="x", pady=(4, 6))
+                for alternative in alternatives[:5]:
+                    ttk.Label(alt_frame, text=alternative.get("text", ""),
+                              font=("Consolas", 10)).pack(anchor="w")
+                    ttk.Label(alt_frame, text=alternative.get("reason", ""),
+                              font=("Segoe UI", 8, "italic"),
+                              foreground="#999999", wraplength=860,
+                              justify="left").pack(anchor="w", pady=(0, 4))
+
+            # ── Glyph evidence ──
+            bitmaps = glyph_bitmaps(record)
+            if bitmaps:
+                glyph_frame = ttk.LabelFrame(
+                    block, text=self._("cid_glyphs_heading"), padding=6)
+                glyph_frame.pack(fill="x", pady=(4, 0))
+                grid = ttk.Frame(glyph_frame)
+                grid.pack(anchor="w")
+
+                by_code = {c["code_hex"]: c for c in record.get("per_char") or []}
+                for column, (code_hex, uri) in enumerate(sorted(bitmaps.items())):
+                    char = by_code.get(code_hex, {})
+                    cell = ttk.Frame(grid, padding=4)
+                    cell.grid(row=0, column=column, sticky="n")
+                    blank = True
+                    try:
+                        raw = base64.b64decode(uri.split(",", 1)[1])
+                        # to_png() already renders dark ink on a white ground,
+                        # the way the glyph appears on the page. Inverting it
+                        # here would show it as a negative and, worse, turn a
+                        # blank glyph into a solid black square.
+                        image = Image.open(_io.BytesIO(raw)).convert("L")
+                        blank = image.getextrema()[0] > 240
+                        photo = ImageTk.PhotoImage(
+                            image.resize((48, 48), Image.NEAREST))
+                        popup._glyph_images.append(photo)
+                        tk.Label(cell, image=photo, bd=1, relief="solid",
+                                 bg="white").pack()
+                    except Exception as exc:
+                        logging.debug("Could not show glyph %s: %s", code_hex, exc)
+                        tk.Label(cell, text="?", width=6, height=3).pack()
+
+                    read_as = char.get("text", "")
+                    caption = (f"→ U+{ord(read_as):04X}"
+                               if blank and len(read_as) == 1
+                               else f"→ {read_as!r}")
+                    tk.Label(cell, text=caption,
+                             font=("Consolas", 10, "bold")).pack()
+                    if char.get("score") is not None:
+                        tk.Label(
+                            cell,
+                            text=f"{self._('cid_score')} {char['score']:.2f}\n"
+                                 f"{self._('cid_margin')} {char['margin']:.2f}",
+                            font=("Segoe UI", 7), foreground="#999999",
+                            justify="center").pack()
+                    alts = "".join(char.get("alternatives") or [])[:4]
+                    if alts:
+                        tk.Label(cell, text=alts, font=("Consolas", 8),
+                                 foreground="#888888").pack()
+
+        ttk.Label(footer, text=self._("cid_verify_hint"),
+                  font=("Segoe UI", 8, "italic"), foreground="#999999",
+                  wraplength=760, justify="left").pack(side="left")
+        ctk.CTkButton(footer, text=self._("close_button_text"),
+                      command=popup.destroy, width=110).pack(side="right")
 
     def _jump_to_touchup_visual_pane(self):
         """Switch the Inspector to the PDF viewer tab for visual TouchUp inspection."""
