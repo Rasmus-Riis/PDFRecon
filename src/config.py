@@ -74,6 +74,50 @@ class PDFReconConfig:
     TEXT_EXTRACTION_TIMEOUT = 15  # seconds
     FILE_PROCESSING_TIMEOUT = 60  # seconds
 
+    # --- CID / ToUnicode decoding (see src/cid_decoder.py) ---
+    # Per-tier enable toggles. Tier 0 (ToUnicode) and Tier 1 (glyph names)
+    # are deterministic and cheap. Tier 2 (glyph shape matching) renders
+    # glyphs and is the only one with a measurable cost.
+    CID_DECODE_ENABLED = True       # master switch for the whole feature
+    CID_TIER0_TOUNICODE = True
+    CID_TIER1_GLYPHNAMES = True
+    CID_TIER2_SHAPEMATCH = True
+
+    # Comparison alphabet for Tier 2, as comma-separated hex Unicode ranges.
+    # Default covers ASCII, Latin-1 Supplement and Latin Extended-A, which is
+    # Western and Central European text including diacritics. The bundled
+    # reference font also carries Latin Extended-B, Greek, Cyrillic, General
+    # Punctuation and Currency Symbols, so those can be added here without
+    # any external asset, e.g. "0020-007E,0370-03FF" for Greek.
+    CID_CHARACTER_INVENTORY = "0020-007E,00A0-00FF,0100-017F"
+
+    # Optional path to a reference font for Tier 2. Empty means the bundled
+    # font. Set this to a font closer to the document's typeface, or one
+    # covering a script the bundled font does not.
+    CID_REFERENCE_FONT_PATH = None
+
+    # Best-vs-second-best score margin required before a Tier 2 shape match
+    # is reported as CERTAIN instead of PROBABLE. See DEFAULT_CERTAIN_MARGIN
+    # in src/cid_shapes.py for the measurement behind this default.
+    CID_SHAPE_CERTAIN_MARGIN = 0.25
+
+    # Minimum score for a shape match to be offered at all. Below this the
+    # code is reported as undecoded rather than given a weak candidate.
+    CID_SHAPE_MIN_SCORE = 0.45
+
+    # Normalised bitmap edge length for shape comparison. Larger is slower
+    # and, measured across nine typefaces, no more accurate.
+    CID_SHAPE_BITMAP_SIZE = 32
+
+    # Ranked alternatives retained per character and per string.
+    CID_MAX_ALTERNATIVES = 5
+
+    # Characters too similar in too many typefaces for a shape match alone
+    # ever to be called CERTAIN, whatever the margin. Space-separated groups.
+    # Characters the reference font renders identically are detected
+    # automatically and need not be listed here.
+    CID_CONFUSABLE_GROUPS = None  # None means the documented default
+
 
 # --- Custom Exceptions ---
 class PDFProcessingError(Exception):

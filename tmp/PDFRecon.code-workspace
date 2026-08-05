@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"name": "PDFRecon",
+			"path": ".."
+		},
+		{
+			"name": "ActivityViewer",
+			"path": "../../ActivityViewer"
+		}
+	],
+	"settings": {}
+}

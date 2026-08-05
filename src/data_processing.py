@@ -599,15 +599,34 @@ class DataProcessingMixin:
                     found_text_str = "\n".join(found_text)
             if details and details.get('text_diff'):
                 diff_str = self._("details_comparison_available")
-            
-            if found_text_str and diff_str:
-                return f"TouchUp TextEdit:\n{found_text_str}\n\n({diff_str})"
-            elif found_text_str:
-                return f"TouchUp TextEdit:\n{found_text_str}"
-            elif diff_str:
-                return f"TouchUp TextEdit ({diff_str})"
-            else:
+
+            # Decoded readings, where a font's ToUnicode CMap was missing or
+            # unusable. Every reading carries its confidence; see cid_report.
+            decode_str = ""
+            if details and details.get('decoded_runs'):
+                from .cid_report import labelled_text, summary_line
+                runs = details['decoded_runs']
+                lines = [self._("cid_decoding_summary").format(
+                    summary=summary_line(runs))]
+                for record in runs:
+                    page = record.get('page')
+                    lines.append(
+                        f"  [{self._('cid_page')} {page}] {labelled_text(record)}")
+                decode_str = "\n".join(lines)
+
+            parts = []
+            if found_text_str:
+                parts.append(f"TouchUp TextEdit:\n{found_text_str}")
+            if decode_str:
+                parts.append(decode_str)
+            if diff_str:
+                parts.append(f"({diff_str})")
+
+            if not parts:
                 return self._("details_touchup_acrobat")
+            if not found_text_str and not decode_str:
+                return f"TouchUp TextEdit ({diff_str})"
+            return "\n\n".join(parts)
 
         if key == 'MultipleCreators':
             values_str = "\n    - " + "\n    - ".join(f'"{v}"' for v in details['values'])
@@ -1266,123 +1285,22 @@ class DataProcessingMixin:
                             })
                             indicators['RelatedFiles']['count'] += 1
 
-    def _extract_touchup_text(self, doc):
-        import pikepdf
-        import io
-        import logging
-        import fitz
+    def _extract_touchup_text(self, doc, capture_runs=False):
+        """
+        Extract the text inside TouchUp-marked content.
 
-        page_results = {}
-        if not doc or doc.is_closed:
-            return page_results
+        Thin wrapper over :func:`src.touchup_extract.extract_touchup_text`,
+        which is shared with the worker-pool and CLI scan paths so the three
+        cannot drift. Kept as a method because the scanner calls it through
+        ``app_instance``.
+        """
+        from .touchup_extract import extract_touchup_text
+        return extract_touchup_text(doc, capture_runs=capture_runs)
 
-        try:
-            try:
-                pdf_bytes = doc.tobytes()
-                pdf = pikepdf.open(io.BytesIO(pdf_bytes))
-            except Exception as e:
-                logging.debug(f"Pikepdf open failed for TouchUp masking: {e}")
-                return page_results
-
-            with pdf:
-                for page_num, page in enumerate(pdf.pages):
-                    try:
-                        ops = pikepdf.parse_content_stream(page)
-                        new_ops = []
-                        
-                        touchup_stack = [False]
-                        mp_flag = False
-                        in_flagged_bt = False
-                        
-                        properties = {}
-                        if "/Resources" in page and "/Properties" in page.Resources:
-                            properties = page.Resources.Properties
-
-                        for operands, operator in ops:
-                            op_name = str(operator)
-                            
-                            # ⚡ Bolt Optimization: Use set literals instead of lists for O(1) operator lookups
-                            if op_name in {"BDC", "BMC"}:
-                                is_touchup = False
-                                tag = ""
-                                if operands and (isinstance(operands[0], pikepdf.Name) or isinstance(operands[0], str)):
-                                    tag = str(operands[0])
-                                
-                                if "TouchUp" in tag:
-                                    is_touchup = True
-                                elif properties and operands and operands[0] in properties:
-                                    try:
-                                        if "TouchUp" in str(properties[operands[0]]):
-                                            is_touchup = True
-                                    except Exception: pass
-                                touchup_stack.append(is_touchup or touchup_stack[-1])
-                            
-                            elif op_name == "EMC":
-                                if len(touchup_stack) > 1:
-                                    touchup_stack.pop()
-                                in_flagged_bt = False
-                                mp_flag = False
-                            
-                            elif op_name in {"MP", "DP"}:
-                                tag = ""
-                                if operands and (isinstance(operands[0], pikepdf.Name) or isinstance(operands[0], str)):
-                                    tag = str(operands[0])
-                                    
-                                if "TouchUp" in tag:
-                                    mp_flag = True
-                                elif properties and operands and operands[0] in properties:
-                                    try:
-                                        if "TouchUp" in str(properties[operands[0]]):
-                                            mp_flag = True
-                                    except Exception: pass
-                            
-                            elif op_name == "BT":
-                                if mp_flag:
-                                    in_flagged_bt = True
-                                    mp_flag = False
-                            
-                            elif op_name == "ET":
-                                in_flagged_bt = False
-                            
-                            is_inside_touchup = touchup_stack[-1] or in_flagged_bt
-                            
-                            if not is_inside_touchup and op_name in {"Tj", "TJ", "'", '"'}:
-                                if op_name == "TJ":
-                                    new_list = []
-                                    for item in operands[0]:
-                                        if isinstance(item, pikepdf.String):
-                                            new_list.append(pikepdf.String(" " * len(bytes(item))))
-                                        else:
-                                            new_list.append(item)
-                                    new_ops.append(([new_list], operator))
-                                else:
-                                    new_ops.append(([pikepdf.String(" " * len(bytes(operands[0])))], operator))
-                            else:
-                                new_ops.append((operands, operator))
-
-                        page.set_contents(pikepdf.unparse_content_stream(new_ops))
-                        
-                    except Exception as e:
-                        logging.debug(f"Failed to mask page {page_num}: {e}")
-                        continue
-
-                out_buf = io.BytesIO()
-                pdf.save(out_buf)
-                out_buf.seek(0)
-                
-                with fitz.open(stream=out_buf, filetype="pdf") as masked_doc:
-                    for i, masked_page in enumerate(masked_doc):
-                        text = masked_page.get_text("text").strip()
-                        if text:
-                            lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-                            if lines:
-                                page_results[i + 1] = lines
-            
-            return page_results
-
-        except Exception as e:
-            logging.warning(f"Robust TouchUp extraction failed: {e}")
-            return {}
+    def _decode_touchup_runs(self, captured_runs, pdf_bytes):
+        """Decode captured TouchUp runs; see :mod:`src.touchup_extract`."""
+        from .touchup_extract import decode_touchup_runs
+        return decode_touchup_runs(captured_runs, pdf_bytes)
 
     def _get_text_for_comparison(self, source):
         full_text = []

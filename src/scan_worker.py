@@ -128,126 +128,18 @@ def _extract_text_for_scanning(raw: bytes) -> str:
     return "\n".join(txt_segments)
 
 
-def _extract_touchup_text(doc):
+def _extract_touchup_text(doc, capture_runs=False):
     """
-    Extracts text from elements marked with TouchUp_TextEdit.
-    Uses a 'Masking' strategy: creates a copy of the PDF, masks all non-TouchUp
-    text using pikepdf, then extracts the remaining (correctly decoded) text via fitz.
-    This ensures CID-encoded fonts (common in TouchUp edits) are correctly translated.
+    Extract TouchUp text in worker mode.
 
-    Inlined from worker_extracted.py (which is not importable as a module).
+    Delegates to the shared implementation. This used to be a second copy of
+    the extraction walk, which drifted from the one in data_processing.py -
+    fixes landed in one and not the other, so the same file could produce
+    different TouchUp text depending on which scan path handled it.
     """
-    import pikepdf
-    import io
+    from .touchup_extract import extract_touchup_text
+    return extract_touchup_text(doc, capture_runs=capture_runs)
 
-    page_results = {}
-    if not doc or doc.is_closed:
-        return page_results
-
-    try:
-        try:
-            pdf_bytes = doc.tobytes()
-            pdf = pikepdf.open(io.BytesIO(pdf_bytes))
-        except Exception as e:
-            logging.debug(f"Pikepdf open failed for TouchUp masking: {e}")
-            return page_results
-
-        with pdf:
-            for page_num, page in enumerate(pdf.pages):
-                try:
-                    ops = pikepdf.parse_content_stream(page)
-                    new_ops = []
-                    touchup_stack = [False]
-                    mp_flag = False
-                    in_flagged_bt = False
-                    properties = {}
-                    if "/Resources" in page and "/Properties" in page.Resources:
-                        properties = page.Resources.Properties
-
-                    for operands, operator in ops:
-                        op_name = str(operator)
-
-                        if op_name in {"BDC", "BMC"}:
-                            is_touchup = False
-                            tag = ""
-                            if operands and (isinstance(operands[0], pikepdf.Name) or isinstance(operands[0], str)):
-                                tag = str(operands[0])
-                            if "TouchUp" in tag:
-                                is_touchup = True
-                            elif properties and operands and operands[0] in properties:
-                                try:
-                                    if "TouchUp" in str(properties[operands[0]]):
-                                        is_touchup = True
-                                except Exception:
-                                    pass
-                            touchup_stack.append(is_touchup or touchup_stack[-1])
-
-                        elif op_name == "EMC":
-                            if len(touchup_stack) > 1:
-                                touchup_stack.pop()
-                            in_flagged_bt = False
-                            mp_flag = False
-
-                        elif op_name in {"MP", "DP"}:
-                            tag = ""
-                            if operands and (isinstance(operands[0], pikepdf.Name) or isinstance(operands[0], str)):
-                                tag = str(operands[0])
-                            if "TouchUp" in tag:
-                                mp_flag = True
-                            elif properties and operands and operands[0] in properties:
-                                try:
-                                    if "TouchUp" in str(properties[operands[0]]):
-                                        mp_flag = True
-                                except Exception:
-                                    pass
-
-                        elif op_name == "BT":
-                            if mp_flag:
-                                in_flagged_bt = True
-                                mp_flag = False
-
-                        elif op_name == "ET":
-                            in_flagged_bt = False
-
-                        is_inside_touchup = touchup_stack[-1] or in_flagged_bt
-
-                        if not is_inside_touchup and op_name in {"Tj", "TJ", "'", '"'}:
-                            if op_name == "TJ":
-                                new_list = []
-                                for item in operands[0]:
-                                    if isinstance(item, pikepdf.String):
-                                        new_list.append(pikepdf.String(" " * len(bytes(item))))
-                                    else:
-                                        new_list.append(item)
-                                new_ops.append(([new_list], operator))
-                            else:
-                                new_ops.append(([pikepdf.String(" " * len(bytes(operands[0])))], operator))
-                        else:
-                            new_ops.append((operands, operator))
-
-                    page.set_contents(pikepdf.unparse_content_stream(new_ops))
-
-                except Exception as e:
-                    logging.debug(f"Failed to mask page {page_num}: {e}")
-                    continue
-
-            out_buf = io.BytesIO()
-            pdf.save(out_buf)
-            out_buf.seek(0)
-
-            with fitz.open(stream=out_buf, filetype="pdf") as masked_doc:
-                for i, masked_page in enumerate(masked_doc):
-                    text = masked_page.get_text("text").strip()
-                    if text:
-                        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-                        if lines:
-                            page_results[i + 1] = lines
-
-        return page_results
-
-    except Exception as e:
-        logging.warning(f"Robust TouchUp extraction failed: {e}")
-        return {}
 
 
 def _resolve_exiftool_path() -> Path | None:
@@ -881,11 +773,16 @@ def process_single_file_worker(fp_str: str, cfg: dict) -> list:
                 logging.warning("JS extraction failed for %s: %s", fp.name, e)
 
         # --- TouchUp text extraction (normally done via app_instance callback) ---
-        # Since app_instance=None in worker mode, we call _extract_touchup_text directly.
+        # Since app_instance=None in worker mode, we call the shared
+        # implementation directly. Decoding runs here too, so a worker-pool or
+        # CLI scan produces the same result as an in-process one.
         if "TouchUp_TextEdit" in indicator_keys:
             try:
-                found_text = _extract_touchup_text(doc)
+                from .touchup_extract import extract_and_decode
+                found_text, decoded_runs, decode_custody = extract_and_decode(doc)
                 indicator_keys["TouchUp_TextEdit"]["found_text"] = found_text
+                indicator_keys["TouchUp_TextEdit"]["decoded_runs"] = decoded_runs or None
+                indicator_keys["TouchUp_TextEdit"]["decode_custody"] = decode_custody
             except Exception as e:
                 logging.warning(f"TouchUp text extraction failed for {fp.name}: {e}")
 

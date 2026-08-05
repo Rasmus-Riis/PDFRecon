@@ -372,6 +372,8 @@
             <li class="lang-da" onclick="showSection('phishing')">Phishing-direktiver</li>
             <li class="lang-en lang-en" onclick="showSection('touchup')">TouchUp_TextEdit</li>
             <li class="lang-da" onclick="showSection('touchup')">TouchUp_TextEdit</li>
+            <li class="lang-en lang-en" onclick="showSection('ciddecoder')">CID Text Decoding</li>
+            <li class="lang-da" onclick="showSection('ciddecoder')">CID-tekstafkodning</li>
             <li class="section-header lang-en lang-en">— MEDIUM RISK —</li>
             <li class="section-header lang-da">— MIDDEL RISIKO —</li>
             <li class="lang-en lang-en" onclick="showSection('hidden')">Hidden Annotations</li>
@@ -1039,6 +1041,501 @@ qpdf --qdf --object-streams=deaktiver input.pdf readable.pdf
 
 # Søg derefter i læsbar version
 grep -A 20 "ToUnicode" readable.pdf</code></pre>
+        </div>
+        <!-- CID TEXT DECODING -->
+        <div class="section lang-en" id="ciddecoder" style="display:none;">
+            <h1>CID Text Decoding <span class="badge badge-found">TOOL FEATURE</span></h1>
+            <div class="info">
+                <strong>What this is:</strong> The five-step manual procedure in the TouchUp_TextEdit section - find the
+                font, find its dictionary, find the <code>/ToUnicode</code> CMap, read the <code>bfchar</code> and
+                <code>bfrange</code> entries, apply them by hand - is automated here. PDFRecon attempts the same
+                reasoning in tiers and, crucially, tells you which tier produced each character and how much weight it
+                carries.
+            </div>
+            <div class="warning">
+                <strong>This is an aid, not an authority.</strong> Every decoding carries the method, a confidence
+                level and the evidence needed to reproduce it. A reading below CERTAIN is an investigative lead. Do not
+                quote it as a finding without performing the verification described below.
+            </div>
+
+            <h2>The Tiers</h2>
+            <p>Tiers run in order. Decoding happens per character code, and once a code is resolved, no later tier is
+                consulted for it - a shape guess can never overwrite a mapping read from the file.</p>
+            <table>
+                <tr>
+                    <th>Tier</th>
+                    <th>Method</th>
+                    <th>Evidence used</th>
+                    <th>Confidence</th>
+                </tr>
+                <tr>
+                    <td>0</td>
+                    <td><code>tounicode</code></td>
+                    <td>The font's own <code>/ToUnicode</code> CMap.</td>
+                    <td>CERTAIN</td>
+                </tr>
+                <tr>
+                    <td>1</td>
+                    <td><code>glyphnames</code></td>
+                    <td><code>/Encoding /Differences</code>, or the embedded font's TrueType <code>post</code> table or
+                        CFF charset, resolved through the Adobe Glyph List.</td>
+                    <td>CERTAIN</td>
+                </tr>
+                <tr>
+                    <td>2</td>
+                    <td><code>shapematch</code></td>
+                    <td>The shape the PDF actually draws for the code, compared against a reference alphabet.</td>
+                    <td>PROBABLE (CERTAIN only on a wide margin)</td>
+                </tr>
+            </table>
+            <p>Where different characters in one string come from different tiers, the method is reported as
+                <code>mixed:</code> and the string takes the <em>lowest</em> confidence of any character in it.</p>
+
+            <h3>Tier 0 - ToUnicode CMap</h3>
+            <p>The font states what each code means and PDFRecon takes it at its word. This is the same mapping a
+                viewer's copy-paste uses. Note that a CMap can itself be forged - see the
+                <em>Malicious Font Character Remapping</em> section; Tier 0 reports what the file claims, which is the
+                correct behaviour, but "what the file claims" and "what the page shows" are different questions.</p>
+
+            <h3>Tier 1 - Glyph names</h3>
+            <p>When the CMap is absent, the font may still name its glyphs. A name like <code>/aacute</code> or
+                <code>/uni00E6</code> resolves through the Adobe Glyph List to a definite character.</p>
+            <div class="info">
+                <strong>Names that carry no information are refused, not guessed.</strong> Subsetters commonly rename
+                glyphs to <code>/g43</code>, <code>/cid42</code>, <code>/glyph17</code> or <code>/index5</code>. These
+                encode a position in the font, not a character. PDFRecon records each such name and the reason it was
+                rejected, then falls through to Tier 2.
+            </div>
+
+            <h3>Tier 2 - Glyph shape matching</h3>
+            <p>When neither a CMap nor usable names survive, the only remaining evidence is the shape the document
+                draws. PDFRecon copies the document's own font dictionary unchanged into a scratch PDF, draws the
+                character code through it, and compares the resulting bitmap against a reference alphabet.</p>
+            <div class="info">
+                <strong>The bitmap is not a reconstruction.</strong> It is rendered through the file's own font, so it
+                is what a viewer displays for that code. You can confirm it by looking at the page.
+            </div>
+            <p>Scoring combines four measurements: correlation of the blurred bitmaps, overlap of the inked areas,
+                aspect ratio, and the glyph's extent above and below the baseline. The last matters more than it
+                sounds - cropping to the ink discards absolute size, and absolute size is the only thing separating
+                <code>c</code> from <code>C</code>, <code>o</code> from <code>O</code>, or <code>1</code> from a
+                superscript <code>1</code>.</p>
+
+            <h2>What the Confidence Levels Mean</h2>
+            <table>
+                <tr>
+                    <th>Level</th>
+                    <th>Meaning</th>
+                    <th>Appropriate use</th>
+                </tr>
+                <tr>
+                    <td><strong>CERTAIN</strong></td>
+                    <td>The mapping was read from data in the file that states it explicitly: a CMap entry or a glyph
+                        name. Re-deriving it by hand gives the same answer.</td>
+                    <td>Quotable, once you have verified it as below.</td>
+                </tr>
+                <tr>
+                    <td><strong>PROBABLE</strong></td>
+                    <td>No stated mapping exists. The reading is inferred from appearance and is the best of several
+                        ranked candidates.</td>
+                    <td>An investigative lead. Report it as an inference, with its alternatives.</td>
+                </tr>
+                <tr>
+                    <td><strong>SPECULATIVE</strong></td>
+                    <td>At least one code could not be resolved at all. Unresolved positions appear as
+                        <code>&#xFFFD;</code>.</td>
+                    <td>Not a reading. Treat the text as undetermined.</td>
+                </tr>
+            </table>
+            <div class="warning">
+                <strong>What CERTAIN does not mean.</strong> It means the file's own mapping was read correctly. It
+                does not mean the text is genuine, that the mapping is honest, or that the page displays this text. A
+                deliberately falsified <code>/ToUnicode</code> CMap produces a CERTAIN decoding of the wrong characters.
+                Certainty is about the reading, never about the document.
+            </div>
+
+            <h2>How to Verify a Decoding</h2>
+            <p>Each decoded run records the facts needed to repeat it independently. Work from the evidence panel in
+                the Inspector, or the corresponding fields in an export.</p>
+            <h3>Verifying a Tier 0 result</h3>
+            <div class="step">
+                <span class="step-number">1</span> Note <code>font.tounicode_xref</code> from the evidence - the object
+                number of the CMap.
+            </div>
+            <div class="step">
+                <span class="step-number">2</span> Decompress the file so objects are readable:
+                <pre><code>qpdf --qdf --object-streams=disable input.pdf readable.pdf</code></pre>
+            </div>
+            <div class="step">
+                <span class="step-number">3</span> Locate that object and read its <code>bfchar</code> and
+                <code>bfrange</code> entries. Apply them to <code>encoded_hex</code>, also in the evidence, which is the
+                raw operand exactly as it appears in the content stream.
+            </div>
+            <div class="step">
+                <span class="step-number">4</span> The result must match the reported text character for character.
+            </div>
+
+            <h3>Verifying a Tier 1 result</h3>
+            <div class="step">
+                <span class="step-number">1</span> Each character's note names the glyph and where it came from, for
+                example <code>glyph name /aacute from /Encoding /Differences</code>.
+            </div>
+            <div class="step">
+                <span class="step-number">2</span> Look that name up in Adobe's published <code>glyphlist.txt</code>.
+                The bundled copy is plain text at <code>src/assets/agl.txt</code> and can be diffed against it directly.
+            </div>
+            <div class="step">
+                <span class="step-number">3</span> The evidence records <code>agl_sha256</code>, the hash of the table
+                actually used, so you can prove which table produced the result.
+            </div>
+            <div class="info">
+                Adobe's list has historical quirks that PDFRecon reproduces rather than corrects. <code>/Omega</code>
+                maps to U+2126 OHM SIGN, not U+03A9 GREEK CAPITAL OMEGA. This is faithful to the published source.
+            </div>
+
+            <h3>Verifying a Tier 2 result</h3>
+            <div class="step">
+                <span class="step-number">1</span> The evidence holds the rendered glyph bitmap. Compare it against the
+                character PDFRecon claims it is - the Inspector shows them side by side.
+            </div>
+            <div class="step">
+                <span class="step-number">2</span> Open the document at the page and position of the run and look at the
+                glyph on screen. The bitmap was drawn through the file's own font and must agree.
+            </div>
+            <div class="step">
+                <span class="step-number">3</span> Check <code>score</code> and <code>margin</code> for the character. A
+                small margin means the second-best candidate was nearly as good; that candidate is listed in
+                <code>alternatives</code>.
+            </div>
+            <div class="step">
+                <span class="step-number">4</span> The evidence names the reference font and its SHA-256. Repeating the
+                comparison against a different reference is a legitimate and often decisive test.
+            </div>
+
+            <h2>How to Challenge a Decoding</h2>
+            <div class="info">
+                <p>A Tier 2 reading is an opinion about appearance. These are the grounds on which it can properly be
+                    disputed:</p>
+                <ul>
+                    <li><strong>The reference typeface does not resemble the document's.</strong> This dominates
+                        accuracy. The same serif-set line decoded 5 of 11 characters correctly against the bundled
+                        sans-serif reference, and 11 of 11 against a serif reference. Serifs change the proportions of
+                        narrow letters sharply. If the document is set in a serif face and the default reference was
+                        used, the reading is weak and should be redone.</li>
+                    <li><strong>The margin is small.</strong> A reading that beat its runner-up by a hair is not a
+                        reading, it is a preference. The alternatives are recorded for exactly this argument.</li>
+                    <li><strong>The character is inherently ambiguous.</strong> Some characters cannot be told apart by
+                        shape at all. PDFRecon detects these and refuses to call them CERTAIN however wide the margin.
+                        Where the reference font draws two characters identically - Latin A, Greek Alpha and Cyrillic A
+                        are one shape - all of them are reported as equally valid readings.</li>
+                    <li><strong>The character inventory excluded the true character.</strong> Shape matching can only
+                        return something from its comparison alphabet. If the document contains a script outside the
+                        configured ranges, the correct answer was never a candidate.</li>
+                </ul>
+            </div>
+
+            <h2>Settings That Change the Result</h2>
+            <p>These live in <code>config.ini</code>. The two that matter most are the reference font and the
+                inventory.</p>
+            <table>
+                <tr>
+                    <th>Setting</th>
+                    <th>Default</th>
+                    <th>Effect</th>
+                </tr>
+                <tr>
+                    <td><code>CIDReferenceFontPath</code></td>
+                    <td>bundled font</td>
+                    <td>The typeface Tier 2 compares against. Set this to the document's typeface, or something close
+                        to it, whenever it is known. The single most effective adjustment available.</td>
+                </tr>
+                <tr>
+                    <td><code>CIDCharacterInventory</code></td>
+                    <td><code>0020-007E,00A0-00FF,0100-017F</code></td>
+                    <td>Which characters Tier 2 may propose, as hexadecimal Unicode ranges. The default covers Western
+                        and Central European text. The bundled reference font also carries Latin Extended-B, Greek,
+                        Cyrillic, punctuation and currency, so adding <code>0370-03FF</code> for Greek or
+                        <code>0400-04FF</code> for Cyrillic needs nothing further. Narrowing the inventory to the
+                        expected script reduces cross-script confusion.</td>
+                </tr>
+                <tr>
+                    <td><code>CIDShapeCertainMargin</code></td>
+                    <td><code>0.25</code></td>
+                    <td>How far a Tier 2 match must beat its runner-up before it is reported CERTAIN rather than
+                        PROBABLE. Measured over 131 glyphs from nine typefaces and three scripts, the top candidate was
+                        correct 82% of the time at any margin, 94.6% above 0.10, 97.9% above 0.15 and 100% above 0.20.
+                        The default is deliberately one step stricter than the measurement requires.</td>
+                </tr>
+                <tr>
+                    <td><code>CIDShapeMinScore</code></td>
+                    <td><code>0.45</code></td>
+                    <td>Below this, no candidate is offered at all and the code is reported unresolved. A weak guess is
+                        worse than none: it gives an examiner a specific wrong character to anchor on.</td>
+                </tr>
+                <tr>
+                    <td><code>CIDTier0ToUnicode</code>, <code>CIDTier1GlyphNames</code>,
+                        <code>CIDTier2ShapeMatch</code></td>
+                    <td>all <code>True</code></td>
+                    <td>Per-tier switches. Disabling a tier is recorded in the result, so a report always shows which
+                        methods were available.</td>
+                </tr>
+            </table>
+
+            <h2>Reproducibility</h2>
+            <div class="success">
+                <p>Tiers 0 to 2 contain no randomness, no sampling and no network access. The same file, decoded with
+                    the same settings, produces byte-identical output on any machine. The chain-of-custody log records
+                    which tiers ran, how many characters each resolved, the SHA-256 of the Adobe Glyph List, the
+                    SHA-256 of the reference font and the SHA-256 of the document's own embedded font program.</p>
+                <p>Object numbers quoted in the evidence refer to the file as PDFRecon read it, and match what you will
+                    see opening the original in a hex editor or after <code>qpdf --qdf</code>.</p>
+            </div>
+        </div>
+        <div class="section lang-da" id="ciddecoder-da" style="display:none;">
+            <h1>CID-tekstafkodning <span class="badge badge-found">VÆRKTØJSFUNKTION</span></h1>
+            <div class="info">
+                <strong>Hvad dette er:</strong> Den femtrins manuelle procedure i afsnittet om TouchUp_TextEdit - find
+                skrifttypen, find dens ordbog, find <code>/ToUnicode</code>-CMap'en, læs <code>bfchar</code>- og
+                <code>bfrange</code>-posterne og anvend dem i hånden - er automatiseret her. PDFRecon forsøger den samme
+                argumentation i niveauer og oplyser, hvilket niveau der frembragte hvert tegn, og hvor meget det vejer.
+            </div>
+            <div class="warning">
+                <strong>Dette er en hjælp, ikke en autoritet.</strong> Enhver afkodning bærer metoden, et
+                konfidensniveau og den dokumentation, der skal til for at gengive den. En læsning under CERTAIN er et
+                efterforskningsspor. Anfør den ikke som et fund uden først at udføre verifikationen nedenfor.
+            </div>
+
+            <h2>Niveauerne</h2>
+            <p>Niveauerne køres i rækkefølge. Afkodning sker pr. tegnkode, og når en kode først er løst, konsulteres
+                intet senere niveau for den - et formgæt kan aldrig overskrive en kortlægning læst fra filen.</p>
+            <table>
+                <tr>
+                    <th>Niveau</th>
+                    <th>Metode</th>
+                    <th>Anvendt dokumentation</th>
+                    <th>Konfidens</th>
+                </tr>
+                <tr>
+                    <td>0</td>
+                    <td><code>tounicode</code></td>
+                    <td>Skrifttypens egen <code>/ToUnicode</code>-CMap.</td>
+                    <td>CERTAIN</td>
+                </tr>
+                <tr>
+                    <td>1</td>
+                    <td><code>glyphnames</code></td>
+                    <td><code>/Encoding /Differences</code> eller den indlejrede skrifttypes TrueType
+                        <code>post</code>-tabel eller CFF-charset, slået op i Adobe Glyph List.</td>
+                    <td>CERTAIN</td>
+                </tr>
+                <tr>
+                    <td>2</td>
+                    <td><code>shapematch</code></td>
+                    <td>Den form, PDF'en faktisk tegner for koden, sammenlignet med et referencealfabet.</td>
+                    <td>PROBABLE (kun CERTAIN ved bred margin)</td>
+                </tr>
+            </table>
+            <p>Når forskellige tegn i én streng kommer fra forskellige niveauer, rapporteres metoden som
+                <code>mixed:</code>, og strengen får den <em>laveste</em> konfidens blandt sine tegn.</p>
+
+            <h3>Niveau 0 - ToUnicode-CMap</h3>
+            <p>Skrifttypen angiver, hvad hver kode betyder, og PDFRecon tager den på ordet. Det er samme kortlægning,
+                som en fremvisers kopiér-indsæt bruger. Bemærk, at en CMap i sig selv kan være forfalsket - se afsnittet
+                <em>Ondsindet skrifttypeomkortlægning</em>. Niveau 0 rapporterer, hvad filen påstår, hvilket er den
+                korrekte adfærd, men "hvad filen påstår" og "hvad siden viser" er to forskellige spørgsmål.</p>
+
+            <h3>Niveau 1 - Glyfnavne</h3>
+            <p>Når CMap'en mangler, kan skrifttypen stadig navngive sine glyffer. Et navn som <code>/aacute</code> eller
+                <code>/uni00E6</code> slås op i Adobe Glyph List og giver et entydigt tegn.</p>
+            <div class="info">
+                <strong>Navne uden information afvises, de gættes ikke.</strong> Delmængdeværktøjer omdøber ofte glyffer
+                til <code>/g43</code>, <code>/cid42</code>, <code>/glyph17</code> eller <code>/index5</code>. Disse
+                angiver en placering i skrifttypen, ikke et tegn. PDFRecon registrerer hvert sådant navn og grunden til
+                afvisningen og går derefter videre til niveau 2.
+            </div>
+
+            <h3>Niveau 2 - Formsammenligning af glyffer</h3>
+            <p>Når hverken CMap eller brugbare navne er bevaret, er den eneste tilbageværende dokumentation den form,
+                dokumentet tegner. PDFRecon kopierer dokumentets egen skrifttypeordbog uændret ind i en midlertidig PDF,
+                tegner tegnkoden gennem den og sammenligner det resulterende bitmap med et referencealfabet.</p>
+            <div class="info">
+                <strong>Bitmappet er ikke en rekonstruktion.</strong> Det er gengivet gennem filens egen skrifttype og
+                er derfor, hvad en fremviser viser for den kode. Du kan bekræfte det ved at se på siden.
+            </div>
+            <p>Scoringen kombinerer fire mål: korrelation mellem de slørede bitmaps, overlap mellem de blækdækkede
+                områder, højde-bredde-forhold samt glyffens udstrækning over og under grundlinjen. Det sidste betyder
+                mere, end det lyder - beskæring til blækket fjerner absolut størrelse, og absolut størrelse er det
+                eneste, der adskiller <code>c</code> fra <code>C</code>, <code>o</code> fra <code>O</code> eller
+                <code>1</code> fra et hævet <code>1</code>.</p>
+
+            <h2>Hvad konfidensniveauerne betyder</h2>
+            <table>
+                <tr>
+                    <th>Niveau</th>
+                    <th>Betydning</th>
+                    <th>Passende anvendelse</th>
+                </tr>
+                <tr>
+                    <td><strong>CERTAIN</strong></td>
+                    <td>Kortlægningen blev læst fra data i filen, der angiver den udtrykkeligt: en CMap-post eller et
+                        glyfnavn. En manuel udledning giver samme svar.</td>
+                    <td>Kan citeres, når du har verificeret den som nedenfor.</td>
+                </tr>
+                <tr>
+                    <td><strong>PROBABLE</strong></td>
+                    <td>Der findes ingen angivet kortlægning. Læsningen er udledt af udseende og er den bedste blandt
+                        flere rangordnede kandidater.</td>
+                    <td>Et efterforskningsspor. Anfør den som en slutning sammen med alternativerne.</td>
+                </tr>
+                <tr>
+                    <td><strong>SPECULATIVE</strong></td>
+                    <td>Mindst én kode kunne slet ikke løses. Uløste positioner vises som <code>&#xFFFD;</code>.</td>
+                    <td>Ikke en læsning. Behandl teksten som uafklaret.</td>
+                </tr>
+            </table>
+            <div class="warning">
+                <strong>Hvad CERTAIN ikke betyder.</strong> Det betyder, at filens egen kortlægning blev læst korrekt.
+                Det betyder ikke, at teksten er ægte, at kortlægningen er ærlig, eller at siden viser denne tekst. En
+                bevidst forfalsket <code>/ToUnicode</code>-CMap giver en CERTAIN afkodning af de forkerte tegn.
+                Sikkerheden angår læsningen, aldrig dokumentet.
+            </div>
+
+            <h2>Sådan verificeres en afkodning</h2>
+            <p>Hver afkodet passage registrerer de oplysninger, der skal til for at gentage den uafhængigt. Arbejd ud
+                fra dokumentationspanelet i Inspektøren eller de tilsvarende felter i en eksport.</p>
+            <h3>Verifikation af et niveau 0-resultat</h3>
+            <div class="step">
+                <span class="step-number">1</span> Notér <code>font.tounicode_xref</code> fra dokumentationen -
+                CMap'ens objektnummer.
+            </div>
+            <div class="step">
+                <span class="step-number">2</span> Dekomprimér filen, så objekterne kan læses:
+                <pre><code>qpdf --qdf --object-streams=disable input.pdf readable.pdf</code></pre>
+            </div>
+            <div class="step">
+                <span class="step-number">3</span> Find objektet og læs dets <code>bfchar</code>- og
+                <code>bfrange</code>-poster. Anvend dem på <code>encoded_hex</code>, som også står i dokumentationen og
+                er den rå operand nøjagtigt som den optræder i indholdsstrømmen.
+            </div>
+            <div class="step">
+                <span class="step-number">4</span> Resultatet skal svare til den rapporterede tekst tegn for tegn.
+            </div>
+
+            <h3>Verifikation af et niveau 1-resultat</h3>
+            <div class="step">
+                <span class="step-number">1</span> Hvert tegns note angiver glyffen og dens kilde, f.eks.
+                <code>glyph name /aacute from /Encoding /Differences</code>.
+            </div>
+            <div class="step">
+                <span class="step-number">2</span> Slå navnet op i Adobes offentliggjorte <code>glyphlist.txt</code>.
+                Den medfølgende kopi er ren tekst i <code>src/assets/agl.txt</code> og kan sammenlignes direkte.
+            </div>
+            <div class="step">
+                <span class="step-number">3</span> Dokumentationen registrerer <code>agl_sha256</code>, hashen på den
+                tabel der faktisk blev brugt, så du kan påvise hvilken tabel der frembragte resultatet.
+            </div>
+            <div class="info">
+                Adobes liste har historiske særheder, som PDFRecon gengiver frem for at rette. <code>/Omega</code>
+                peger på U+2126 OHM SIGN, ikke U+03A9 GREEK CAPITAL OMEGA. Dette er tro mod den offentliggjorte kilde.
+            </div>
+
+            <h3>Verifikation af et niveau 2-resultat</h3>
+            <div class="step">
+                <span class="step-number">1</span> Dokumentationen indeholder det gengivne glyfbitmap. Sammenlign det
+                med det tegn, PDFRecon påstår det er - Inspektøren viser dem side om side.
+            </div>
+            <div class="step">
+                <span class="step-number">2</span> Åbn dokumentet på passagens side og placering og se på glyffen på
+                skærmen. Bitmappet blev tegnet gennem filens egen skrifttype og skal stemme overens.
+            </div>
+            <div class="step">
+                <span class="step-number">3</span> Kontrollér <code>score</code> og <code>margin</code> for tegnet. En
+                lille margin betyder, at næstbedste kandidat var næsten lige så god; den kandidat står i
+                <code>alternatives</code>.
+            </div>
+            <div class="step">
+                <span class="step-number">4</span> Dokumentationen navngiver referenceskrifttypen og dens SHA-256. At
+                gentage sammenligningen med en anden reference er en legitim og ofte afgørende prøve.
+            </div>
+
+            <h2>Sådan anfægtes en afkodning</h2>
+            <div class="info">
+                <p>En niveau 2-læsning er en vurdering af udseende. Dette er de grunde, den med rette kan bestrides
+                    på:</p>
+                <ul>
+                    <li><strong>Referenceskrifttypen ligner ikke dokumentets.</strong> Dette er afgørende for
+                        nøjagtigheden. Den samme linje sat med seriffer blev afkodet med 5 ud af 11 tegn korrekt mod den
+                        medfølgende grotesk-reference og 11 ud af 11 mod en serif-reference. Seriffer ændrer smalle
+                        bogstavers proportioner markant. Er dokumentet sat med seriffer, og blev standardreferencen
+                        brugt, er læsningen svag og bør gøres om.</li>
+                    <li><strong>Marginen er lille.</strong> En læsning, der slog sin nærmeste konkurrent med en hårsbred,
+                        er ikke en læsning, men en præference. Alternativerne registreres netop til dette argument.</li>
+                    <li><strong>Tegnet er i sig selv flertydigt.</strong> Nogle tegn kan slet ikke skelnes på form.
+                        PDFRecon opdager disse og nægter at kalde dem CERTAIN, uanset hvor bred marginen er. Hvor
+                        referenceskrifttypen tegner to tegn identisk - latinsk A, græsk Alfa og kyrillisk A er én form -
+                        rapporteres de alle som lige gyldige læsninger.</li>
+                    <li><strong>Tegnbeholdningen udelukkede det sande tegn.</strong> Formsammenligning kan kun returnere
+                        noget fra sit sammenligningsalfabet. Indeholder dokumentet et skriftsystem uden for de
+                        konfigurerede intervaller, var det rigtige svar aldrig en kandidat.</li>
+                </ul>
+            </div>
+
+            <h2>Indstillinger der ændrer resultatet</h2>
+            <p>Disse findes i <code>config.ini</code>. De to vigtigste er referenceskrifttypen og tegnbeholdningen.</p>
+            <table>
+                <tr>
+                    <th>Indstilling</th>
+                    <th>Standard</th>
+                    <th>Virkning</th>
+                </tr>
+                <tr>
+                    <td><code>CIDReferenceFontPath</code></td>
+                    <td>medfølgende skrifttype</td>
+                    <td>Den skrifttype, niveau 2 sammenligner med. Sæt den til dokumentets skrifttype, eller noget der
+                        ligner, når den er kendt. Den enkeltstående mest effektive justering.</td>
+                </tr>
+                <tr>
+                    <td><code>CIDCharacterInventory</code></td>
+                    <td><code>0020-007E,00A0-00FF,0100-017F</code></td>
+                    <td>Hvilke tegn niveau 2 må foreslå, som hexadecimale Unicode-intervaller. Standarden dækker vest-
+                        og centraleuropæisk tekst. Den medfølgende referenceskrifttype rummer også Latin Extended-B,
+                        græsk, kyrillisk, tegnsætning og valuta, så <code>0370-03FF</code> for græsk eller
+                        <code>0400-04FF</code> for kyrillisk kræver ikke yderligere. En indsnævring til det forventede
+                        skriftsystem mindsker forveksling på tværs af skriftsystemer.</td>
+                </tr>
+                <tr>
+                    <td><code>CIDShapeCertainMargin</code></td>
+                    <td><code>0.25</code></td>
+                    <td>Hvor meget et niveau 2-match skal slå sin nærmeste konkurrent, før det rapporteres CERTAIN frem
+                        for PROBABLE. Målt over 131 glyffer fra ni skrifttyper og tre skriftsystemer var den
+                        højestrangerede kandidat korrekt 82% af gangene ved enhver margin, 94,6% over 0,10, 97,9% over
+                        0,15 og 100% over 0,20. Standarden er bevidst ét trin strengere end målingen kræver.</td>
+                </tr>
+                <tr>
+                    <td><code>CIDShapeMinScore</code></td>
+                    <td><code>0.45</code></td>
+                    <td>Herunder tilbydes ingen kandidat, og koden rapporteres som uløst. Et svagt gæt er værre end
+                        intet: det giver en undersøger et bestemt forkert tegn at forankre sig i.</td>
+                </tr>
+                <tr>
+                    <td><code>CIDTier0ToUnicode</code>, <code>CIDTier1GlyphNames</code>,
+                        <code>CIDTier2ShapeMatch</code></td>
+                    <td>alle <code>True</code></td>
+                    <td>Kontakter pr. niveau. Et deaktiveret niveau registreres i resultatet, så en rapport altid viser,
+                        hvilke metoder der var til rådighed.</td>
+                </tr>
+            </table>
+
+            <h2>Reproducerbarhed</h2>
+            <div class="success">
+                <p>Niveau 0 til 2 indeholder ingen tilfældighed, ingen stikprøver og ingen netværksadgang. Den samme
+                    fil, afkodet med de samme indstillinger, giver byte-identisk output på enhver maskine.
+                    Chain-of-custody-loggen registrerer, hvilke niveauer der kørte, hvor mange tegn hvert af dem løste,
+                    SHA-256 for Adobe Glyph List, SHA-256 for referenceskrifttypen og SHA-256 for dokumentets egen
+                    indlejrede skrifttypefil.</p>
+                <p>Objektnumre anført i dokumentationen henviser til filen, som PDFRecon læste den, og svarer til det,
+                    du ser, når du åbner originalen i en hex-editor eller efter <code>qpdf --qdf</code>.</p>
+            </div>
         </div>
         <!-- HAS REVISIONS -->
         <div class="section lang-en" id="revisions" style="display:none;">

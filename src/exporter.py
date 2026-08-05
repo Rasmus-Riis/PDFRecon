@@ -16,6 +16,45 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill
 
 from .config import UI_COLORS, XML_CONTROL_RE
+from . import cid_report
+
+
+# --- CID text decoding ------------------------------------------------------
+# Three columns are appended to every tabular export. They are appended rather
+# than inserted so existing column indices, which the row-building code uses
+# positionally, keep working.
+CID_COLUMN_KEYS = ["cid_col_decoded_text", "cid_col_method", "cid_col_confidence"]
+
+
+def decoded_runs_for_path(all_scan_data: dict, path_str: str) -> list:
+    """The decoded TouchUp runs recorded for a file, if any."""
+    record = all_scan_data.get(path_str) if all_scan_data else None
+    if not record:
+        return []
+    touchup = (record.get("indicator_keys") or {}).get("TouchUp_TextEdit") or {}
+    return touchup.get("decoded_runs") or []
+
+
+def cid_columns_for_path(all_scan_data: dict, path_str: str) -> list:
+    """
+    The three decoding cells for one file: text, method, confidence.
+
+    The text cells carry their own confidence prefix as well, so a reading
+    copied out of a single cell cannot lose its label.
+    """
+    runs = decoded_runs_for_path(all_scan_data, path_str)
+    if not runs:
+        return ["", "", ""]
+    texts = "\n".join(
+        f"[p{r.get('page')}] {cid_report.labelled_text(r)}" for r in runs)
+    methods = ", ".join(sorted({cid_report.method_of(r) for r in runs}))
+    return [texts, methods, cid_report.weakest_confidence(runs) or ""]
+
+
+def cid_headers(get_translation=None) -> list:
+    if get_translation:
+        return [get_translation(key) for key in CID_COLUMN_KEYS]
+    return ["Decoded Text", "Decoding Method", "Decoding Confidence"]
 
 
 def clean_cell_value(value):
@@ -111,6 +150,9 @@ def export_to_excel(file_path, report_data: list, all_scan_data: dict, file_anno
         if len(headers) >= 10:
             headers[9] = f"{headers[9] if get_translation else 'Indicators'} (Overview)"
 
+        base_column_count = len(headers)
+        headers = headers + cid_headers(get_translation)
+
         for col_num, header in enumerate(headers, 1):
             cell = ws.cell(row=1, column=col_num, value=clean_cell_value(header))
             cell.font = Font(bold=True)
@@ -147,14 +189,16 @@ def export_to_excel(file_path, report_data: list, all_scan_data: dict, file_anno
             note_text = note_get(path, "")
 
             row_out = list(row_data)
-            
-            while len(row_out) < len(headers):
+
+            while len(row_out) < base_column_count:
                 row_out.append("")
-            
+
             row_out[8] = exif_text         # EXIF is at index 8
             if indicators_full:
                 row_out[9] = indicators_full # Indicators is at index 9
             row_out[10] = note_text        # Note is at index 10
+
+            row_out = row_out[:base_column_count] + cid_columns_for_path(all_scan_data, path)
 
             for col_idx, value in enumerate(row_out, start=1):
                 cell = ws.cell(row=row_idx, column=col_idx, value=clean_cell_value(value))
@@ -167,12 +211,59 @@ def export_to_excel(file_path, report_data: list, all_scan_data: dict, file_anno
             except (ValueError, TypeError):
                 pass
 
+        _add_decoding_sheet(wb, all_scan_data)
+
         wb.save(file_path)
         logging.info(f"Excel export completed: {file_path}")
         
     except Exception as e:
         logging.error(f"Error exporting to Excel: {e}")
         raise
+
+
+def _add_decoding_sheet(wb, all_scan_data: dict) -> None:
+    """
+    Add a worksheet with one row per decoded text run.
+
+    The summary columns on the main sheet answer "was anything decoded, and
+    how sure is it". This sheet carries what an examiner needs to check the
+    answer: the raw operand, the font and its hash, the tiers that ran, the
+    reference font and the alternative readings.
+    """
+    rows = []
+    for record in (all_scan_data or {}).values():
+        path_str = str(record.get("path", ""))
+        for row in cid_report.export_rows(decoded_runs_for_path(all_scan_data, path_str)):
+            rows.append((path_str, row))
+
+    if not rows:
+        return
+
+    ws = wb.create_sheet("Text Decoding")
+    headers = ["File"] + [title for _key, title in cid_report.EXPORT_COLUMNS]
+    for col_num, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_num, value=clean_cell_value(header))
+        cell.font = Font(bold=True)
+        cell.fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD",
+                                fill_type="solid")
+        cell.alignment = Alignment(wrap_text=True, horizontal="center",
+                                   vertical="center")
+    ws.freeze_panes = "A2"
+
+    alignment = Alignment(wrap_text=True, vertical="top")
+    for row_idx, (path_str, row) in enumerate(rows, start=2):
+        values = [path_str] + [row.get(key, "") for key, _title in cid_report.EXPORT_COLUMNS]
+        for col_idx, value in enumerate(values, start=1):
+            cell = ws.cell(row=row_idx, column=col_idx,
+                           value=clean_cell_value(value))
+            cell.alignment = alignment
+
+    for col in ws.columns:
+        try:
+            max_len = max(len(str(c.value).split("\n")[0]) for c in col if c.value)
+            ws.column_dimensions[col[0].column_letter].width = min(max_len + 2, 60)
+        except (ValueError, TypeError):
+            pass
 
 
 def export_to_csv(file_path, report_data: list, all_scan_data: dict, file_annotations: dict,
@@ -214,21 +305,25 @@ def export_to_csv(file_path, report_data: list, all_scan_data: dict, file_annota
         exif_get = exif_outputs.get
         note_get = file_annotations.get
 
+        base_column_count = len(headers)
+        headers = headers + cid_headers(get_translation)
+
         for row_data in report_data:
             new_row = list(row_data)
             path = new_row[4]  # Path is at index 4
             exif_output = exif_get(path, "")
             indicators_full = _indicators_for_path(path)
             note_text = note_get(path, "")
-            
-            while len(new_row) < len(headers):
+
+            while len(new_row) < base_column_count:
                 new_row.append("")
 
             new_row[8] = exif_output      # EXIF is at index 8
             if indicators_full:
                 new_row[9] = indicators_full # Indicators is at index 9
             new_row[10] = note_text       # Note is at index 10
-  
+
+            new_row = new_row[:base_column_count] + cid_columns_for_path(all_scan_data, path)
             data_for_export.append(new_row)
 
         # Use utf-8-sig for better Excel compatibility with special characters
@@ -276,8 +371,20 @@ def export_to_json(file_path, all_scan_data: dict, file_annotations: dict, exif_
                 item_copy['indicator_keys'] = serializable_indicators
 
             item_copy['exif_data'] = exif_outputs.get(path_str, "")
+
+            # Surface decoding at the top level of the record. The full
+            # evidence is already inside indicator_keys, but a consumer should
+            # not have to know that a decoded reading lives under a TouchUp
+            # indicator in order to find its confidence.
+            runs = decoded_runs_for_path(all_scan_data, path_str)
+            if runs:
+                item_copy['text_decoding'] = {
+                    'summary': cid_report.summarise(runs),
+                    'runs': runs,
+                }
+
             scan_data_export.append(item_copy)
-        
+
         full_export_payload = {
             'scan_results': scan_data_export,
             'file_annotations': file_annotations
@@ -316,8 +423,10 @@ def export_to_html(file_path, report_data: list, file_annotations: dict, all_sca
         else:
             headers_list = column_keys
         
+        base_column_count = len(headers_list)
+        headers_list = headers_list + cid_headers(get_translation)
         headers = "".join(f"<th>{h}</th>" for h in headers_list)
-        
+
         if not tag_map:
             tag_map = {"red_row": "red-row", "yellow_row": "yellow-row", "blue_row": "blue-row", "gray_row": "gray-row"}
         
@@ -342,10 +451,22 @@ def export_to_html(file_path, report_data: list, file_annotations: dict, all_sca
             note_text = html_escape_module.escape(file_annotations.get(path_str, "")).replace('\n', '<br>')
             
             row_values = [html_escape_module.escape(str(v)) for v in values]
-            while len(row_values) < len(headers_list):
+            while len(row_values) < base_column_count:
                 row_values.append("")
             if len(row_values) > 10:
                 row_values[10] = note_text
+
+            row_values = row_values[:base_column_count]
+            decoded_text, methods, confidence = cid_columns_for_path(
+                all_scan_data, path_str)
+            # Confidence gets its own CSS class so a speculative reading is
+            # visually distinct in the report, not just labelled.
+            row_values.append(
+                html_escape_module.escape(decoded_text).replace("\n", "<br>"))
+            row_values.append(html_escape_module.escape(methods))
+            row_values.append(
+                f'<span class="conf-{confidence.lower()}">{html_escape_module.escape(confidence)}</span>'
+                if confidence else "")
 
             rows += f'<tr class="{tag_class}">' + "".join(f"<td>{v}</td>" for v in row_values) + "</tr>"
 
@@ -366,6 +487,10 @@ def export_to_html(file_path, report_data: list, file_annotations: dict, all_sca
         .gray-row {{ background-color: #E0E0E0; }}
         h1 {{ color: #333; }}
         .report-date {{ color: #666; font-style: italic; }}
+        .conf-certain {{ color: #1B5E20; font-weight: bold; }}
+        .conf-probable {{ color: #8a6100; font-weight: bold; }}
+        .conf-speculative {{ color: #fff; background: #B22222; font-weight: bold;
+                             padding: 1px 6px; border-radius: 3px; }}
     </style>
 </head>
 <body>

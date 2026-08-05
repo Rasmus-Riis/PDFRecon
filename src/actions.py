@@ -21,6 +21,7 @@ from .scan_worker import process_single_file_worker, build_scan_config, _worker_
 from .chain_of_custody import (
     get_custody_log_path,
     log_ingestion,
+    log_text_decoding,
     log_verify,
     read_and_verify_custody_log,
     format_custody_log_display,
@@ -820,8 +821,27 @@ class ActionsMixin:
                 resolved = self._resolve_case_path(path_str)
                 if resolved and resolved.exists():
                     log_ingestion(custody_log, resolved, file_hash, case_path=self.current_case_filepath)
+                    # Decoding is an interpretive step, so it gets its own
+                    # entry rather than riding along with ingestion.
+                    self._log_text_decoding(custody_log, path_str, resolved, file_hash)
         except Exception as e:
             logging.debug("Custody log write at scan complete: %s", e)
+
+    def _log_text_decoding(self, custody_log, path_str, resolved, file_hash):
+        """Record a file's CID decoding in the custody log, if any occurred."""
+        try:
+            record = self.all_scan_data.get(path_str) or {}
+            touchup = (record.get("indicator_keys") or {}).get("TouchUp_TextEdit") or {}
+            runs = touchup.get("decoded_runs")
+            if not runs:
+                return
+            from .cid_report import custody_details
+            details = custody_details(touchup.get("decode_custody"), runs)
+            if details:
+                log_text_decoding(custody_log, resolved, file_hash, details,
+                                  case_path=self.current_case_filepath)
+        except Exception as e:
+            logging.debug("Custody log write for text decoding: %s", e)
 
         if not self.is_reader_mode:
             self.file_menu.entryconfig(self._("menu_save_case"), state="normal")

@@ -26,6 +26,7 @@ ACTION_VERIFY = "VERIFY"
 ACTION_CASE_OPEN = "CASE_OPEN"
 ACTION_CASE_SAVE = "CASE_SAVE"
 ACTION_REPORT_SIGNED = "REPORT_SIGNED"
+ACTION_TEXT_DECODED = "TEXT_DECODED"
 
 
 def sha256_file(filepath: Path, buf_size: int = 65536) -> str:
@@ -105,6 +106,32 @@ def log_ingestion(log_path: Path, file_path: Path, file_hash: str, case_path: Op
         item_path=str(file_path),
         file_hash=file_hash,
         details={"description": "File ingested for forensic analysis"},
+        case_path=case_path,
+    )
+
+
+def log_text_decoding(
+    log_path: Path,
+    file_path: Path,
+    file_hash: Optional[str],
+    details: dict,
+    case_path: Optional[str] = None,
+) -> None:
+    """
+    Record that text was decoded from a font lacking a usable ToUnicode CMap.
+
+    This is logged separately from ingestion because it is an interpretive
+    step, not a reading of the file as-is. *details* should carry which tiers
+    ran, how confident each result was, and the SHA-256 of every table and
+    font involved, so the decoding can be tied to the exact inputs that
+    produced it and repeated.
+    """
+    append_custody_event(
+        log_path,
+        action=ACTION_TEXT_DECODED,
+        item_path=str(file_path),
+        file_hash=file_hash,
+        details=details or {},
         case_path=case_path,
     )
 

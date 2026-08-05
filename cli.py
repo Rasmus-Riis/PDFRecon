@@ -25,10 +25,12 @@ from src.scan_worker import process_single_file_worker, build_scan_config, _work
 from src.chain_of_custody import (
     get_custody_log_path,
     log_ingestion,
+    log_text_decoding,
     sha256_file,
     append_custody_event,
     ACTION_CASE_SAVE,
 )
+from src import cid_report
 from src.signed_report import build_findings_report, export_signed_report
 from src.utils import CaseEncoder, case_decoder
 from src.js_extractor import extract_javascript_from_file
@@ -96,6 +98,12 @@ def cmd_scan(args: argparse.Namespace) -> int:
                 evidence_hashes[path_key] = sha256_file(p)
                 if args.custody_log or args.output_dir:
                     log_ingestion(custody_log, p, evidence_hashes[path_key], case_path=None)
+                    touchup = (data.get("indicator_keys") or {}).get("TouchUp_TextEdit") or {}
+                    details = cid_report.custody_details(
+                        touchup.get("decode_custody"), touchup.get("decoded_runs") or [])
+                    if details:
+                        log_text_decoding(custody_log, p, evidence_hashes[path_key],
+                                          details, case_path=None)
         except Exception as e:
             print(f"Hash/custody skip {path_key}: {e}", file=sys.stderr)
     case_data = {
@@ -120,9 +128,39 @@ def cmd_scan(args: argparse.Namespace) -> int:
             file_hash=sha256_file(case_path),
             details={"source": "cli_scan"},
         )
+    _print_decoding_summary(all_scan_data, verbose=getattr(args, "decoding_detail", False))
     print(f"Case saved: {case_path}")
     print(f"Custody log: {custody_log}")
     return 0
+
+
+def _print_decoding_summary(all_scan_data: dict, verbose: bool = False) -> None:
+    """
+    Report text recovered from fonts without a usable ToUnicode CMap.
+
+    Printed as its own block rather than mixed into the per-file lines,
+    because a reading below CERTAIN is an inference and needs its confidence
+    and alternatives next to it.
+    """
+    decoded_files = []
+    for path_key, data in (all_scan_data or {}).items():
+        if not isinstance(data, dict):
+            continue
+        touchup = (data.get("indicator_keys") or {}).get("TouchUp_TextEdit") or {}
+        runs = touchup.get("decoded_runs")
+        if runs:
+            decoded_files.append((path_key, runs))
+
+    if not decoded_files:
+        return
+
+    print("\n--- Text decoding (fonts without a usable ToUnicode CMap) ---")
+    for path_key, runs in decoded_files:
+        print(f"\n{path_key}")
+        print(f"  {cid_report.summary_line(runs)}")
+        print(cid_report.format_plain(runs, verbose=verbose, indent="  "))
+    print("\n  A reading below CERTAIN is inferred, not read from the file. "
+          "See the manual, section \"CID Text Decoding\".")
 
 
 def cmd_export_signed(args: argparse.Namespace) -> int:
@@ -192,6 +230,8 @@ def main():
     p_scan.add_argument("--output-dir", "-o", help="Output directory for case file (default: same as scan dir)")
     p_scan.add_argument("--custody-log", "-c", help="Path to chain-of-custody log (default: <output-dir>/custody.log)")
     p_scan.add_argument("--jobs", "-j", type=int, help="Parallel workers (default: CPU count - 1)")
+    p_scan.add_argument("--decoding-detail", action="store_true",
+                        help="List every decoded character with its score and margin")
     p_scan.set_defaults(func=cmd_scan)
     # export-signed
     p_export = sub.add_parser("export-signed", help="Export a digitally signed report from a case file.")
