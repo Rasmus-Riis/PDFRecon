@@ -2,7 +2,6 @@ config.ini
 pdfrecon.log
 /build
 /dist
-PDFRecon.spec
 /exiftool_files
 exiftool.exe
 .pytest_cache/

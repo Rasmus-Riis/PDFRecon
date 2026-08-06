@@ -3,7 +3,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 
 REM Always run from the folder containing this script
 cd /d "%~dp0"
-
+Set-Alias python "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe"
 echo ==========================================
 echo   BUILDING PDFRECON
 echo ==========================================
