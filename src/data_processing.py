@@ -8,6 +8,7 @@ import logging
 import os
 import shutil
 import sys
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -223,7 +224,6 @@ class DataProcessingMixin:
             file_content = path.read_bytes()
             startupinfo = None
             if sys.platform == "win32":
-                import subprocess
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             
@@ -455,7 +455,8 @@ class DataProcessingMixin:
         for match in pdf_date_extended.finditer(file_content_string):
             label, date_str, tz_str = match.groups()
             try:
-                dt_obj = datetime.strptime(date_str, "%Y%m%d%H%M%S")
+                # ⚡ Bolt Optimization: Replace strptime with faster datetime instantiation
+                dt_obj = datetime(int(date_str[0:4]), int(date_str[4:6]), int(date_str[6:8]), int(date_str[8:10]), int(date_str[10:12]), int(date_str[12:14]))
                 
                 if tz_str:
                     if tz_str == 'Z':
