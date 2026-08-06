@@ -63,3 +63,6 @@
 ## 2025-05-21 - Optimize duplicate checks in loops
 **Learning:** When accumulating items and checking for duplicates inside a loop in Python, using an `in` check against a `list` (e.g., `if i in my_list: my_list.append(i)`) creates an $O(N^2)$ performance bottleneck on large datasets. Changing the accumulator to a `set` changes membership testing to $O(1)$, making the overall loop $O(N)$.
 **Action:** Always use a `set` for duplicate checking inside high-frequency loops instead of lists.
+## 2024-07-27 - [Optimize export_to_html tag mapping for O(1) lookups]
+**Learning:** Found an $O(N^2)$ nested loop performance bottleneck in HTML report generation when resolving tag mapping via UI tree element lookups using `next()`.
+**Action:** Always pre-compute a dictionary (Hash Map) from the UI tree elements mapping IDs to values outside the data loop to achieve $O(1)$ constant time lookups in high-frequency rendering/exporting operations.
