@@ -4,6 +4,11 @@ setlocal EnableExtensions EnableDelayedExpansion
 REM Always run from the folder containing this script
 cd /d "%~dp0"
 
+REM Interpreter used for the build. Change to e.g. "py -3.12" to pin a
+REM specific version; PyInstaller bundles whichever Python runs it, so this
+REM determines the runtime inside PDFRecon.exe.
+set "PY=python"
+
 echo ==========================================
 echo   BUILDING PDFRECON
 echo ==========================================
@@ -55,13 +60,25 @@ for /d /r %%d in (__pycache__) do @if exist "%%d" rmdir /s /q "%%d"
 for %%f in (*.pyc) do @del /f /q "%%f" >NUL 2>&1
 
 REM 4. Install/upgrade requirements
-echo Installing requirements...
-python -m pip install -r requirements.txt
-python -m pip install pyinstaller
+echo Installing requirements with %PY%...
+%PY% -m pip install -r requirements.txt
+%PY% -m pip install pyinstaller
+
+REM 4b. Verify the build interpreter can actually import what gets bundled.
+REM     pikepdf was once absent here while present on the developer's machine,
+REM     so the analysis silently dropped it and the shipped executable failed
+REM     at runtime with TouchUp extraction disabled.
+echo Verifying build dependencies...
+%PY% -c "import fitz, pikepdf, openpyxl, PIL, customtkinter, tkinterdnd2" || (
+    echo ERROR: the build interpreter is missing a required package.
+    echo        Everything above must import, or the executable will fail at runtime.
+    pause
+    exit /b 1
+)
 
 REM 5. Build the Executable using the spec file (clean build)
 echo Compiling with PyInstaller...
-python -m PyInstaller --noconfirm --clean PDFRecon.spec
+%PY% -m PyInstaller --noconfirm --clean PDFRecon.spec
 
 REM 6. Copy additional files to dist if needed
 if exist exiftool.exe (

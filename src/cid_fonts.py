@@ -53,17 +53,28 @@ except ImportError:  # pragma: no cover
 # Bundled asset resolution
 # --------------------------------------------------------------------------
 
+#: Directory the assets are bundled into by PDFRecon.spec.
+#:
+#: Deliberately not "src/assets". A PyInstaller data entry creates a real
+#: directory of that name inside the bundle, and a directory called "src"
+#: shadows the frozen "src" package: the application then dies at startup
+#: with "No module named 'src.popups'". The bundled name must not collide
+#: with any package name.
+BUNDLED_ASSET_DIRNAME = "pdfrecon_assets"
+
+
 def _asset_dir() -> Path:
     """Locate the bundled asset directory, both frozen and from source."""
     if getattr(sys, "frozen", False):
         meipass = getattr(sys, "_MEIPASS", None)
         if meipass:
-            candidate = Path(meipass) / "src" / "assets"
-            if candidate.is_dir():
-                return candidate
-            candidate = Path(meipass) / "assets"
-            if candidate.is_dir():
-                return candidate
+            for candidate in (
+                Path(meipass) / BUNDLED_ASSET_DIRNAME,
+                Path(meipass) / "src" / "assets",
+                Path(meipass) / "assets",
+            ):
+                if candidate.is_dir():
+                    return candidate
     return Path(__file__).resolve().parent / "assets"
 
 

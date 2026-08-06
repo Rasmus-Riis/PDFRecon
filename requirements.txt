@@ -1,4 +1,5 @@
 PyMuPDF
+pikepdf
 openpyxl
 tkinterdnd2
 pillow
