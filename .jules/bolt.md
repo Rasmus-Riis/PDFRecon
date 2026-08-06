@@ -63,3 +63,7 @@
 ## 2025-05-21 - Optimize duplicate checks in loops
 **Learning:** When accumulating items and checking for duplicates inside a loop in Python, using an `in` check against a `list` (e.g., `if i in my_list: my_list.append(i)`) creates an $O(N^2)$ performance bottleneck on large datasets. Changing the accumulator to a `set` changes membership testing to $O(1)$, making the overall loop $O(N)$.
 **Action:** Always use a `set` for duplicate checking inside high-frequency loops instead of lists.
+
+## 2024-08-05 - O(N²) Loop Dict Creation Optimization
+**Learning:** Found an O(N²) complexity issue in `src/data_processing.py` where a redundant nested loop was iterating through all values to create a relationship mapping despite those relationships already being mapped properly in the preceding O(N) loop.
+**Action:** Remove the redundant O(N²) nested loop to improve performance (from 0.4s to 0.007s in dict creation benchmark).
