@@ -95,6 +95,65 @@ class TestBundledAssets(unittest.TestCase):
         self.assertIn(f"'{BUNDLED_ASSET_DIRNAME}'", _spec_source())
 
 
+#: Matches an f-string literal, capturing its body.
+_FSTRING_RE = re.compile(
+    r"""(?:\b(?:rf|fr|f)) (?P<quote>'''|\"\"\"|'|") (?P<body>.*?) (?<!\\)(?P=quote)""",
+    re.VERBOSE | re.DOTALL,
+)
+#: Matches a replacement field within an f-string body.
+_FIELD_RE = re.compile(r"\{([^{}]*)\}")
+
+
+def backslash_in_fstring_expression(source: str):
+    """
+    Yield 1-based line numbers of f-strings whose expression holds a backslash.
+
+    Legal from Python 3.12 (PEP 701), a SyntaxError before it. The failure is
+    nastier than it sounds: the module does not compile at all, so PyInstaller
+    cannot bundle it and the packaged application dies with an unrelated
+    "No module named ..." at startup.
+    """
+    hits = []
+    for match in _FSTRING_RE.finditer(source):
+        body = match.group("body")
+        for field in _FIELD_RE.finditer(body):
+            if "\\" in field.group(1):
+                hits.append(source.count("\n", 0, match.start()) + 1)
+                break
+    return hits
+
+
+class TestSourceRuntimeCompatibility(unittest.TestCase):
+    """
+    PDFRecon targets Python 3.10+, and build.bat builds with whatever
+    "python" resolves to. Syntax accepted only by a newer interpreter than
+    the build machine's silently removes a module from the executable.
+    """
+
+    def test_no_backslash_inside_fstring_expressions(self):
+        offenders = []
+        for path in sorted((REPO_ROOT / "src").glob("*.py")):
+            for line_no in backslash_in_fstring_expression(
+                    path.read_text(encoding="utf-8")):
+                offenders.append(f"{path.name}:{line_no}")
+        self.assertEqual(
+            offenders, [],
+            "backslash inside an f-string expression is a SyntaxError before "
+            "Python 3.12; assign the value to a name first")
+
+    def test_the_check_detects_the_known_case(self):
+        """The regression this guards against, so the check cannot go vacuous."""
+        bad = 'tag = f"link_{found_path.replace(\'\\\\\', \'_\')}"'
+        self.assertEqual(backslash_in_fstring_expression(bad), [1])
+
+        good = 'safe = p.replace("\\\\", "_")\ntag = f"link_{safe}"'
+        self.assertEqual(backslash_in_fstring_expression(good), [])
+
+    def test_backslash_in_the_literal_part_is_fine(self):
+        """Only the expression part is restricted, not the text around it."""
+        self.assertEqual(backslash_in_fstring_expression(r'x = f"a\nb{value}"'), [])
+
+
 class TestRuntimeDependencies(unittest.TestCase):
     #: Imported inside functions, so static analysis does not reliably see
     #: them and they must be declared as hidden imports.

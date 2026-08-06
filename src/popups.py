@@ -1080,8 +1080,14 @@ class PopupsMixin:
                         break
             
             if found_path:
-                # Make it a link
-                tag = f"link_{found_path.replace(':', '_').replace('/', '_').replace('\\', '_')}"
+                # Make it a link. The substitution is done outside the f-string:
+                # a backslash inside an f-string expression is a SyntaxError
+                # before Python 3.12, which stops this whole module compiling
+                # on the supported 3.10+ range - and stops PyInstaller
+                # bundling it, so the packaged app fails with
+                # "No module named 'src.popups'".
+                safe_path = found_path.replace(":", "_").replace("/", "_").replace("\\", "_")
+                tag = f"link_{safe_path}"
                 self.inspector_indicators_text.insert(tk.END, name, (tag, "link"))
                 self.inspector_indicators_text.tag_bind(tag, "<Button-1>", lambda e, p=found_path: self._on_related_file_click(p))
                 self.inspector_indicators_text.tag_bind(tag, "<Enter>", lambda e: self.inspector_indicators_text.config(cursor="hand2"))
