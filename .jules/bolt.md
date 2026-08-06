@@ -63,3 +63,6 @@
 ## 2025-05-21 - Optimize duplicate checks in loops
 **Learning:** When accumulating items and checking for duplicates inside a loop in Python, using an `in` check against a `list` (e.g., `if i in my_list: my_list.append(i)`) creates an $O(N^2)$ performance bottleneck on large datasets. Changing the accumulator to a `set` changes membership testing to $O(1)$, making the overall loop $O(N)$.
 **Action:** Always use a `set` for duplicate checking inside high-frequency loops instead of lists.
+## 2024-07-25 - datetime.strptime Parsing Overhead
+**Learning:** `datetime.strptime()` is significantly slower due to format string parsing and locale locks. For strict ISO formats, `datetime.fromisoformat()` is ~50x faster. For fixed-width continuous strings like PDF dates (14 digits: `YYYYMMDDHHMMSS`), direct slicing with `datetime()` instantiation is ~6x faster than `strptime`.
+**Action:** In performance-critical loops, avoid `strptime`. Use `fromisoformat()` for standard ISO strings or string slicing + `datetime()` constructor for custom fixed-width fixed-format date strings.
