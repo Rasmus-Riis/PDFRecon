@@ -436,8 +436,19 @@ def analyze_fonts(filepath: Path, doc):
                         if basefont_name.startswith("/"):
                             basefont_name = basefont_name[1:]
 
-                        # Decode PDF name (e.g. #20 -> space)
-                        basefont_name = re.sub(r"#([0-9A-Fa-f]{2})", lambda m: chr(int(m.group(1), 16)), basefont_name)
+                        # ⚡ Bolt Optimization: Replace re.sub with faster split logic
+                        if "#" in basefont_name:
+                            parts = basefont_name.split("#")
+                            res = [parts[0]]
+                            for p in parts[1:]:
+                                if len(p) >= 2:
+                                    try:
+                                        res.append(chr(int(p[:2], 16)) + p[2:])
+                                    except ValueError:
+                                        res.append("#" + p)
+                                else:
+                                    res.append("#" + p)
+                            basefont_name = "".join(res)
 
                         if "+" in basefont_name:
                             try:
