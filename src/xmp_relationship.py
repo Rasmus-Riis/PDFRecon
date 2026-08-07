@@ -34,8 +34,19 @@ class XMPRelationshipManager:
         }
 
         try:
-            # Strip XMP packet wrappers if present
-            xmp_content = re.sub(r'<\?xpacket.*?\?>', '', xmp_str, flags=re.S).strip()
+            # ⚡ Bolt Optimization: Replace re.sub with faster split/join for xpacket stripping
+            if '<?xpacket' not in xmp_str:
+                xmp_content = xmp_str.strip()
+            else:
+                parts = xmp_str.split('<?xpacket')
+                res = [parts[0]]
+                for p in parts[1:]:
+                    idx = p.find('?>')
+                    if idx != -1:
+                        res.append(p[idx+2:])
+                    else:
+                        res.append('<?xpacket' + p)
+                xmp_content = "".join(res).strip()
             if not xmp_content:
                 return result
 
