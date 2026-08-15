@@ -63,3 +63,7 @@
 ## 2025-05-21 - Optimize duplicate checks in loops
 **Learning:** When accumulating items and checking for duplicates inside a loop in Python, using an `in` check against a `list` (e.g., `if i in my_list: my_list.append(i)`) creates an $O(N^2)$ performance bottleneck on large datasets. Changing the accumulator to a `set` changes membership testing to $O(1)$, making the overall loop $O(N)$.
 **Action:** Always use a `set` for duplicate checking inside high-frequency loops instead of lists.
+
+## 2025-05-22 - Optimize date parsing inside forensics loops
+**Learning:** In performance-critical parsing loops (e.g., date parsing), `datetime.strptime` involves format string parsing and locale lock overhead. Replacing it with `datetime.fromisoformat()` for ISO formatted strings or direct `datetime()` instantiation with integer slicing (e.g., `datetime(int(clean[0:4]), ...)`) for fixed-length date strings like 14-digit PDF dates (`YYYYMMDDHHMMSS`) achieves significantly faster performance (about ~5x for slicing and ~30x for fromisoformat in Python).
+**Action:** Always prefer native `datetime` instantiation with integer slicing for fixed-length date strings and `datetime.fromisoformat()` for ISO strings over `datetime.strptime` inside high-frequency loops.

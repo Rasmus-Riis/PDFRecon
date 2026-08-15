@@ -78,7 +78,7 @@ class TestExtractJpegQtFromBytes(unittest.TestCase):
 
         result = extract_jpeg_qt_from_bytes(jpeg_bytes)
         self.assertNotIn('error', result)
-        self.assertIn('CRITICAL: All QT values identical (likely forged)', result['warnings'])
+        self.assertIn('CRITICAL: Forged fingerprint (Real photos have variations; identical values are impossible in original scans)', result['warnings'])
 
     def test_known_signature_matching(self):
         # Pick a known signature: Photoshop Quality 100
