@@ -63,3 +63,6 @@
 ## 2025-05-21 - Optimize duplicate checks in loops
 **Learning:** When accumulating items and checking for duplicates inside a loop in Python, using an `in` check against a `list` (e.g., `if i in my_list: my_list.append(i)`) creates an $O(N^2)$ performance bottleneck on large datasets. Changing the accumulator to a `set` changes membership testing to $O(1)$, making the overall loop $O(N)$.
 **Action:** Always use a `set` for duplicate checking inside high-frequency loops instead of lists.
+## 2025-02-23 - Python-to-Tkinter Bridge Overhead in Export Loops
+**Learning:** In high-frequency loops (like processing thousands of rows for export), interacting directly with Tkinter UI elements (e.g. `tree.get_children()` or `tree.item()`) introduces severe latency because of the C-level bridge overhead between Python and Tkinter. A task that should take milliseconds can stretch to tens of seconds.
+**Action:** When performing data exports that correlate with UI elements, always pre-map the UI state (e.g. extracting tree items to a native Python dictionary) before entering the export loop. This shifts O(N^2) bridge-crossing bottlenecks to a single O(N) pass, enabling O(1) lookups during the main processing loop.
