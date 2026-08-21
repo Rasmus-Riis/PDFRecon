@@ -455,7 +455,14 @@ class DataProcessingMixin:
         for match in pdf_date_extended.finditer(file_content_string):
             label, date_str, tz_str = match.groups()
             try:
-                dt_obj = datetime.strptime(date_str, "%Y%m%d%H%M%S")
+                dt_obj = datetime(
+                    int(date_str[0:4]),   # Year
+                    int(date_str[4:6]),   # Month
+                    int(date_str[6:8]),   # Day
+                    int(date_str[8:10]),  # Hour
+                    int(date_str[10:12]), # Minute
+                    int(date_str[12:14])  # Second
+                )
                 
                 if tz_str:
                     if tz_str == 'Z':
