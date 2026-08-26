@@ -31,6 +31,8 @@ from .utils import md5_file
 from .xmp_relationship import XMPRelationshipManager
 from .advanced_forensics import run_advanced_forensics
 
+HEX_ESCAPE_RE = re.compile(r"#([0-9A-Fa-f]{2})")
+
 
 def find_pdf_files_generator(folder_path):
     """
@@ -437,7 +439,9 @@ def analyze_fonts(filepath: Path, doc):
                             basefont_name = basefont_name[1:]
 
                         # Decode PDF name (e.g. #20 -> space)
-                        basefont_name = re.sub(r"#([0-9A-Fa-f]{2})", lambda m: chr(int(m.group(1), 16)), basefont_name)
+                        # ⚡ Bolt Optimization: Use fast-fail substring check and pre-compiled regex for hex decoding
+                        if "#" in basefont_name:
+                            basefont_name = HEX_ESCAPE_RE.sub(lambda m: chr(int(m.group(1), 16)), basefont_name)
 
                         if "+" in basefont_name:
                             try:
