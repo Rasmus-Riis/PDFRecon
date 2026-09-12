@@ -455,7 +455,15 @@ class DataProcessingMixin:
         for match in pdf_date_extended.finditer(file_content_string):
             label, date_str, tz_str = match.groups()
             try:
-                dt_obj = datetime.strptime(date_str, "%Y%m%d%H%M%S")
+                # ⚡ Bolt Optimization: Use slicing datetime instantiation instead of strptime
+                dt_obj = datetime(
+                    int(date_str[0:4]),
+                    int(date_str[4:6]),
+                    int(date_str[6:8]),
+                    int(date_str[8:10]),
+                    int(date_str[10:12]),
+                    int(date_str[12:14])
+                )
                 
                 if tz_str:
                     if tz_str == 'Z':
@@ -476,8 +484,8 @@ class DataProcessingMixin:
                 continue
 
         xmp_date_pattern = re.compile(r"<([a-zA-Z0-9:]+)[^>]*?>\s*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[^\s<]*)\s*<\/([a-zA-Z0-9:]+)>")
-        for match in xmp_date_pattern.finditer(file_content_string):
-            label, date_str, closing_label = match.groups()
+        # ⚡ Bolt Optimization: Use findall instead of finditer for patterns with simple capture groups
+        for label, date_str, closing_label in xmp_date_pattern.findall(file_content_string):
             if label != closing_label: 
                 continue
             try:
