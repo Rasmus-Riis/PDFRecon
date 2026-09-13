@@ -24,7 +24,8 @@ import fitz
 from .config import (
     PDFReconConfig, PDFProcessingError, PDFCorruptionError, 
     PDFTooLargeError, PDFEncryptedError,
-    LAYER_OCGS_BLOCK_RE, OBJ_REF_RE, LAYER_OC_REF_RE
+    LAYER_OCGS_BLOCK_RE, OBJ_REF_RE, LAYER_OC_REF_RE,
+    HEX_ESCAPE_RE
 )
 from .pdf_processor import safe_pdf_open, safe_extract_text, validate_pdf_file, count_layers
 from .utils import md5_file
@@ -437,7 +438,9 @@ def analyze_fonts(filepath: Path, doc):
                             basefont_name = basefont_name[1:]
 
                         # Decode PDF name (e.g. #20 -> space)
-                        basefont_name = re.sub(r"#([0-9A-Fa-f]{2})", lambda m: chr(int(m.group(1), 16)), basefont_name)
+                        # ⚡ Bolt Optimization: Replace inline re.sub with fast-path bypass and precompiled regex
+                        if "#" in basefont_name:
+                            basefont_name = HEX_ESCAPE_RE.sub(lambda m: chr(int(m.group(1), 16)), basefont_name)
 
                         if "+" in basefont_name:
                             try:

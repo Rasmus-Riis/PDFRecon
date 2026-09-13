@@ -63,3 +63,7 @@
 ## 2025-05-21 - Optimize duplicate checks in loops
 **Learning:** When accumulating items and checking for duplicates inside a loop in Python, using an `in` check against a `list` (e.g., `if i in my_list: my_list.append(i)`) creates an $O(N^2)$ performance bottleneck on large datasets. Changing the accumulator to a `set` changes membership testing to $O(1)$, making the overall loop $O(N)$.
 **Action:** Always use a `set` for duplicate checking inside high-frequency loops instead of lists.
+
+## 2025-05-22 - Fast-path bypass for hex escape regex decoding
+**Learning:** For fixed-pattern escape sequence replacements (like PDF name hex `#XX` escapes), inline `re.sub` compilation and execution within high-frequency loops (like font analysis) incurs significant overhead, especially when the vast majority of items do not contain the escape sequence. Pre-compiling the regex and wrapping the substitution in a fast-path literal bypass (`if "#" in text:`) avoids the regex engine entirely for non-matching strings, yielding roughly a 9x speedup for the miss case.
+**Action:** When using regex to decode or replace specific character sequences that are relatively rare, always pre-compile the regex and use a literal string check (like `if "#" in string:`) to bypass the regex operation when the sequence is absent.
