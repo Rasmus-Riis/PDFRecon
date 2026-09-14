@@ -719,7 +719,15 @@ def detect_timestamp_mismatches(txt: str, doc, indicators: dict):
             clean = "".join(filter(str.isdigit, date_str))
             if len(clean) >= 14:
                 try:
-                    return datetime.strptime(str(clean)[:14], "%Y%m%d%H%M%S")
+                    date_slice = str(clean)[:14]
+                    return datetime(
+                        int(date_slice[0:4]),
+                        int(date_slice[4:6]),
+                        int(date_slice[6:8]),
+                        int(date_slice[8:10]),
+                        int(date_slice[10:12]),
+                        int(date_slice[12:14])
+                    )
                 except Exception:
                     pass
             return None
@@ -924,9 +932,9 @@ def detect_xmp_history_gaps(txt: str, indicators: dict):
                     d2_str = items[i+1][1].replace('Z', '+00:00').split('.')[0]
                     
                     # Convert to datetime
-                    fmt = "%Y-%m-%dT%H:%M:%S"
-                    dt1 = datetime.strptime(d1_str[:19], fmt)
-                    dt2 = datetime.strptime(d2_str[:19], fmt)
+                    # ⚡ Bolt Optimization: Use fromisoformat for ISO-8601 strings
+                    dt1 = datetime.fromisoformat(d1_str[:19])
+                    dt2 = datetime.fromisoformat(d2_str[:19])
                     
                     # If time jumps backwards or has a huge multi-year gap unexpectedly
                     diff = (dt2 - dt1).total_seconds()
