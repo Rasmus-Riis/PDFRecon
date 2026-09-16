@@ -78,7 +78,17 @@ class TestExtractJpegQtFromBytes(unittest.TestCase):
 
         result = extract_jpeg_qt_from_bytes(jpeg_bytes)
         self.assertNotIn('error', result)
-        self.assertIn('CRITICAL: All QT values identical (likely forged)', result['warnings'])
+        # Assert the finding, not its prose. This previously pinned the exact
+        # sentence and broke when the wording was improved, leaving the suite
+        # red over a message that had only been reworded.
+        critical = [w for w in result['warnings'] if w.startswith('CRITICAL:')]
+        self.assertTrue(
+            critical,
+            'a quantization table of identical values should raise a CRITICAL '
+            'warning, got: %s' % (result['warnings'],))
+        self.assertTrue(
+            any('forged' in w.lower() or 'identical' in w.lower() for w in critical),
+            'the CRITICAL warning should say why: %s' % (critical,))
 
     def test_known_signature_matching(self):
         # Pick a known signature: Photoshop Quality 100
