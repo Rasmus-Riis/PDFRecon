@@ -1,5 +1,38 @@
 # Changelog
 
+## 17.7.1
+
+### Fixed: embedded fonts were reported as not embedded
+
+The **Non-Embedded Font** indicator listed fonts that the document does in fact
+carry. Reported during evaluation by a forensic document examination unit, with
+a file whose `AZFWVZ+ArialUnicodeMS` was embedded and flagged anyway.
+
+A font program is stored in `/FontFile`, `/FontFile2` or `/FontFile3` inside
+the font's **`/FontDescriptor`** — never in the font dictionary itself. The
+check looked in the font dictionary, where those keys cannot appear, and so
+concluded that every font was missing. Composite (Type0) fonts add a further
+step, because the descriptor belongs to the descendant CIDFont named in
+`/DescendantFonts`; that is the structure in the reported file.
+
+The same cause produced duplicate entries, such as `AZFWVZ+ArialUnicodeMS` and
+`AZFWVZ+ArialUnicodeMS-Identity-H`. Those are a Type0 font and its descendant —
+one font, counted twice — because both are `/Type /Font` objects.
+
+**What this means for existing work.** The error was one of over-reporting. A
+font that genuinely is not embedded was still flagged, so no such finding was
+missed. The reverse did not hold: names listed under this indicator could not
+be relied upon, because embedded fonts appeared there too. Any examination that
+rested on the Non-Embedded Font indicator is worth re-running.
+
+Also corrected:
+
+- Type3 fonts are no longer flagged. Their glyphs are content streams inside
+  the document, so there is no font program that could be missing.
+- The reported count double-counted names while the list beside it was
+  deduplicated, so a file could show "3" above two entries. Count and list now
+  agree.
+
 ## 17.7.0
 
 ### ⚠️ Read this first if you have existing TouchUp findings

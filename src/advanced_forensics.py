@@ -878,26 +878,103 @@ def detect_stacked_filters(doc, txt: str, indicators: dict):
         logging.debug(f"Error detecting stacked filters: {e}")
 
 
+#: The font program keys. These live in a /FontDescriptor, never in the font
+#: dictionary itself, which is why looking for them in the font dictionary
+#: reports every embedded font as missing.
+_FONT_FILE_KEYS = ("FontFile", "FontFile2", "FontFile3")
+
+_XREF_NUM_RE = re.compile(r"(\d+)\s+\d+\s+R")
+
+
+def _referenced_xref(value: str):
+    """First indirect reference in a value, e.g. '[12 0 R]' -> 12."""
+    match = _XREF_NUM_RE.search(value or "")
+    return int(match.group(1)) if match else None
+
+
+def _descriptor_embeds_font(doc, kind: str, value: str) -> bool:
+    """
+    Does this /FontDescriptor value carry an embedded font program?
+
+    Accepts both an indirect reference and a directly-written dictionary,
+    since either is legal.
+    """
+    if kind == "xref":
+        descriptor_xref = _referenced_xref(value)
+        if descriptor_xref is None:
+            return False
+        return any(
+            doc.xref_get_key(descriptor_xref, key)[0] != "null"
+            for key in _FONT_FILE_KEYS
+        )
+    if kind == "dict":
+        return any(f"/{key}" in (value or "") for key in _FONT_FILE_KEYS)
+    return False
+
+
 def detect_non_embedded_fonts(doc, indicators: dict):
-    """Scrutinize fonts to ensure they are embedded in the PDF."""
-    if not doc: return
+    """
+    Report fonts the document relies on but does not carry.
+
+    A font program is embedded via /FontFile, /FontFile2 or /FontFile3 in the
+    font's /FontDescriptor - not in the font dictionary. Composite (Type0)
+    fonts add a step: the descriptor belongs to the descendant CIDFont named
+    in /DescendantFonts, so the parent must be followed through to it.
+
+    Checking the font dictionary directly, as this once did, finds those keys
+    nowhere and declares every embedded font missing.
+    """
+    if not doc:
+        return
     try:
-        non_embedded = []
         xref_count = doc.xref_length() if callable(doc.xref_length) else doc.xref_length
+
+        # A Type0 font and its descendant CIDFont are both /Type /Font objects
+        # describing one logical font. Collect the descendants so they are not
+        # also reported in their own right.
+        descendants = set()
+        font_xrefs = []
         for xref in range(1, xref_count):
-            if doc.xref_is_font(xref):
-                # Font dictionaries for embedded fonts should contain FontFile, FontFile2, or FontFile3
-                font_dict = doc.xref_object(xref)
-                if not any(f in font_dict for f in ["/FontFile", "/FontFile2", "/FontFile3"]):
-                    # Get font name
-                    res = doc.xref_get_key(xref, "BaseFont")
-                    name = res[1][1:] if res[0] == "name" else f"xref {xref}"
-                    non_embedded.append(name)
-        
+            if not doc.xref_is_font(xref):
+                continue
+            font_xrefs.append(xref)
+            kind, value = doc.xref_get_key(xref, "DescendantFonts")
+            if kind in ("array", "xref"):
+                descendant = _referenced_xref(value)
+                if descendant is not None:
+                    descendants.add(descendant)
+
+        non_embedded = []
+        for xref in font_xrefs:
+            if xref in descendants:
+                continue
+
+            subtype = doc.xref_get_key(xref, "Subtype")[1].lstrip("/")
+            # A Type3 font defines its glyphs as content streams inside the
+            # document, so there is no font program to be missing.
+            if subtype == "Type3":
+                continue
+
+            descriptor = doc.xref_get_key(xref, "FontDescriptor")
+            if descriptor[0] == "null":
+                # Composite fonts keep the descriptor on the descendant.
+                kind, value = doc.xref_get_key(xref, "DescendantFonts")
+                descendant = _referenced_xref(value) if kind in ("array", "xref") else None
+                if descendant is not None:
+                    descriptor = doc.xref_get_key(descendant, "FontDescriptor")
+
+            if _descriptor_embeds_font(doc, descriptor[0], descriptor[1]):
+                continue
+
+            base_font = doc.xref_get_key(xref, "BaseFont")
+            name = base_font[1].lstrip("/") if base_font[0] == "name" else f"xref {xref}"
+            non_embedded.append(name)
+
         if non_embedded:
+            unique = sorted(set(non_embedded))
             indicators['NonEmbeddedFont'] = {
-                'count': len(non_embedded),
-                'fonts': list(set(non_embedded))[:10]
+                'count': len(unique),
+                'fonts': unique[:10]
             }
     except Exception as e:
         logging.debug(f"Error detecting non-embedded fonts: {e}")

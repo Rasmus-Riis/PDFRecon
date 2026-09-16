@@ -1,5 +1,41 @@
 # Ændringslog
 
+## 17.7.1
+
+### Rettet: indlejrede skrifttyper blev rapporteret som ikke-indlejrede
+
+Indikatoren **Non-Embedded Font** oplistede skrifttyper, som dokumentet
+faktisk indeholder. Fejlen blev rapporteret under evaluering af en enhed for
+forensisk dokumentundersøgelse, med en fil hvor `AZFWVZ+ArialUnicodeMS` var
+indlejret og alligevel blev flaget.
+
+En skrifttypefil gemmes i `/FontFile`, `/FontFile2` eller `/FontFile3` inde i
+skrifttypens **`/FontDescriptor`** — aldrig i selve skrifttypeordbogen.
+Kontrollen kiggede i skrifttypeordbogen, hvor de nøgler ikke kan optræde, og
+konkluderede derfor, at hver eneste skrifttype manglede. Sammensatte
+(Type0-)skrifttyper har et ekstra led, fordi deskriptoren tilhører den
+efterkommende CIDFont, der er angivet i `/DescendantFonts`; det er netop
+strukturen i den rapporterede fil.
+
+Samme årsag gav dobbelte poster som `AZFWVZ+ArialUnicodeMS` og
+`AZFWVZ+ArialUnicodeMS-Identity-H`. Det er en Type0-skrifttype og dens
+efterkommer — én skrifttype talt to gange — fordi begge er `/Type /Font`-objekter.
+
+**Hvad det betyder for eksisterende arbejde.** Fejlen bestod i at rapportere
+for meget, ikke for lidt. En skrifttype, der reelt ikke er indlejret, blev
+stadig flaget, så ingen sådanne fund blev overset. Det omvendte gjaldt ikke:
+navne under denne indikator kunne ikke lægges til grund, fordi indlejrede
+skrifttyper også optrådte der. Enhver undersøgelse, der har hvilet på
+Non-Embedded Font-indikatoren, bør køres igennem igen.
+
+Desuden rettet:
+
+- Type3-skrifttyper flages ikke længere. Deres glyffer er indholdsstrømme inde
+  i dokumentet, så der er ingen skrifttypefil, der kan mangle.
+- Det rapporterede antal talte navne dobbelt, mens listen ved siden af var
+  uden dubletter, så en fil kunne vise "3" over to poster. Antal og liste
+  stemmer nu overens.
+
 ## 17.7.0
 
 ### ⚠️ Læs dette først, hvis du har eksisterende TouchUp-fund
