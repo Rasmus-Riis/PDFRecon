@@ -878,29 +878,165 @@ def detect_stacked_filters(doc, txt: str, indicators: dict):
         logging.debug(f"Error detecting stacked filters: {e}")
 
 
-def detect_non_embedded_fonts(doc, indicators: dict):
-    """Scrutinize fonts to ensure they are embedded in the PDF."""
-    if not doc: return
+#: The font program keys. These live in a /FontDescriptor, never in the font
+#: dictionary itself, which is why looking for them in the font dictionary
+#: reports every embedded font as missing.
+_FONT_FILE_KEYS = ("FontFile", "FontFile2", "FontFile3")
+
+_XREF_NUM_RE = re.compile(r"(\d+)\s+\d+\s+R")
+
+#: The 14 fonts every conforming PDF viewer is required to provide. A document
+#: is *expected* not to embed these, so their absence is normal typesetting and
+#: not evidence of anything. Anything else left unembedded means the viewer
+#: substitutes whatever it has, which is worth an examiner's attention.
+#:
+#: PDF/A is stricter and requires even these to be embedded, so
+#: detect_pdfa_violations considers them; the forensic indicator does not.
+_STANDARD_14_FONTS = frozenset(name.lower() for name in (
+    "Helvetica", "Helvetica-Bold", "Helvetica-Oblique", "Helvetica-BoldOblique",
+    "Courier", "Courier-Bold", "Courier-Oblique", "Courier-BoldOblique",
+    "Times-Roman", "Times-Bold", "Times-Italic", "Times-BoldItalic",
+    "Symbol", "ZapfDingbats",
+))
+
+
+def _is_standard_14(base_font: str) -> bool:
+    """
+    Is this one of the 14 fonts a viewer must supply?
+
+    Some producers write the style with a comma ("Helvetica,Bold") rather than
+    a hyphen, so both spellings are accepted.
+    """
+    if not base_font:
+        return False
+    name = base_font.split("+", 1)[-1].strip().replace(",", "-")
+    return name.lower() in _STANDARD_14_FONTS
+
+
+def _referenced_xref(value: str):
+    """First indirect reference in a value, e.g. '[12 0 R]' -> 12."""
+    match = _XREF_NUM_RE.search(value or "")
+    return int(match.group(1)) if match else None
+
+
+def _descriptor_embeds_font(doc, kind: str, value: str) -> bool:
+    """
+    Does this /FontDescriptor value carry an embedded font program?
+
+    Accepts both an indirect reference and a directly-written dictionary,
+    since either is legal.
+    """
+    if kind == "xref":
+        descriptor_xref = _referenced_xref(value)
+        if descriptor_xref is None:
+            return False
+        return any(
+            doc.xref_get_key(descriptor_xref, key)[0] != "null"
+            for key in _FONT_FILE_KEYS
+        )
+    if kind == "dict":
+        return any(f"/{key}" in (value or "") for key in _FONT_FILE_KEYS)
+    return False
+
+
+def collect_non_embedded_fonts(doc):
+    """
+    Find every font the document relies on but does not carry.
+
+    Returns ``(standard_14, substituted)``: the fonts a viewer is required to
+    supply, and everything else that will be substituted with whatever the
+    viewing machine happens to have.
+
+    A font program is embedded via /FontFile, /FontFile2 or /FontFile3 in the
+    font's /FontDescriptor - not in the font dictionary. Composite (Type0)
+    fonts add a step: the descriptor belongs to the descendant CIDFont named
+    in /DescendantFonts, so the parent must be followed through to it.
+
+    Checking the font dictionary directly, as this once did, finds those keys
+    nowhere and declares every embedded font missing.
+    """
+    if not doc:
+        return [], []
     try:
-        non_embedded = []
         xref_count = doc.xref_length() if callable(doc.xref_length) else doc.xref_length
+
+        # A Type0 font and its descendant CIDFont are both /Type /Font objects
+        # describing one logical font. Collect the descendants so they are not
+        # also reported in their own right.
+        descendants = set()
+        font_xrefs = []
         for xref in range(1, xref_count):
-            if doc.xref_is_font(xref):
-                # Font dictionaries for embedded fonts should contain FontFile, FontFile2, or FontFile3
-                font_dict = doc.xref_object(xref)
-                if not any(f in font_dict for f in ["/FontFile", "/FontFile2", "/FontFile3"]):
-                    # Get font name
-                    res = doc.xref_get_key(xref, "BaseFont")
-                    name = res[1][1:] if res[0] == "name" else f"xref {xref}"
-                    non_embedded.append(name)
-        
-        if non_embedded:
-            indicators['NonEmbeddedFont'] = {
-                'count': len(non_embedded),
-                'fonts': list(set(non_embedded))[:10]
-            }
+            if not doc.xref_is_font(xref):
+                continue
+            font_xrefs.append(xref)
+            kind, value = doc.xref_get_key(xref, "DescendantFonts")
+            if kind in ("array", "xref"):
+                descendant = _referenced_xref(value)
+                if descendant is not None:
+                    descendants.add(descendant)
+
+        non_embedded = []
+        for xref in font_xrefs:
+            if xref in descendants:
+                continue
+
+            subtype = doc.xref_get_key(xref, "Subtype")[1].lstrip("/")
+            # A Type3 font defines its glyphs as content streams inside the
+            # document, so there is no font program to be missing.
+            if subtype == "Type3":
+                continue
+
+            descriptor = doc.xref_get_key(xref, "FontDescriptor")
+            if descriptor[0] == "null":
+                # Composite fonts keep the descriptor on the descendant.
+                kind, value = doc.xref_get_key(xref, "DescendantFonts")
+                descendant = _referenced_xref(value) if kind in ("array", "xref") else None
+                if descendant is not None:
+                    descriptor = doc.xref_get_key(descendant, "FontDescriptor")
+
+            if _descriptor_embeds_font(doc, descriptor[0], descriptor[1]):
+                continue
+
+            base_font = doc.xref_get_key(xref, "BaseFont")
+            name = base_font[1].lstrip("/") if base_font[0] == "name" else f"xref {xref}"
+            non_embedded.append(name)
+
+        standard, substituted = [], []
+        for name in sorted(set(non_embedded)):
+            (standard if _is_standard_14(name) else substituted).append(name)
+        return standard, substituted
     except Exception as e:
         logging.debug(f"Error detecting non-embedded fonts: {e}")
+        return [], []
+
+
+def detect_non_embedded_fonts(doc, indicators: dict):
+    """
+    Raise the indicator when a font will be substituted at viewing time.
+
+    The 14 standard fonts are deliberately excluded. A viewer is required to
+    provide them, so a document that omits them is behaving exactly as the
+    specification intends - and because almost every PDF uses one, flagging
+    them put an otherwise unremarkable file into "Possible" on the strength of
+    having set some text in Helvetica. An indicator that fires on nearly every
+    document tells an examiner nothing and trains them to ignore it.
+
+    They are still listed under ``standard_fonts`` when the indicator fires
+    for some other font, since the full picture matters once there is
+    something to look at, and detect_pdfa_violations still counts them because
+    PDF/A does require them to be embedded.
+    """
+    if not doc:
+        return
+    standard, substituted = collect_non_embedded_fonts(doc)
+    if not substituted:
+        return
+
+    indicators['NonEmbeddedFont'] = {
+        'count': len(substituted),
+        'fonts': substituted[:10],
+        'standard_fonts': standard,
+    }
 
 
 def detect_xmp_history_gaps(txt: str, indicators: dict):
@@ -988,9 +1124,14 @@ def detect_pdfa_violations(doc, txt: str, indicators: dict):
         if 'ContainsJavaScript' in indicators:
             violations.append("Document claims PDF/A but contains JavaScript")
             
-        # 3. PDF/A must embed all fonts
-        if 'NonEmbeddedFont' in indicators:
-            violations.append("Document claims PDF/A but has non-embedded fonts")
+        # 3. PDF/A must embed all fonts, including the standard 14 that an
+        #    ordinary PDF may leave out. The forensic indicator ignores those,
+        #    so ask for the full picture rather than reading the indicator.
+        standard, substituted = collect_non_embedded_fonts(doc)
+        if standard or substituted:
+            missing = ", ".join((substituted + standard)[:5])
+            violations.append(
+                f"Document claims PDF/A but has non-embedded fonts: {missing}")
             
         if violations:
             indicators['PDFAViolation'] = {

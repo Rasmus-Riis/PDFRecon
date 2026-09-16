@@ -1,5 +1,65 @@
 # Changelog
 
+## 17.7.1
+
+### Fixed: embedded fonts were reported as not embedded
+
+The **Non-Embedded Font** indicator listed fonts that the document does in fact
+carry. Reported during evaluation by a forensic document examination unit, with
+a file whose `AZFWVZ+ArialUnicodeMS` was embedded and flagged anyway.
+
+A font program is stored in `/FontFile`, `/FontFile2` or `/FontFile3` inside
+the font's **`/FontDescriptor`** — never in the font dictionary itself. The
+check looked in the font dictionary, where those keys cannot appear, and so
+concluded that every font was missing. Composite (Type0) fonts add a further
+step, because the descriptor belongs to the descendant CIDFont named in
+`/DescendantFonts`; that is the structure in the reported file.
+
+The same cause produced duplicate entries, such as `AZFWVZ+ArialUnicodeMS` and
+`AZFWVZ+ArialUnicodeMS-Identity-H`. Those are a Type0 font and its descendant —
+one font, counted twice — because both are `/Type /Font` objects.
+
+**What this means for existing work.** The error was one of over-reporting. A
+font that genuinely is not embedded was still flagged, so no such finding was
+missed. The reverse did not hold: names listed under this indicator could not
+be relied upon, because embedded fonts appeared there too. Any examination that
+rested on the Non-Embedded Font indicator is worth re-running.
+
+Also corrected:
+
+- Type3 fonts are no longer flagged. Their glyphs are content streams inside
+  the document, so there is no font program that could be missing.
+- The reported count double-counted names while the list beside it was
+  deduplicated, so a file could show "3" above two entries. Count and list now
+  agree.
+
+### Changed: the standard 14 fonts no longer raise the indicator
+
+Every conforming PDF viewer is required to provide Helvetica, Times, Courier,
+Symbol and ZapfDingbats in their fourteen standard variants. A document that
+does not embed them is behaving exactly as the specification intends.
+
+Because almost every PDF sets some text in one of them, the indicator fired on
+nearly every file, and any document with no other finding was reported as
+**Possible** rather than **No** on the strength of having used Helvetica. An
+indicator that fires on nearly everything cannot support triage and teaches an
+examiner to scroll past it.
+
+The indicator now reports only fonts that will actually be **substituted** at
+viewing time — the case where what a reader sees depends on the machine they
+open the file on. Arial, for instance, is not one of the standard 14 and is
+still reported.
+
+Where the indicator fires for some other font, any non-embedded standard-14
+fonts are listed beneath it as context, so the full picture is available once
+there is something to look at.
+
+**PDF/A is unaffected.** PDF/A requires every font to be embedded, the standard
+14 included, so the PDF/A compliance check determines this independently rather
+than reading the forensic indicator. A file claiming PDF/A while omitting
+Helvetica is still reported as violating the standard, and now names the fonts
+concerned.
+
 ## 17.7.0
 
 ### ⚠️ Read this first if you have existing TouchUp findings
