@@ -33,6 +33,33 @@ Also corrected:
   deduplicated, so a file could show "3" above two entries. Count and list now
   agree.
 
+### Changed: the standard 14 fonts no longer raise the indicator
+
+Every conforming PDF viewer is required to provide Helvetica, Times, Courier,
+Symbol and ZapfDingbats in their fourteen standard variants. A document that
+does not embed them is behaving exactly as the specification intends.
+
+Because almost every PDF sets some text in one of them, the indicator fired on
+nearly every file, and any document with no other finding was reported as
+**Possible** rather than **No** on the strength of having used Helvetica. An
+indicator that fires on nearly everything cannot support triage and teaches an
+examiner to scroll past it.
+
+The indicator now reports only fonts that will actually be **substituted** at
+viewing time — the case where what a reader sees depends on the machine they
+open the file on. Arial, for instance, is not one of the standard 14 and is
+still reported.
+
+Where the indicator fires for some other font, any non-embedded standard-14
+fonts are listed beneath it as context, so the full picture is available once
+there is something to look at.
+
+**PDF/A is unaffected.** PDF/A requires every font to be embedded, the standard
+14 included, so the PDF/A compliance check determines this independently rather
+than reading the forensic indicator. A file claiming PDF/A while omitting
+Helvetica is still reported as violating the standard, and now names the fonts
+concerned.
+
 ## 17.7.0
 
 ### ⚠️ Read this first if you have existing TouchUp findings

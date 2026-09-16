@@ -136,10 +136,46 @@ def test_the_fixture_really_is_composite_and_embedded():
 # Genuinely missing fonts must still be reported
 # --------------------------------------------------------------------------
 
-def test_base14_font_is_reported():
-    count, fonts = _reported(_base14_pdf())
-    assert count == 1
-    assert any("Helvetica" in name for name in fonts)
+def test_base14_alone_does_not_raise_the_indicator():
+    """
+    A viewer must supply the standard 14, so omitting them is correct
+    typesetting, not a finding.
+
+    Almost every PDF sets some text in Helvetica, so flagging it pushed
+    otherwise unremarkable documents into "Possible" and made the indicator
+    worthless for triage.
+    """
+    doc = fitz.open(stream=_base14_pdf(), filetype="pdf")
+    try:
+        indicators = {}
+        detect_non_embedded_fonts(doc, indicators)
+    finally:
+        doc.close()
+    assert indicators == {}, "a standard-14 font alone should not raise it"
+
+
+def test_standard_14_is_still_listed_alongside_a_real_finding():
+    """Once there is something to look at, the full picture matters."""
+    data = _strip_font_files(_embedded_pdf(set_simple=True))
+    doc = fitz.open(stream=data, filetype="pdf")
+    try:
+        page = doc[0]
+        page.insert_text((50, 140), "Base 14 too", fontname="helv", fontsize=11)
+        data = doc.tobytes()
+    finally:
+        doc.close()
+
+    doc = fitz.open(stream=data, filetype="pdf")
+    try:
+        indicators = {}
+        detect_non_embedded_fonts(doc, indicators)
+    finally:
+        doc.close()
+
+    entry = indicators["NonEmbeddedFont"]
+    assert entry["count"] == 1, entry
+    assert not any("Helvetica" in f for f in entry["fonts"])
+    assert any("Helvetica" in f for f in entry["standard_fonts"])
 
 
 def test_simple_font_stripped_of_its_program_is_reported():
@@ -172,16 +208,72 @@ def test_composite_font_is_counted_once():
 
 def test_count_matches_the_listed_fonts():
     """The count once included duplicates while the list was deduplicated."""
-    doc = fitz.open()
-    page = doc.new_page()
-    page.insert_text((50, 60), "One", fontname="helv", fontsize=12)
-    page.insert_text((50, 90), "Two", fontname="tiro", fontsize=12)
-    page.insert_text((50, 120), "Three", fontname="cour", fontsize=12)
-    data = doc.tobytes()
-    doc.close()
+    count, fonts = _reported(_strip_font_files(_embedded_pdf(set_simple=False)))
+    assert count == len(fonts)
 
-    count, fonts = _reported(data)
-    assert count == len(fonts) == 3
+
+# --------------------------------------------------------------------------
+# Telling an expected omission from a substituted font
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("name", [
+    "Helvetica", "Helvetica-Bold", "Times-Roman", "Times-BoldItalic",
+    "Courier", "Courier-BoldOblique", "Symbol", "ZapfDingbats",
+    "Helvetica,Bold",            # comma spelling some producers emit
+    "ABCDEF+Helvetica",          # subset prefix, defensively
+    "helvetica",                 # case
+])
+def test_standard_14_names_are_recognised(name):
+    from src.advanced_forensics import _is_standard_14
+    assert _is_standard_14(name), name
+
+
+@pytest.mark.parametrize("name", [
+    "Arial", "ArialMT", "Arial-BoldMT", "TimesNewRoman", "Calibri",
+    "ArialUnicodeMS", "AZFWVZ+ArialUnicodeMS", "", "Helvetica-Condensed",
+])
+def test_other_fonts_are_not_treated_as_standard_14(name):
+    """
+    Arial is not one of the standard 14.
+
+    It is substituted when absent, so leaving it unembedded is worth
+    reporting - the visual result depends on the viewing machine.
+    """
+    from src.advanced_forensics import _is_standard_14
+    assert not _is_standard_14(name), name
+
+
+def test_pdfa_violation_still_counts_standard_14():
+    """
+    PDF/A requires every font embedded, the standard 14 included.
+
+    The forensic indicator ignores them, so the PDF/A check must not be
+    inferred from that indicator.
+    """
+    from src.advanced_forensics import detect_pdfa_violations
+
+    doc = fitz.open(stream=_base14_pdf(), filetype="pdf")
+    try:
+        indicators = {'PDFACompliance': {'part': '1B'}}
+        detect_pdfa_violations(doc, "", indicators)
+    finally:
+        doc.close()
+
+    assert 'PDFAViolation' in indicators, (
+        "a PDF/A file that omits the standard 14 still violates the standard")
+    assert any("non-embedded" in v for v in indicators['PDFAViolation']['details'])
+
+
+def test_pdfa_clean_when_every_font_is_embedded():
+    from src.advanced_forensics import detect_pdfa_violations
+
+    doc = fitz.open(stream=_embedded_pdf(set_simple=False), filetype="pdf")
+    try:
+        indicators = {'PDFACompliance': {'part': '1B'}}
+        detect_pdfa_violations(doc, "", indicators)
+    finally:
+        doc.close()
+    assert 'PDFAViolation' not in indicators
 
 
 # --------------------------------------------------------------------------

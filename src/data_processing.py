@@ -789,7 +789,15 @@ class DataProcessingMixin:
             if not fonts: return None
             font_str = ", ".join(fonts[:10])
             if len(fonts) > 10: font_str += f" (+{len(fonts)-10} more)"
-            return self._("NonEmbeddedFont") + f": {font_str}"
+            line = self._("NonEmbeddedFont") + f": {font_str}"
+            # The standard 14 are listed apart, so they are not read as part of
+            # the finding. A viewer is required to supply them; their absence
+            # is normal and is not what this indicator is reporting.
+            standard = details.get('standard_fonts') or []
+            if standard:
+                line += "\n    " + self._("non_embedded_standard_note").format(
+                    fonts=", ".join(standard[:10]))
+            return line
             
         if key == 'XMPHistoryGap':
             gaps = details.get('gaps', [])

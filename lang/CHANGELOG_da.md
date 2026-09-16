@@ -36,6 +36,34 @@ Desuden rettet:
   uden dubletter, så en fil kunne vise "3" over to poster. Antal og liste
   stemmer nu overens.
 
+### Ændret: de 14 standardskrifttyper udløser ikke længere indikatoren
+
+Enhver PDF-fremviser er forpligtet til at stille Helvetica, Times, Courier,
+Symbol og ZapfDingbats til rådighed i deres fjorten standardvarianter. Et
+dokument, der ikke indlejrer dem, opfører sig nøjagtigt som standarden
+foreskriver.
+
+Fordi næsten alle PDF'er sætter tekst i en af dem, udløstes indikatoren på
+stort set hver eneste fil, og et dokument uden andre fund blev rapporteret som
+**Mulig** frem for **Nej**, alene fordi der var brugt Helvetica. En indikator,
+der udløses på næsten alt, kan ikke bruges til triagering og lærer undersøgeren
+at scrolle forbi den.
+
+Indikatoren rapporterer nu kun skrifttyper, der reelt vil blive **erstattet**
+ved visning — det tilfælde, hvor det, en læser ser, afhænger af den maskine
+filen åbnes på. Arial er for eksempel ikke en af de 14 standardskrifttyper og
+rapporteres fortsat.
+
+Når indikatoren udløses af en anden skrifttype, oplistes eventuelle
+ikke-indlejrede standard 14-skrifttyper nedenunder som kontekst, så hele
+billedet er tilgængeligt, når der først er noget at se på.
+
+**PDF/A er upåvirket.** PDF/A kræver, at alle skrifttyper er indlejrede,
+inklusive de 14 standardskrifttyper, så PDF/A-kontrollen afgør dette
+selvstændigt frem for at læse den forensiske indikator. En fil, der påberåber
+sig PDF/A uden at indlejre Helvetica, rapporteres fortsat som en overtrædelse
+af standarden og angiver nu de pågældende skrifttyper.
+
 ## 17.7.0
 
 ### ⚠️ Læs dette først, hvis du har eksisterende TouchUp-fund

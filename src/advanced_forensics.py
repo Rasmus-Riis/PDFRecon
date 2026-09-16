@@ -885,6 +885,33 @@ _FONT_FILE_KEYS = ("FontFile", "FontFile2", "FontFile3")
 
 _XREF_NUM_RE = re.compile(r"(\d+)\s+\d+\s+R")
 
+#: The 14 fonts every conforming PDF viewer is required to provide. A document
+#: is *expected* not to embed these, so their absence is normal typesetting and
+#: not evidence of anything. Anything else left unembedded means the viewer
+#: substitutes whatever it has, which is worth an examiner's attention.
+#:
+#: PDF/A is stricter and requires even these to be embedded, so
+#: detect_pdfa_violations considers them; the forensic indicator does not.
+_STANDARD_14_FONTS = frozenset(name.lower() for name in (
+    "Helvetica", "Helvetica-Bold", "Helvetica-Oblique", "Helvetica-BoldOblique",
+    "Courier", "Courier-Bold", "Courier-Oblique", "Courier-BoldOblique",
+    "Times-Roman", "Times-Bold", "Times-Italic", "Times-BoldItalic",
+    "Symbol", "ZapfDingbats",
+))
+
+
+def _is_standard_14(base_font: str) -> bool:
+    """
+    Is this one of the 14 fonts a viewer must supply?
+
+    Some producers write the style with a comma ("Helvetica,Bold") rather than
+    a hyphen, so both spellings are accepted.
+    """
+    if not base_font:
+        return False
+    name = base_font.split("+", 1)[-1].strip().replace(",", "-")
+    return name.lower() in _STANDARD_14_FONTS
+
 
 def _referenced_xref(value: str):
     """First indirect reference in a value, e.g. '[12 0 R]' -> 12."""
@@ -912,9 +939,13 @@ def _descriptor_embeds_font(doc, kind: str, value: str) -> bool:
     return False
 
 
-def detect_non_embedded_fonts(doc, indicators: dict):
+def collect_non_embedded_fonts(doc):
     """
-    Report fonts the document relies on but does not carry.
+    Find every font the document relies on but does not carry.
+
+    Returns ``(standard_14, substituted)``: the fonts a viewer is required to
+    supply, and everything else that will be substituted with whatever the
+    viewing machine happens to have.
 
     A font program is embedded via /FontFile, /FontFile2 or /FontFile3 in the
     font's /FontDescriptor - not in the font dictionary. Composite (Type0)
@@ -925,7 +956,7 @@ def detect_non_embedded_fonts(doc, indicators: dict):
     nowhere and declares every embedded font missing.
     """
     if not doc:
-        return
+        return [], []
     try:
         xref_count = doc.xref_length() if callable(doc.xref_length) else doc.xref_length
 
@@ -970,14 +1001,42 @@ def detect_non_embedded_fonts(doc, indicators: dict):
             name = base_font[1].lstrip("/") if base_font[0] == "name" else f"xref {xref}"
             non_embedded.append(name)
 
-        if non_embedded:
-            unique = sorted(set(non_embedded))
-            indicators['NonEmbeddedFont'] = {
-                'count': len(unique),
-                'fonts': unique[:10]
-            }
+        standard, substituted = [], []
+        for name in sorted(set(non_embedded)):
+            (standard if _is_standard_14(name) else substituted).append(name)
+        return standard, substituted
     except Exception as e:
         logging.debug(f"Error detecting non-embedded fonts: {e}")
+        return [], []
+
+
+def detect_non_embedded_fonts(doc, indicators: dict):
+    """
+    Raise the indicator when a font will be substituted at viewing time.
+
+    The 14 standard fonts are deliberately excluded. A viewer is required to
+    provide them, so a document that omits them is behaving exactly as the
+    specification intends - and because almost every PDF uses one, flagging
+    them put an otherwise unremarkable file into "Possible" on the strength of
+    having set some text in Helvetica. An indicator that fires on nearly every
+    document tells an examiner nothing and trains them to ignore it.
+
+    They are still listed under ``standard_fonts`` when the indicator fires
+    for some other font, since the full picture matters once there is
+    something to look at, and detect_pdfa_violations still counts them because
+    PDF/A does require them to be embedded.
+    """
+    if not doc:
+        return
+    standard, substituted = collect_non_embedded_fonts(doc)
+    if not substituted:
+        return
+
+    indicators['NonEmbeddedFont'] = {
+        'count': len(substituted),
+        'fonts': substituted[:10],
+        'standard_fonts': standard,
+    }
 
 
 def detect_xmp_history_gaps(txt: str, indicators: dict):
@@ -1065,9 +1124,14 @@ def detect_pdfa_violations(doc, txt: str, indicators: dict):
         if 'ContainsJavaScript' in indicators:
             violations.append("Document claims PDF/A but contains JavaScript")
             
-        # 3. PDF/A must embed all fonts
-        if 'NonEmbeddedFont' in indicators:
-            violations.append("Document claims PDF/A but has non-embedded fonts")
+        # 3. PDF/A must embed all fonts, including the standard 14 that an
+        #    ordinary PDF may leave out. The forensic indicator ignores those,
+        #    so ask for the full picture rather than reading the indicator.
+        standard, substituted = collect_non_embedded_fonts(doc)
+        if standard or substituted:
+            missing = ", ".join((substituted + standard)[:5])
+            violations.append(
+                f"Document claims PDF/A but has non-embedded fonts: {missing}")
             
         if violations:
             indicators['PDFAViolation'] = {

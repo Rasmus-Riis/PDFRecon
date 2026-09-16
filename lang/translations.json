@@ -389,7 +389,8 @@
         "cid_verify_hint": "Verificér: følg skrifttypeobjektet i en hex-editor, eller sammenlign hver glyf ovenfor med selve siden. Se manualen, afsnittet \"CID-tekstafkodning\".",
         "cid_col_decoded_text": "Afkodet tekst",
         "cid_col_method": "Afkodningsmetode",
-        "cid_col_confidence": "Afkodningskonfidens"
+        "cid_col_confidence": "Afkodningskonfidens",
+        "non_embedded_standard_note": "Standard 14-skrifttyper, bevidst ikke indlejret: {fonts}"
     },
     "en": {
         "choose_folder": "📁 Choose folder and scan",
@@ -781,6 +782,7 @@
         "cid_verify_hint": "Verify: follow the font object in a hex editor, or compare each glyph above with the page itself. See the manual, section \"CID Text Decoding\".",
         "cid_col_decoded_text": "Decoded Text",
         "cid_col_method": "Decoding Method",
-        "cid_col_confidence": "Decoding Confidence"
+        "cid_col_confidence": "Decoding Confidence",
+        "non_embedded_standard_note": "Standard 14 fonts, not embedded by design: {fonts}"
     }
 }
