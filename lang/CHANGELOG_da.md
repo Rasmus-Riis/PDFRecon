@@ -1,6 +1,6 @@
 # Ændringslog
 
-## 17.7.1
+## 17.7.8
 
 ### Rettet: indlejrede skrifttyper blev rapporteret som ikke-indlejrede
 

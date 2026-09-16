@@ -1,6 +1,6 @@
 # Changelog
 
-## 17.7.1
+## 17.7.8
 
 ### Fixed: embedded fonts were reported as not embedded
 
