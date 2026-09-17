@@ -765,32 +765,33 @@ def detect_page_inconsistencies(doc, indicators: dict):
     if not doc or len(doc) <= 1:
         return
     try:
+        # ⚡ Bolt Optimization: Consolidate multiple PyMuPDF page iterations into a single pass
+        # by caching page properties, avoiding redundant C-level accessor overhead.
         dimensions = {}
         rotations = {}
-        for i in range(len(doc)):
-            page = doc[i]
+        page_props = []
+        for page in doc:
             r = page.rect
             w_h = round(r.width, 1), round(r.height, 1)
-            dimensions[w_h] = dimensions.get(w_h, 0) + 1
-            
             rot = page.rotation
+
+            dimensions[w_h] = dimensions.get(w_h, 0) + 1
             rotations[rot] = rotations.get(rot, 0) + 1
+            page_props.append((w_h, rot))
             
         dominant_dim = max(dimensions, key=dimensions.get)
         dominant_rot = max(rotations, key=rotations.get)
         
         anomalous_pages = []
-        if dimensions[dominant_dim] / len(doc) >= 0.75:
-            for i in range(len(doc)):
-                r = doc[i].rect
-                w_h = round(r.width, 1), round(r.height, 1)
-                if w_h != dominant_dim:
+        num_pages = len(page_props)
+        check_dim = (dimensions[dominant_dim] / num_pages) >= 0.75
+        check_rot = (rotations[dominant_rot] / num_pages) >= 0.75
+
+        if check_dim or check_rot:
+            for i, (w_h, rot) in enumerate(page_props):
+                if check_dim and w_h != dominant_dim:
                     anomalous_pages.append({'page': i+1, 'type': f'Dimensions {w_h}'})
-                    
-        if rotations[dominant_rot] / len(doc) >= 0.75:
-            for i in range(len(doc)):
-                rot = doc[i].rotation
-                if rot != dominant_rot:
+                if check_rot and rot != dominant_rot:
                     anomalous_pages.append({'page': i+1, 'type': f'Rotation {rot}° (expected {dominant_rot}°)'})
                     
         if anomalous_pages:
