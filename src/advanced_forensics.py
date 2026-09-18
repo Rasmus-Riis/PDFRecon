@@ -767,6 +767,8 @@ def detect_page_inconsistencies(doc, indicators: dict):
     try:
         dimensions = {}
         rotations = {}
+        # ⚡ Bolt Optimization: Cache page properties to avoid repeated C-level PyMuPDF API calls
+        page_props = []
         for i in range(len(doc)):
             page = doc[i]
             r = page.rect
@@ -775,21 +777,19 @@ def detect_page_inconsistencies(doc, indicators: dict):
             
             rot = page.rotation
             rotations[rot] = rotations.get(rot, 0) + 1
+            page_props.append((w_h, rot))
             
         dominant_dim = max(dimensions, key=dimensions.get)
         dominant_rot = max(rotations, key=rotations.get)
         
         anomalous_pages = []
         if dimensions[dominant_dim] / len(doc) >= 0.75:
-            for i in range(len(doc)):
-                r = doc[i].rect
-                w_h = round(r.width, 1), round(r.height, 1)
+            for i, (w_h, _) in enumerate(page_props):
                 if w_h != dominant_dim:
                     anomalous_pages.append({'page': i+1, 'type': f'Dimensions {w_h}'})
                     
         if rotations[dominant_rot] / len(doc) >= 0.75:
-            for i in range(len(doc)):
-                rot = doc[i].rotation
+            for i, (_, rot) in enumerate(page_props):
                 if rot != dominant_rot:
                     anomalous_pages.append({'page': i+1, 'type': f'Rotation {rot}° (expected {dominant_rot}°)'})
                     
