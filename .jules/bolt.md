@@ -63,3 +63,6 @@
 ## 2025-05-21 - Optimize duplicate checks in loops
 **Learning:** When accumulating items and checking for duplicates inside a loop in Python, using an `in` check against a `list` (e.g., `if i in my_list: my_list.append(i)`) creates an $O(N^2)$ performance bottleneck on large datasets. Changing the accumulator to a `set` changes membership testing to $O(1)$, making the overall loop $O(N)$.
 **Action:** Always use a `set` for duplicate checking inside high-frequency loops instead of lists.
+## 2025-02-28 - [PyMuPDF Page Property Access Overhead]
+**Learning:** [Accessing properties like `page.rect` and `page.rotation` directly from PyMuPDF page objects (`doc[i]`) repeatedly within multiple passes (e.g., verifying page dimensions and rotations independently) incurs significant C-level bridge execution overhead, dragging down processing performance on large PDFs.]
+**Action:** [When performing multi-pass analysis on document pages, iterate over the PyMuPDF document (`doc`) exactly once and cache the required properties (such as width, height, and rotation) into a native Python structure like a list. Perform subsequent analyses and iterations strictly against this native Python cache rather than re-querying the C-level object.]
