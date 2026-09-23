@@ -21,6 +21,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import fitz
 
+HEX_ESCAPE_RE = re.compile(r"#([0-9A-Fa-f]{2})")
+
 from .config import (
     PDFReconConfig, PDFProcessingError, PDFCorruptionError, 
     PDFTooLargeError, PDFEncryptedError,
@@ -436,8 +438,9 @@ def analyze_fonts(filepath: Path, doc):
                         if basefont_name.startswith("/"):
                             basefont_name = basefont_name[1:]
 
-                        # Decode PDF name (e.g. #20 -> space)
-                        basefont_name = re.sub(r"#([0-9A-Fa-f]{2})", lambda m: chr(int(m.group(1), 16)), basefont_name)
+                        # ⚡ Bolt Optimization: Decode PDF name (e.g. #20 -> space) with fast-fail check
+                        if "#" in basefont_name:
+                            basefont_name = HEX_ESCAPE_RE.sub(lambda m: chr(int(m.group(1), 16)), basefont_name)
 
                         if "+" in basefont_name:
                             try:
