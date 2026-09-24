@@ -63,3 +63,6 @@
 ## 2025-05-21 - Optimize duplicate checks in loops
 **Learning:** When accumulating items and checking for duplicates inside a loop in Python, using an `in` check against a `list` (e.g., `if i in my_list: my_list.append(i)`) creates an $O(N^2)$ performance bottleneck on large datasets. Changing the accumulator to a `set` changes membership testing to $O(1)$, making the overall loop $O(N)$.
 **Action:** Always use a `set` for duplicate checking inside high-frequency loops instead of lists.
+## 2026-09-24 - Pre-compile Regex for PDF Name Hex Escapes
+**Learning:** In PyMuPDF font extraction (e.g. `doc.xref_get_key(xref, "BaseFont")`), PDF names are decoded using a regex substitution for hex escapes (`#XX`). When analyzing many fonts across large documents, compiling this regex inline per subset evaluation adds unnecessary overhead.
+**Action:** Use a globally pre-compiled regex (`HEX_ESCAPE_RE`) combined with a fast-path literal guard (`if "#" in basefont_name:`) to skip the regex engine entirely when the string contains no escapes. This yields a significant performance boost during font subset parsing.
