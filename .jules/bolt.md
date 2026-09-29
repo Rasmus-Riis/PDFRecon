@@ -63,3 +63,6 @@
 ## 2025-05-21 - Optimize duplicate checks in loops
 **Learning:** When accumulating items and checking for duplicates inside a loop in Python, using an `in` check against a `list` (e.g., `if i in my_list: my_list.append(i)`) creates an $O(N^2)$ performance bottleneck on large datasets. Changing the accumulator to a `set` changes membership testing to $O(1)$, making the overall loop $O(N)$.
 **Action:** Always use a `set` for duplicate checking inside high-frequency loops instead of lists.
+## 2025-05-22 - Pre-mapping UI tree items in standalone exporter to prevent O(N^2)
+**Learning:** Similar to the UI-bound export module, the standalone `export_to_html` method in `src/exporter.py` contained an O(N^2) bottleneck. It iterated through `tree_get_children()` inside the `report_data` loop to find matching tags.
+**Action:** When correlating UI elements with external report data streams, pre-map the UI tree items (e.g., via `tree_get_children`) to a dictionary (e.g., mapping file path to tag) before entering the export loop. This achieves O(1) lookups and significantly reduces export time, bypassing repetitive C-level Tkinter bridge calls.

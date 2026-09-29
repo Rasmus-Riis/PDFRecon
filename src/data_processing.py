@@ -223,7 +223,6 @@ class DataProcessingMixin:
             file_content = path.read_bytes()
             startupinfo = None
             if sys.platform == "win32":
-                import subprocess
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             
