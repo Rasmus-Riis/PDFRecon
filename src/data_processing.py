@@ -1208,15 +1208,9 @@ class DataProcessingMixin:
                         if path_str not in relationships[owner_path]:
                             relationships[owner_path][path_str] = "parent_of"
 
-            for own_id in own_ids:
-                for other_path, other_ids in path_to_ids.items():
-                    if other_path == path_str:
-                        continue
-                    if own_id in other_ids.get("ref_ids", set()):
-                        if path_str not in relationships:
-                            relationships[path_str] = {}
-                        if other_path not in relationships[path_str]:
-                            relationships[path_str][other_path] = "parent_of"
+        # ⚡ Bolt Optimization: Bidirectional relationships (derived_from and parent_of)
+        # are fully established in the O(N) hash map pass above. A redundant O(N^2)
+        # nested loop that manually re-evaluated the reverse direction was removed here.
 
         for path_str, related_files in relationships.items():
             if path_str in self.all_scan_data:
