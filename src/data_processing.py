@@ -223,7 +223,6 @@ class DataProcessingMixin:
             file_content = path.read_bytes()
             startupinfo = None
             if sys.platform == "win32":
-                import subprocess
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             
@@ -455,7 +454,9 @@ class DataProcessingMixin:
         for match in pdf_date_extended.finditer(file_content_string):
             label, date_str, tz_str = match.groups()
             try:
-                dt_obj = datetime.strptime(date_str, "%Y%m%d%H%M%S")
+                # ⚡ Bolt Optimization: Use direct instantiation instead of strptime
+                c = date_str
+                dt_obj = datetime(int(c[0:4]), int(c[4:6]), int(c[6:8]), int(c[8:10]), int(c[10:12]), int(c[12:14]))
                 
                 if tz_str:
                     if tz_str == 'Z':
