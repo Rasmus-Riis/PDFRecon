@@ -66,3 +66,7 @@
 ## 2024-10-02 - [O(N^2) Redundancy in Document Cross-Referencing]
 **Learning:** In `src/data_processing.py`, document relationships (`derived_from` and `parent_of`) are correctly established bidirectionally in a single O(N) pass using the `id_to_owners` hash map. A secondary nested loop that re-evaluated `own_ids` against every other file's `ref_ids` caused an O(N^2) performance bottleneck.
 **Action:** When establishing bidirectional relationships, rely on the O(N) hash map pass. Avoid introducing redundant O(N^2) nested loops that re-evaluate the reverse direction manually.
+
+## 2025-05-23 - Optimize datetime string parsing
+**Learning:** In performance-critical parsing loops, using `datetime.strptime` is slow due to format string parsing and locale lock overhead. For ISO formatted strings, `datetime.fromisoformat()` is significantly faster (~60x). For fixed-length date strings like PDF dates (`YYYYMMDDHHMMSS`), direct `datetime()` instantiation with integer slicing (e.g., `datetime(int(clean[0:4]), ...)`) is much faster (~5x) than `strptime`.
+**Action:** Always prefer `datetime.fromisoformat()` for ISO strings or direct `datetime` instantiation via slicing for fixed format strings over `datetime.strptime` inside hot parsing paths.
