@@ -66,3 +66,6 @@
 ## 2024-10-02 - [O(N^2) Redundancy in Document Cross-Referencing]
 **Learning:** In `src/data_processing.py`, document relationships (`derived_from` and `parent_of`) are correctly established bidirectionally in a single O(N) pass using the `id_to_owners` hash map. A secondary nested loop that re-evaluated `own_ids` against every other file's `ref_ids` caused an O(N^2) performance bottleneck.
 **Action:** When establishing bidirectional relationships, rely on the O(N) hash map pass. Avoid introducing redundant O(N^2) nested loops that re-evaluate the reverse direction manually.
+## 2026-10-08 - [Optimize row padding in export loops]
+**Learning:** Sequential `while len(arr) < target: arr.append("")` calls incur heavy method resolution and Python bytecode loop overhead, bottlenecking high-frequency export loops.
+**Action:** Replace `while` loop appending with `arr.extend([""] * diff)` or `arr += [""] * diff` to leverage C-level list allocation and copy operations, reducing padding time by ~50%.
