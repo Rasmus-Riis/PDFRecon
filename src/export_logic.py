@@ -225,8 +225,9 @@ class ExportMixin:
 
             row_out = list(row_data)
             
-            while len(row_out) < len(headers):
-                row_out.append("")
+            diff = len(headers) - len(row_out)
+            if diff > 0:
+                row_out.extend([""] * diff)
             
             row_out[8] = exif_text         
             if indicators_full:
@@ -307,8 +308,9 @@ class ExportMixin:
             indicators_full = _indicators_for_path(path)
             note_text = note_get(path, "")
             
-            while len(new_row) < len(headers):
-                new_row.append("")
+            diff = len(headers) - len(new_row)
+            if diff > 0:
+                new_row.extend([""] * diff)
 
             new_row[8] = exif_output      
             if indicators_full:
@@ -413,8 +415,9 @@ class ExportMixin:
             note_text = html.escape(self.file_annotations.get(path_str, "")).replace('\n', '<br>')
             
             row_values = [html.escape(str(v)) for v in values]
-            while len(row_values) < len(self.columns_keys):
-                row_values.append("")
+            diff = len(self.columns_keys) - len(row_values)
+            if diff > 0:
+                row_values.extend([""] * diff)
             row_values[10] = note_text
 
             rows += f'<tr class="{tag_class}">' + "".join(f"<td>{v}</td>" for v in row_values) + "</tr>"

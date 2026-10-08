@@ -190,8 +190,9 @@ def export_to_excel(file_path, report_data: list, all_scan_data: dict, file_anno
 
             row_out = list(row_data)
 
-            while len(row_out) < base_column_count:
-                row_out.append("")
+            diff = base_column_count - len(row_out)
+            if diff > 0:
+                row_out.extend([""] * diff)
 
             row_out[8] = exif_text         # EXIF is at index 8
             if indicators_full:
@@ -315,8 +316,9 @@ def export_to_csv(file_path, report_data: list, all_scan_data: dict, file_annota
             indicators_full = _indicators_for_path(path)
             note_text = note_get(path, "")
 
-            while len(new_row) < base_column_count:
-                new_row.append("")
+            diff = base_column_count - len(new_row)
+            if diff > 0:
+                new_row.extend([""] * diff)
 
             new_row[8] = exif_output      # EXIF is at index 8
             if indicators_full:
@@ -451,8 +453,9 @@ def export_to_html(file_path, report_data: list, file_annotations: dict, all_sca
             note_text = html_escape_module.escape(file_annotations.get(path_str, "")).replace('\n', '<br>')
             
             row_values = [html_escape_module.escape(str(v)) for v in values]
-            while len(row_values) < base_column_count:
-                row_values.append("")
+            diff = base_column_count - len(row_values)
+            if diff > 0:
+                row_values.extend([""] * diff)
             if len(row_values) > 10:
                 row_values[10] = note_text
 
