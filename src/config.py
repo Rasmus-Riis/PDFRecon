@@ -150,3 +150,6 @@ DATE_TZ_PATTERN = re.compile(r"^(?P<date>\d{4}[-:]\d{2}[-:]\d{2}[ T]\d{2}:\d{2}:
 
 # ⚡ Bolt Optimization: Pre-compiled regex for XML control characters to avoid repeated compilation during large spreadsheet exports.
 XML_CONTROL_RE = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F]")
+
+# ⚡ Bolt Optimization: Pre-compiled regex for PDF hex escapes to avoid repeated compilation and overhead in font analysis.
+HEX_ESCAPE_RE = re.compile(r"#([0-9A-Fa-f]{2})")
