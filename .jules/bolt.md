@@ -66,3 +66,7 @@
 ## 2024-10-02 - [O(N^2) Redundancy in Document Cross-Referencing]
 **Learning:** In `src/data_processing.py`, document relationships (`derived_from` and `parent_of`) are correctly established bidirectionally in a single O(N) pass using the `id_to_owners` hash map. A secondary nested loop that re-evaluated `own_ids` against every other file's `ref_ids` caused an O(N^2) performance bottleneck.
 **Action:** When establishing bidirectional relationships, rely on the O(N) hash map pass. Avoid introducing redundant O(N^2) nested loops that re-evaluate the reverse direction manually.
+
+## 2024-10-17 - Cache PyMuPDF page properties for multi-pass analysis
+**Learning:** In PyMuPDF, accessing page objects (`doc[i]`) and properties (`page.rect`, `page.rotation`) incurs C-level overhead. Iterating over the document multiple times to re-fetch these properties for different checks creates a significant performance bottleneck.
+**Action:** When performing multi-pass page analysis (e.g., in `detect_page_inconsistencies`), iterate over `doc` once and cache the required properties in a native Python list for subsequent validations. This avoids redundant C-level lookups and can yield >50% speedups.
