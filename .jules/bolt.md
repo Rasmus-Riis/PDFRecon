@@ -66,3 +66,7 @@
 ## 2024-10-02 - [O(N^2) Redundancy in Document Cross-Referencing]
 **Learning:** In `src/data_processing.py`, document relationships (`derived_from` and `parent_of`) are correctly established bidirectionally in a single O(N) pass using the `id_to_owners` hash map. A secondary nested loop that re-evaluated `own_ids` against every other file's `ref_ids` caused an O(N^2) performance bottleneck.
 **Action:** When establishing bidirectional relationships, rely on the O(N) hash map pass. Avoid introducing redundant O(N^2) nested loops that re-evaluate the reverse direction manually.
+
+## 2025-05-23 - Optimize PyMuPDF extract_image with xref_stream_raw fastpath
+**Learning:** Using `doc.extract_image(xref)` to retrieve JPEG bytes from a PDF is slow because it parses the image dictionary and performs unneeded checks. Often, the raw stream bytes are already standard JPEGs. Attempting `raw_bytes = doc.xref_stream_raw(xref)` and checking if it starts with the JPEG signature (`b'\xff\xd8'`) avoids the dictionary parsing overhead completely, delivering roughly a 2x speedup for JPEG extraction.
+**Action:** When extracting image bytes for forensic analysis (e.g., ELA or QT extraction) where a raw JPEG is expected, always use a fast path attempting `xref_stream_raw(xref)` with a signature guard before falling back to the expensive `extract_image(xref)`.

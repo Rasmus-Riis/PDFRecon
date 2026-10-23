@@ -642,11 +642,17 @@ def detect_ela_anomalies(doc, indicators: dict):
             for img_info in page.get_images():
                 xref = img_info[0]
                 try:
-                    img_dict = doc.extract_image(xref)
-                    if not img_dict:
-                        continue
-                    
-                    img = Image.open(io.BytesIO(img_dict["image"])).convert("RGB")
+                    # ⚡ Bolt Optimization: Try to get raw JPEG stream first for speed
+                    raw_bytes = doc.xref_stream_raw(xref)
+                    if raw_bytes and raw_bytes.startswith(b'\xff\xd8'):
+                        img_bytes = raw_bytes
+                    else:
+                        img_dict = doc.extract_image(xref)
+                        if not img_dict:
+                            continue
+                        img_bytes = img_dict["image"]
+
+                    img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
                     
                     tmp_io = io.BytesIO()
                     img.save(tmp_io, 'JPEG', quality=95)

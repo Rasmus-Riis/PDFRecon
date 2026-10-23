@@ -161,13 +161,18 @@ def analyze_pdf_images_qt(doc, filepath: Path, indicators: dict):
                     try:
                         xref = img[0]  # Image xref number
                         
-                        # Extract image
-                        base_image = doc.extract_image(xref)
-                        
-                        if not base_image or base_image.get('ext') != 'jpeg':
-                            continue
-                        
-                        image_bytes = base_image['image']
+                        # ⚡ Bolt Optimization: Try to get raw JPEG stream first for speed
+                        raw_bytes = doc.xref_stream_raw(xref)
+                        if raw_bytes and raw_bytes.startswith(b'\xff\xd8'):
+                            image_bytes = raw_bytes
+                        else:
+                            # Extract image
+                            base_image = doc.extract_image(xref)
+
+                            if not base_image or base_image.get('ext') != 'jpeg':
+                                continue
+
+                            image_bytes = base_image['image']
                         
                         # Analyze QT
                         qt_info = extract_jpeg_qt_from_bytes(image_bytes)
