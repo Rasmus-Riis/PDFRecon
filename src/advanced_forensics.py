@@ -762,34 +762,37 @@ def detect_timestamp_mismatches(txt: str, doc, indicators: dict):
 
 def detect_page_inconsistencies(doc, indicators: dict):
     """Detect individual pages that deviate starkly from the document's dimensions or rotation."""
-    if not doc or len(doc) <= 1:
+    doc_len = len(doc) if doc else 0
+    if not doc or doc_len <= 1:
         return
     try:
         dimensions = {}
         rotations = {}
-        for i in range(len(doc)):
+        # ⚡ Bolt Optimization: Cache PyMuPDF page properties to reduce C-level overhead during subsequent validations
+        page_properties = []
+        for i in range(doc_len):
             page = doc[i]
             r = page.rect
             w_h = round(r.width, 1), round(r.height, 1)
-            dimensions[w_h] = dimensions.get(w_h, 0) + 1
-            
             rot = page.rotation
+
+            dimensions[w_h] = dimensions.get(w_h, 0) + 1
             rotations[rot] = rotations.get(rot, 0) + 1
+            page_properties.append((w_h, rot))
             
         dominant_dim = max(dimensions, key=dimensions.get)
         dominant_rot = max(rotations, key=rotations.get)
         
         anomalous_pages = []
-        if dimensions[dominant_dim] / len(doc) >= 0.75:
-            for i in range(len(doc)):
-                r = doc[i].rect
-                w_h = round(r.width, 1), round(r.height, 1)
+        if dimensions[dominant_dim] / doc_len >= 0.75:
+            for i in range(doc_len):
+                w_h, _ = page_properties[i]
                 if w_h != dominant_dim:
                     anomalous_pages.append({'page': i+1, 'type': f'Dimensions {w_h}'})
                     
-        if rotations[dominant_rot] / len(doc) >= 0.75:
-            for i in range(len(doc)):
-                rot = doc[i].rotation
+        if rotations[dominant_rot] / doc_len >= 0.75:
+            for i in range(doc_len):
+                _, rot = page_properties[i]
                 if rot != dominant_rot:
                     anomalous_pages.append({'page': i+1, 'type': f'Rotation {rot}° (expected {dominant_rot}°)'})
                     
