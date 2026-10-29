@@ -66,3 +66,6 @@
 ## 2024-10-02 - [O(N^2) Redundancy in Document Cross-Referencing]
 **Learning:** In `src/data_processing.py`, document relationships (`derived_from` and `parent_of`) are correctly established bidirectionally in a single O(N) pass using the `id_to_owners` hash map. A secondary nested loop that re-evaluated `own_ids` against every other file's `ref_ids` caused an O(N^2) performance bottleneck.
 **Action:** When establishing bidirectional relationships, rely on the O(N) hash map pass. Avoid introducing redundant O(N^2) nested loops that re-evaluate the reverse direction manually.
+## 2024-10-29 - O(N^2) Treeview Lookup in HTML Export
+**Learning:** The Tkinter `tree_get_children` and `tree_item` bridge methods were being called inside a tight nested loop for HTML report generation, creating an O(N^2) bottleneck over thousands of rows.
+**Action:** Pre-map UI tree items to a native Python dictionary before entering loops, avoiding both algorithmic bottleneck and bridge overhead.
