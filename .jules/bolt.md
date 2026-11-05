@@ -66,3 +66,7 @@
 ## 2024-10-02 - [O(N^2) Redundancy in Document Cross-Referencing]
 **Learning:** In `src/data_processing.py`, document relationships (`derived_from` and `parent_of`) are correctly established bidirectionally in a single O(N) pass using the `id_to_owners` hash map. A secondary nested loop that re-evaluated `own_ids` against every other file's `ref_ids` caused an O(N^2) performance bottleneck.
 **Action:** When establishing bidirectional relationships, rely on the O(N) hash map pass. Avoid introducing redundant O(N^2) nested loops that re-evaluate the reverse direction manually.
+
+## 2025-05-19 - Fast-fail optimization for module level imports
+**Learning:** Extracting pre-compiled regex objects at the module level allows Python to instantiate them once when the module is imported rather than repeatedly recompiling them inside hot inner loops or function bodies. In `src/scan_worker.py`, moving `software_tokens` and `history_pattern` regex compilation outside `_parse_exif_data` to module scope eliminates redundant computation during recursive file processing.
+**Action:** Always extract and pre-compile regular expressions as module-level constants (e.g., `_PATTERN_RE = re.compile(...)`) when they are used within frequently executed parsing functions or multi-iteration loops.
