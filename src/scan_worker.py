@@ -257,32 +257,33 @@ def _run_exiftool(path: Path, detailed: bool = False) -> str:
         return f"ExifTool error:\n{e}"
 
 
+# ⚡ Bolt Optimization: Pre-compile regex patterns at the module level to avoid redundant compilation
+# overhead in the file processing loop.
+_SOFTWARE_TOKENS_RE = re.compile(
+    r"(abbey|abbyy|acrobat|adobe|apache|birt|billy|bluebeam|bullzip|businesscentral|cairo|canva|chrome|chromium|"
+    r"clibpdf|collabora|cups|cutepdf|deskpdf|dinero|dynamics|ecopy|economic|edge|eboks|evince|excel|firefox|"
+    r"finereader|formpipe|foxit|fpdf|framemaker|gdoc|ghostscript|ghostview|gimp|helpndoc|illustrator|ilovepdf|"
+    r"imagemagick|indesign|inkscape|itext|javelin|jasperreports|karbon|kmd|lasernet|latex|libharu|libreoffice|"
+    r"luatex|mathcad|microsoft|mobipocket|mupdf|navision|netcompany|nitro|okular|office|openoffice|openpdf|"
+    r"paperport|pagestream|pageplus|pdf24|pdfarranger|pdfbox|pdfcreator|pdfedit|pdfescape|pdfgear|pdflatex|"
+    r"pdfjs|pdfsam|pdfsharp|pdfstudio|pdftk|pdfxchange|photoshop|poppler|powerpoint|pstoedit|primopdf|prince|"
+    r"qpdf|qiqqa|quartz|reportlab|revu|safari|scribus|serif|skim|skia|smallpdf|sodapdf|solidconverter|"
+    r"stdu|sumatra|swftools|tcpdf|tex|utopia|visma|word|wkhtml|wkhtmltopdf|xara|xetex|xpdf)",
+    re.IGNORECASE,
+)
+_HISTORY_PATTERN_RE = re.compile(r"\[XMP-xmpMM\]\s+History\s+:\s+(.*)")
+
 def _parse_exif_data(exiftool_out: str) -> dict:
     """Parse EXIFTool output into a structured dict (standalone, no self needed)."""
-    # Must match DataProcessingMixin.SOFTWARE_TOKENS (Wikipedia "List of PDF software" + project-specific).
-    software_tokens = re.compile(
-        r"(abbey|abbyy|acrobat|adobe|apache|birt|billy|bluebeam|bullzip|businesscentral|cairo|canva|chrome|chromium|"
-        r"clibpdf|collabora|cups|cutepdf|deskpdf|dinero|dynamics|ecopy|economic|edge|eboks|evince|excel|firefox|"
-        r"finereader|formpipe|foxit|fpdf|framemaker|gdoc|ghostscript|ghostview|gimp|helpndoc|illustrator|ilovepdf|"
-        r"imagemagick|indesign|inkscape|itext|javelin|jasperreports|karbon|kmd|lasernet|latex|libharu|libreoffice|"
-        r"luatex|mathcad|microsoft|mobipocket|mupdf|navision|netcompany|nitro|okular|office|openoffice|openpdf|"
-        r"paperport|pagestream|pageplus|pdf24|pdfarranger|pdfbox|pdfcreator|pdfedit|pdfescape|pdfgear|pdflatex|"
-        r"pdfjs|pdfsam|pdfsharp|pdfstudio|pdftk|pdfxchange|photoshop|poppler|powerpoint|pstoedit|primopdf|prince|"
-        r"qpdf|qiqqa|quartz|reportlab|revu|safari|scribus|serif|skim|skia|smallpdf|sodapdf|solidconverter|"
-        r"stdu|sumatra|swftools|tcpdf|tex|utopia|visma|word|wkhtml|wkhtmltopdf|xara|xetex|xpdf)",
-        re.IGNORECASE,
-    )
-
     data = {
         "producer_pdf": "", "producer_xmppdf": "", "softwareagent": "",
         "application": "", "software": "", "creatortool": "", "xmptoolkit": "",
         "create_dt": None, "modify_dt": None, "history_events": [], "all_dates": [],
     }
     lines = exiftool_out.splitlines()
-    history_pattern = re.compile(r"\[XMP-xmpMM\]\s+History\s+:\s+(.*)")
 
     def looks_like_software(s: str) -> bool:
-        return bool(s and software_tokens.search(s))
+        return bool(s and _SOFTWARE_TOKENS_RE.search(s))
 
     for ln in lines:
         m = KV_PATTERN.match(ln)
@@ -314,7 +315,7 @@ def _parse_exif_data(exiftool_out: str) -> dict:
         data["producer_xmppdf"] = data["producer_pdf"]
 
     for ln in lines:
-        hist_match = history_pattern.match(ln)
+        hist_match = _HISTORY_PATTERN_RE.match(ln)
         if hist_match:
             history_str = hist_match.group(1)
             event_blocks = re.findall(r'\{([^}]+)\}', history_str)
