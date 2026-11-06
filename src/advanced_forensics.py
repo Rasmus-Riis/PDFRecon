@@ -762,13 +762,17 @@ def detect_timestamp_mismatches(txt: str, doc, indicators: dict):
 
 def detect_page_inconsistencies(doc, indicators: dict):
     """Detect individual pages that deviate starkly from the document's dimensions or rotation."""
-    if not doc or len(doc) <= 1:
+    doc_len = len(doc) if doc else 0
+    if not doc or doc_len <= 1:
         return
     try:
         dimensions = {}
         rotations = {}
-        for i in range(len(doc)):
-            page = doc[i]
+
+        # ⚡ Bolt Optimization: Cache properties to avoid repeated C-level access overhead
+        page_props = []
+
+        for page in doc:
             r = page.rect
             w_h = round(r.width, 1), round(r.height, 1)
             dimensions[w_h] = dimensions.get(w_h, 0) + 1
@@ -776,20 +780,22 @@ def detect_page_inconsistencies(doc, indicators: dict):
             rot = page.rotation
             rotations[rot] = rotations.get(rot, 0) + 1
             
+            page_props.append((w_h, rot))
+
         dominant_dim = max(dimensions, key=dimensions.get)
         dominant_rot = max(rotations, key=rotations.get)
         
         anomalous_pages = []
-        if dimensions[dominant_dim] / len(doc) >= 0.75:
-            for i in range(len(doc)):
-                r = doc[i].rect
-                w_h = round(r.width, 1), round(r.height, 1)
+        check_dim = (dimensions[dominant_dim] / doc_len) >= 0.75
+        check_rot = (rotations[dominant_rot] / doc_len) >= 0.75
+
+        if check_dim:
+            for i, (w_h, _) in enumerate(page_props):
                 if w_h != dominant_dim:
                     anomalous_pages.append({'page': i+1, 'type': f'Dimensions {w_h}'})
                     
-        if rotations[dominant_rot] / len(doc) >= 0.75:
-            for i in range(len(doc)):
-                rot = doc[i].rotation
+        if check_rot:
+            for i, (_, rot) in enumerate(page_props):
                 if rot != dominant_rot:
                     anomalous_pages.append({'page': i+1, 'type': f'Rotation {rot}° (expected {dominant_rot}°)'})
                     
