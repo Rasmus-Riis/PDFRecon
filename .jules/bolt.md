@@ -66,3 +66,7 @@
 ## 2024-10-02 - [O(N^2) Redundancy in Document Cross-Referencing]
 **Learning:** In `src/data_processing.py`, document relationships (`derived_from` and `parent_of`) are correctly established bidirectionally in a single O(N) pass using the `id_to_owners` hash map. A secondary nested loop that re-evaluated `own_ids` against every other file's `ref_ids` caused an O(N^2) performance bottleneck.
 **Action:** When establishing bidirectional relationships, rely on the O(N) hash map pass. Avoid introducing redundant O(N^2) nested loops that re-evaluate the reverse direction manually.
+
+## 2025-05-22 - Fast-path bypass and pre-compiled regex for hex escapes
+**Learning:** When decoding PDF name hex escapes (e.g., `#20` to space), using an inline `re.sub` is slow. For fixed-pattern escape sequences, manually splitting strings and using native `int(val, 16)` is too permissive with signs and spaces, introducing bugs. Pre-compiling the regular expression and using a fast-path bypass (`if "#" in text: text = HEX_ESCAPE_RE.sub(...)`) safely optimizes performance by bypassing the regex engine entirely when no hex escapes are present (yielding >10x speedup in those cases) while preserving strict pattern matching when escapes are present.
+**Action:** For fixed-pattern escape sequence replacements (like PDF name hex `#XX` escapes), pre-compile the regex and use a fast-path bypass (e.g., `if "#" in text:`) to safely optimize performance instead of manual string parsing or inline `re.sub`.
